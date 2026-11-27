@@ -6,7 +6,7 @@
 -- threat, who lands the first blow and at what height, and knockdowns on the
 -- slope. It measures; it does not judge production behaviour.
 local Probe = {}
-local FILE = "SurvivorCompanionHarness/stair-combat-results.txt"
+local FILE = "LivingFellowsHarness/stair-combat-results.txt"
 local CASES = { "top_defender", "bottom_defender" }
 local TRIAL_MS = 45000
 local SAMPLE_MS = 100
@@ -22,7 +22,7 @@ end
 local function number(value, fallback) return tonumber(tostring(value)) or fallback end
 local function alive(actor)
     return actor ~= nil and call(actor, "isDead") == false
-        and SurvivorCompanion.GameplayUtil.nativeHealth(actor) > 0
+        and LivingFellows.GameplayUtil.nativeHealth(actor) > 0
 end
 local function fmt(value)
     if value == nil then return "-" end
@@ -116,7 +116,7 @@ local function removeZombie(zombie)
 end
 
 local function cleanup(H)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.stairZombie then removeZombie(H.stairZombie) end
     if H.stairActor then
         if alive(H.stairActor) then pcall(SC.Actor.remove, H.stairActor)
@@ -166,7 +166,7 @@ local function sees(SC, actor, zombie)
 end
 
 local function finishTrial(H, current, result, setPhase, outcome)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local trial = H.stairTrial
     local histogram = {}
     for kind, count in pairs(trial.actions) do histogram[#histogram + 1] = kind .. "=" .. count end
@@ -196,7 +196,7 @@ local function finishTrial(H, current, result, setPhase, outcome)
 end
 
 local function sample(H, current, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local trial, stair, actor, zombie = H.stairTrial, H.stair, H.stairActor, H.stairZombie
     local elapsed = current - trial.startedAt
@@ -271,7 +271,7 @@ end
 -- loaded house door. It never supplies fake perceptions or combat plans.
 local function guardPhoto(H, label)
     pcall(function()
-        if SurvivorCompanion.UI then SurvivorCompanion.UI.close() end
+        if LivingFellows.UI then LivingFellows.UI.close() end
         for slot=0,(getSpecificPlayer(1) and 1 or 0) do
             call(getPlayerInfoPanel(slot),"setVisible",false)
             call(getPlayerInventory(slot),"setVisible",false)
@@ -394,7 +394,7 @@ local function startGuardWatch(SC,H)
 end
 
 local function guardCleanup(H)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.guardWatchStarted then
         local released=SC.BaseWatch.prepareReset()
         if not released then return false end
@@ -413,7 +413,7 @@ local function guardCleanup(H)
 end
 
 local function guardStep(H, current, check, result, setPhase)
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local function fail(id, why)
         guardPhoto(H, "blocked-" .. id)
         result("FAIL", id, tostring(why)); H.guardFailedAt = current
@@ -992,7 +992,7 @@ function Probe.step(H, current, check, result, setPhase)
         or H.config.stair_combat_mode == "door" then
         return guardStep(H, current, check, result, setPhase)
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     if H.phase == "stair_combat_setup" then
         if current - H.phaseStartedAt < 4000 then return end

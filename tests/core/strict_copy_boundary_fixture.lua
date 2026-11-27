@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 
 SC.Commands = nil
 SC.FactionContracts = nil

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Loaded in a disposable world to verify the official optimizer or Workshop preloader.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", zombies = {}, priorHits = {}, priorAttacks = {},
     targetTicks = 0, starts = 0, hits = 0, fallbackWounds = 0 }
 local SAVE = "OptimizerCombatFixture"

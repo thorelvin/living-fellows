@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Route = SC.ExpeditionRoute
 local checks = 0
 local function check(ok, message)

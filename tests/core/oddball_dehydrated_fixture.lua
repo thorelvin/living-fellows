@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, NativeList = {},
+LivingFellows = { GameplayUtil = {}, Registry = {}, NativeList = {},
     OddballRoomGuard = {}, Oddballs = {}, Actor = {} }
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U = SC.GameplayUtil
 DehydratedFixture = { now = 1000, lines = {}, releases = 0,
     poses = {}, shelters = {}, paused = false }

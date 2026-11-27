@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Trade, Persistence = SC.Trade, SC.Persistence
 local nextItemId = 7000
 local factoryOptions = {}

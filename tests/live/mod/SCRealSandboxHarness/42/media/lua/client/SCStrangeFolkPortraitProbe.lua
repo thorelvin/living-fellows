@@ -163,7 +163,7 @@ local function wears(actor, fullType)
 end
 
 local function signalName(label, suffix)
-    return "SurvivorCompanionHarness/strange-folk-" .. label .. "-" .. suffix .. ".txt"
+    return "LivingFellowsHarness/strange-folk-" .. label .. "-" .. suffix .. ".txt"
 end
 
 local function hidePrior(H)
@@ -171,7 +171,7 @@ local function hidePrior(H)
     if not actor then return end
     pcall(function() actor:setInvisible(true) end)
     local site = H.strangePortraitSite
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     for radius = 10, 18 do
         local remote = U.gridSquare(site.x + radius, site.y, site.z)
         if safeOutdoor(U, remote) then
@@ -186,7 +186,7 @@ local function hidePrior(H)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "strange_folk_portrait_begin" then
         if current - H.phaseStartedAt < 2200 then return end
         if not H.strangePortraitSite then

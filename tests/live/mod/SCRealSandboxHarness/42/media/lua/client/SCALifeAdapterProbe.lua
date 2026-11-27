@@ -191,7 +191,7 @@ local function performance(H, current, check, result, setPhase, SC, P)
         return
     end
     if not f.sample then
-        PZAPI.ModOptions:getOptions("SurvivorCompanion"):getOption("alifeCompatibility"):setValue(f.withAdapter == true)
+        PZAPI.ModOptions:getOptions("LivingFellows"):getOption("alifeCompatibility"):setValue(f.withAdapter == true)
         SC.UserOptions.apply()
         f.sample = { at = current + 1000, calls = 0, queryMs = 0, frames = {}, builds = SC.ALifeAdapter.status().listBuilds }
         return
@@ -223,7 +223,7 @@ local function performance(H, current, check, result, setPhase, SC, P)
     end
 end
 function Probe.auditView(check)
-    local SC, P = SurvivorCompanion, ProjectALife
+    local SC, P = LivingFellows, ProjectALife
     local status = SC.ALifeAdapter.status()
     local included, unique = {}, true
     for _, actor in ipairs(P.Perception.adapters.players()) do
@@ -245,7 +245,7 @@ function Probe.auditView(check)
         and nativeCount() == 1, "main player restored to solo view; no adapter-owned slots")
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, P = SurvivorCompanion, ProjectALife
+    local SC, P = LivingFellows, ProjectALife
     if H.config.project_alife_scenario == "reload" then
         if current - H.startedAt < 6000 then return end
         return reload(H, current, check, result, setPhase, SC, P)

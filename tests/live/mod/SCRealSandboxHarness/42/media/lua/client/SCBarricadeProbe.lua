@@ -514,7 +514,7 @@ local function run(H, SC, check, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "barricade_probe_setup" then return setup(H, SC, check, result, setPhase, current) end
     if H.phase == "barricade_probe_run" then return run(H, SC, check, result, setPhase, current) end
     if H.phase == "barricade_probe_matrix_discovery" then return discoverMatrix(SC, check, setPhase, current) end

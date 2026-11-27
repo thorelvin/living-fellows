@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production strike geometry with mocked native LOS, map squares and weapon API.
-local Topology, checks = SurvivorCompanion.Topology, 0
+local Topology, checks = LivingFellows.Topology, 0
 
 local function check(value, message)
     checks = checks + 1
@@ -197,7 +197,7 @@ strike("open", { los = "Unknown" }, "melee", ordinary, false,
 
 -- Exercise the combat action seam as well: geometry must remove a tempting
 -- in-range swing and offer navigation an explicit route instead.
-local Combat = SurvivorCompanion.Combat
+local Combat = LivingFellows.Combat
 local oldSpacing = Combat.meleeSpacing
 Combat.meleeSpacing = function()
     return { minimum = 0.3, maximum = 1.5, nativeMinimum = 0.45,

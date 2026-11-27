@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Load after SCRealSandboxHarness.lua in an isolated Kahlua process.
-local SC, H, checks = SurvivorCompanion, SCRealSandboxHarness, 0
+local SC, H, checks = LivingFellows, SCRealSandboxHarness, 0
 local function check(value, message)
     checks = checks + 1
     assert(value, "live door regression " .. checks .. ": " .. message)

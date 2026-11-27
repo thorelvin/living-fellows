@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,f=SurvivorCompanion,SurvivorCompanion.TestFixture
+local SC,f=LivingFellows,LivingFellows.TestFixture
 local F,M,K,U=SC.FarmStorage,SC.ManureWork,SC.MedicKit,SC.GameplayUtil
 local checks=0
 local function check(ok,why) checks=checks+1 assert(ok,"farm care "..checks..": "..why) end

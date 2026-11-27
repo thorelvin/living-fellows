@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local U, A, checks = SC.GameplayUtil, SC.StayWithMeAdapter, 0
 local function check(value, why)
     checks = checks + 1

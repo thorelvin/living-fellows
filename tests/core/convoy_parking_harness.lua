@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real convoy, driving lease and commands; native motion/seat outcomes are doubles.
-local SC, T = SurvivorCompanion, SC_DRIVING_TEST
+local SC, T = LivingFellows, SC_DRIVING_TEST
 local C, D = SC.Convoy, SC.Driving
 local checks = 0
 local function check(ok, message)

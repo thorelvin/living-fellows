@@ -67,7 +67,7 @@ function Probe.step(H,SC,state,current,check,result,phase)
     local status=SC.Driving.status(driver) or {}
     if current>=(state.nextSample or 0) then
         state.nextSample=current+250
-        local writer=getFileWriter("SurvivorCompanionHarness/barricade-drive-tsv.txt",true,state.sampled==true)
+        local writer=getFileWriter("LivingFellowsHarness/barricade-drive-tsv.txt",true,state.sampled==true)
         if not writer then error("barricade trace writer unavailable") end
         if not state.sampled then writer:writeln("ms\tx\ty\tspeed\tmode\tobstacle\tbody\thealth\tfx\tfy\thit_x\thit_y\toffset\tlane_offset\tobserver_health\tblocked_x\tblocked_y\tleg") end
         local forward=car:getForwardVector(Vector3f.new())

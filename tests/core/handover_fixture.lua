@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 local F={now=1795200000000,speed=1,records={},world={},log={},snapshots={},serial=0}
 SC_HANDOVER_TEST=F
-SurvivorCompanion={Identity={worldSaveKey='SC_WorldV1'}}
-local SC=SurvivorCompanion
+LivingFellows={Identity={worldSaveKey='SC_WorldV1'}}
+local SC=LivingFellows
 function F.actor(id,companion)
     local a={id=id,companion=companion,md={},x=10,y=20,z=0,health=83,cut=17}
     function a:isDead() return self.dead==true end

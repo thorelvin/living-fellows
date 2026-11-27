@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Stock installed timed-action Lua, with deterministic native engine boundaries.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local C, N, U = SC.NativeCareActions, SC.NativeActions, SC.GameplayUtil
 local checks = 0
 local function check(value, message) checks = checks + 1; assert(value, "care " .. checks .. ": " .. message) end

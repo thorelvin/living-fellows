@@ -42,7 +42,7 @@ getPlayerData = function() return nil end
 getPlayerScreenWidth = function() return 2560 end
 SCSplitScreenProbe = { isReleased = function() return true end, releaseDiagnostics = function() return "solo" end }
 Events = { OnPostRender = { Remove = function() end } }
-SurvivorCompanion = {
+LivingFellows = {
     ExpeditionPlaces = { plannedApproach = function() return { x = 12020, y = 6850, z = 0 } end },
     ExpeditionCar = { preflight = function(records, zone, id)
         assertThat(records == crew and zone == "parking" and id == 46, "read-only preflight receives actual crew/car")

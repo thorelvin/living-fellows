@@ -61,7 +61,7 @@ local function capture(H, label)
     return ok, name .. "; queued, file and pixels require review; " .. tostring(why)
 end
 local function trace(fixture, label)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local scout = mission and mission.scout
     local car = fixture.car and fixture.car.vehicle
@@ -78,7 +78,7 @@ local function trace(fixture, label)
     end
     local line = label .. "|" .. table.concat(rows, "|")
     print("SC_REAL_SANDBOX|NORMAL_KITCHEN|" .. line)
-    local writer = getFileWriter("SurvivorCompanionHarness/normal-expedition-kitchen.log", true, true)
+    local writer = getFileWriter("LivingFellowsHarness/normal-expedition-kitchen.log", true, true)
     if writer then writer:writeln(line); writer:close() end
 end
 local function cleanup(fixture)
@@ -197,7 +197,7 @@ local function setup(H, SC, check, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "normal_kitchen_setup" then return setup(H, SC, check, result, setPhase, current) end
     local fixture = H.normalKitchen
     if not fixture then result("FAIL", "normal_kitchen_fixture_missing", H.phase); setPhase("finish", current) return end

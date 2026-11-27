@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local planner = SurvivorCompanion.ConstructionPlanner
+local planner = LivingFellows.ConstructionPlanner
 assert(planner ~= nil)
 
 local horizontal = planner.lineTargets("wall", { x = 10, y = 20, z = 0 },
@@ -19,7 +19,7 @@ local single = planner.lineTargets("door", { x = 4, y = 5, z = 0 },
 assert(#single == 1 and single[1].face == 4,
     "doors must remain single segment plans")
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local formerLife, formerWork = SC.BaseLife, SC.BaseWork
 local formerEntity, formerObject = ISBuildIsoEntity, ISBuildingObject
 local formerPane, formerCell = ISInventoryPaneContextMenu, getCell

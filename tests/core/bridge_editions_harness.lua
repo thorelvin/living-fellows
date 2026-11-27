@@ -2,7 +2,7 @@
 -- Which Living Fellows copy's Lua loaded, against which copy supplied the
 -- bridge. Project Zomboid loads one copy's Lua by folder order (upload staging,
 -- Workshop, Zomboid\mods); the standalone launcher loads its bridge first.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(value, message) checks = checks + 1; assert(value, message) end
 local savedBridge, savedLookup = rawget(_G, "SCBridge"), rawget(_G, "getModInfoByID")
@@ -12,7 +12,7 @@ local lookups = 0
 local function install(source, origin, release)
     rawset(_G, "getModInfoByID", function(id)
         lookups = lookups + 1
-        if id ~= "SurvivorCompanion" then return nil end
+        if id ~= "LivingFellows" then return nil end
         return { getSource = function() return source end }
     end)
     if origin then
@@ -60,17 +60,18 @@ local older = SC.Actor.editionStatus()
 check(older.mixed == false and older.bridgeOrigin == "unknown",
     "a bridge too old to say where it came from is not guessed at")
 
-local localFolder, steamFolder = "C:\\Zomboid\\mods\\SurvivorCompanion", "D:/steamapps/mods/SurvivorCompanion"
+local localFolder, steamFolder = "C:\\Zomboid\\mods\\LivingFellows", "D:/steamapps/mods/LivingFellows"
+local legacyFolder = "C:/Zomboid/mods/SurvivorCompanion"
 local paths, folderScans = { steamFolder, "C:/Zomboid/mods/OtherMod", localFolder }, 0
 rawset(_G, "getModDirectoryTable", function()
     folderScans = folderScans + 1
     return paths
 end)
 rawset(_G, "getModInfo", function(path)
-    check(path == localFolder or path == steamFolder, "only Living Fellows folders are inspected")
+    check(path == localFolder or path == legacyFolder or path == steamFolder, "only Living Fellows folders are inspected")
     return {
-        getSource = function() return path == localFolder and "Mods" or "Steam" end,
-        getId = function() return "SurvivorCompanion" end,
+        getSource = function() return path == steamFolder and "Steam" or "Mods" end,
+        getId = function() return path == legacyFolder and "SurvivorCompanion" or "LivingFellows" end,
         getDescription = function() return "Uses the bundled standalone bridge installer." end,
         getModVersion = function() return "0.27.58" end,
     }
@@ -84,6 +85,12 @@ check(offline:find("local standalone copy (0.27.58)", 1, true) ~= nil and folder
     "Support identifies the old installation while leaving the bridge origin unknown")
 check(SC.Support.summary(true):find("| standalone install 0.27.58 | two editions installed", 1, true) ~= nil,
     "the support report includes the old standalone installation")
+paths = { steamFolder, legacyFolder }
+install("Steam", "workshop")
+check(SC.Actor.editionStatus().standaloneRelease == "0.27.58",
+    "a Workshop copy still detects an installation made before the mod ID changed")
+check(not SC.Support.summary(true):find("SurvivorCompanion", 1, true),
+    "the support report uses the current name for the earlier installed edition")
 paths = { steamFolder }
 install("Steam", nil)
 check(SC.Actor.editionStatus().standaloneRelease == nil, "an ordinary Workshop install has no local edition")

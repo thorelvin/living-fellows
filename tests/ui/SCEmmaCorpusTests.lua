@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production parser and published regression sets. None remain blind hold-outs.
-local B, data = SurvivorCompanion.TerminalBrain, SC_EMMA_CORPUS
+local B, data = LivingFellows.TerminalBrain, SC_EMMA_CORPUS
 local world = {
     camp=function() return {configured=true,inside=true,name="Rising"} end,
     clock=function() return {worldHours=77,hour=14,minute=5,day=12,month=7,year=1993,days=3} end,
@@ -50,7 +50,7 @@ for _,suite in ipairs({"rows","holdoutA","holdoutB","holdoutC"}) do
             n=n+1
             -- Self-worth uses the private comfort route, as approved. Other
             -- comfort replies cannot stand in for detecting a care disclosure.
-            local warmWorth=suite~="holdoutC" and expected=="care" and actual=="comfort" and SurvivorCompanion.EmmaCare.selfWorth(raw)
+            local warmWorth=suite~="holdoutC" and expected=="care" and actual=="comfort" and LivingFellows.EmmaCare.selfWorth(raw)
             -- "when will i die" is a survival question in this game and keeps
             -- its own gentle answer. A check-in there counts as a false alarm.
             local passwordHelp=expected=="hack" and actual=="guide" and table.concat(B.tokens(raw)," ")=="password"

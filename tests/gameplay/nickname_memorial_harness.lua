@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Community = SC.Community
 local survivor = SC_TEST_NICKNAME_SURVIVOR
 local stranger = SC_TEST_NICKNAME_STRANGER

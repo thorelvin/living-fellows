@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Native-shaped needs, survival priority, stamina reserve and sleep speech ownership.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local worker = f.actor("essential-needs", 2, 1, {})
 f.registry[worker.id] = worker
@@ -333,7 +333,7 @@ check(not string.find(SC.Medical.deathSummary(damaged), "HUNGRY:", 1, true), "na
 SC.Medical.releaseActor(damaged)
 check(string.find(SC.Medical.deathSummary(damaged), "recentNativeDamage=unknown", 1, true), "actor retirement explicitly clears damage history")
 local originalPrint, warnings = print, 0
-print = function(line) if string.find(tostring(line), "[SurvivorCompanion/health-decline]", 1, true) then warnings = warnings + 1 end end
+print = function(line) if string.find(tostring(line), "[LivingFellows/health-decline]", 1, true) then warnings = warnings + 1 end end
 for _, health in ipairs({ 69, 68, 75, 69 }) do damaged.body.health = health; SC.Medical.assess(damaged) end
 print = originalPrint
 check(warnings == 2, "critical snapshots occur once per decline and rearm after recovery")

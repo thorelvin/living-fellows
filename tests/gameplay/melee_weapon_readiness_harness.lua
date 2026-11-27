@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Current game's typed weapon-category API, as used by native melee XP.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local checks = 0
 local function check(value, message)
     checks=checks+1;assert(value,"melee weapon readiness " .. checks .. ": " .. message)

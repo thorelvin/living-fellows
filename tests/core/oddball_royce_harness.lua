@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local visible = true
 local thief = { id = "royce", x = 0, y = 0, z = 0,
     inv = { items = {} } }

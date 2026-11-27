@@ -34,7 +34,7 @@ local function doorSquare(vehicle, seat, U)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local vehicle = H.passengerVehicle
     local state = H.sixSeatState
     if H.phase == "six_seat_setup" then

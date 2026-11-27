@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real survey engine, deterministic clock, native-shaped loaded chunks.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local B,D,U=SC.BuildingControls,SC.BuildingScan,SC.ControlUtil
 local checks=0
 local function check(ok,text) checks=checks+1 assert(ok,"building discovery "..checks..": "..text) end

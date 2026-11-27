@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local work = SurvivorCompanion.BaseWork
+local work = LivingFellows.BaseWork
 local previousEntity = ISBuildIsoEntity
 local names = {
     wall_frame = "WoodenWallFrame",

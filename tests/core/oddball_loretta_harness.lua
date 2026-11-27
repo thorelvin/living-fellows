@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Loretta = SC.OddballLoretta
 local C = SC_LORETTA_CLOCK
 local checks = 0

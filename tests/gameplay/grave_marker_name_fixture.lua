@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 
 SC.StableValue = { copyStrict = function(value) return value end }
 SC.NativeList = { size = function() return 0 end, get = function() return nil end }

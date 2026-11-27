@@ -72,7 +72,7 @@ check(T.chooseWall({ garageOpaque }, 1, true) == nil,
     "garage cannot silently replace the required kitchen south wall")
 local player, resident = { sql = 1 }, { sql = 2 }
 local slot = 2
-SurvivorCompanion = { ViewSession = { slotSqlId = function() return slot end } }
+LivingFellows = { ViewSession = { slotSqlId = function() return slot end } }
 SCSplitScreenProbe = { debugPlayerSqlId = function(value) return value.sql end }
 local H = { player = player }
 local fixture = { records = { { id = "retained", actor = resident } } }
@@ -85,13 +85,13 @@ check(not T.sameSql(H, fixture), "primary row mutation fails comparison")
 player.sql, slot = 1, 5
 check(not T.sameSql(H, fixture), "reusable ViewSession identity cannot change during stock control")
 local mutableRegistry = { id = "retained", actor = resident }
-SurvivorCompanion.Registry = { byId = function() return mutableRegistry end }
-check(T.retainedIdentity(SurvivorCompanion, fixture), "exact original actor is registered")
+LivingFellows.Registry = { byId = function() return mutableRegistry end }
+check(T.retainedIdentity(LivingFellows, fixture), "exact original actor is registered")
 mutableRegistry.actor = nil
-check(not T.retainedIdentity(SurvivorCompanion, fixture), "mutable Registry retirement is an explicit fixture failure")
+check(not T.retainedIdentity(LivingFellows, fixture), "mutable Registry retirement is an explicit fixture failure")
 check(fixture.records[1].actor == resident, "retired Registry entry cannot erase the retained fixture reference")
 mutableRegistry.actor = { sql = resident.sql }
-check(not T.retainedIdentity(SurvivorCompanion, fixture), "replacement actor with same SQL is not original identity")
+check(not T.retainedIdentity(LivingFellows, fixture), "replacement actor with same SQL is not original identity")
 local requestedScreenshot
 getCore = function() return { TakeFullScreenshot = function(_, name) requestedScreenshot = name end } end
 T.capture({ config = { run_id = "probe-contract" } }, { walls = {}, frames = 2 }, "frame2", true)
@@ -147,7 +147,7 @@ check(not T.excursionSafe(before, after, { z = 1 }), "new bleeding/deep wounds i
 local viewProbe = SCRealSandboxHarnessProbes.SCViewCutawayProbe
 local main, leader, members, active = {}, {}, nil, true
 members = { main, leader }
-SurvivorCompanion.BanditsAdapter = { status = function() return { active = active } end }
+LivingFellows.BanditsAdapter = { status = function() return { active = active } end }
 BanditPlayer = { GetPlayers = function() return { size = function() return #members end,
     get = function(_, index) return members[index + 1] end } end,
     GetPlayerById = function(id) if id == 1 then return main elseif id == "lf:sc-view" then return leader end end }

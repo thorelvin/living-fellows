@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Director integration, not a second implementation of its probability rules.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local D,P,S,L,Drawers=SC.TerminalPersonaDiscovery,SC.TerminalPersona,SC.TerminalSystem,SC.TerminalLocks,SC.TerminalDrawers
 local check,before=T.check,T.checks
 local saved={mod=ModData,options=SandboxVars,debug=isDebugEnabled,config=SCConfig,nativeConfig=SC.Config,

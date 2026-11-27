@@ -1,0 +1,260 @@
+-- SPDX-License-Identifier: MIT
+-- Corey starts at a real player kill. His notebook is an inventory item, and
+-- his wide trailing distance uses the same navigation service as other NPCs.
+
+local SC = LivingFellows
+SC.OddballCorey = SC.OddballCorey or {}
+local Corey = SC.OddballCorey
+local ID = "fan_corey_biggs"
+local SPEAK_DISTANCE = 6
+local HOLD_DISTANCE = 11
+local MAX_EXACT_COUNT = 9007199254740991
+
+local function U() return SC.GameplayUtil end
+
+local function story(group)
+    local value = type(group) == "table" and group.oddball or nil
+    if type(value) ~= "table" or value.id ~= ID then return nil end
+    value.stage = value.stage or "following"
+    value.tales = type(value.tales) == "table" and value.tales or {}
+    return value
+end
+
+local function actorFor(group) return SC.OddballKit.actor(group) end
+
+local function dayNow()
+    if type(getGameTime) ~= "function" then return nil end
+    local okay, time = pcall(getGameTime)
+    if not okay or not time then return nil end
+    local hours = select(1, U().call(time, "getWorldAgeHours"))
+    return tonumber(hours) and math.floor(tonumber(hours) / 24) or nil
+end
+
+local function notebook(actor, groupId)
+    local inventory = actor and U().inventory(actor)
+    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
+        100, 4) or {}) do
+        local data = U().modData(item)
+        if type(data) == "table" and data.lfCoreyGroupId == groupId then
+            return item
+        end
+    end
+    return nil
+end
+
+local function locationOf(zombie)
+    local square = zombie and select(1, U().call(zombie, "getSquare"))
+    local room = square and select(1, U().call(square, "getRoom"))
+    local name = room and select(1, U().call(room, "getName"))
+    if type(name) == "string" and #name > 0 then
+        return { placeKind = "room", place = string.lower(name) }
+    end
+    return { placeKind = "open", place = "by the road" }
+end
+
+function Corey.describeKill(player, zombie)
+    local place = locationOf(zombie)
+    if SC.Tales and type(SC.Tales.title) == "function" then
+        return SC.Tales.title(place, 2)
+    end
+    return place.place
+end
+
+function Corey.onSpawn(group, actor)
+    local value = story(group)
+    if not value or not actor then return false, "fan_unavailable" end
+    if value.stage == "unmet" then value.stage = "following" end
+    if not notebook(actor, group.id) then
+        local inventory = U().inventory(actor)
+        local item = inventory and U().addItem(inventory, "Base.Notebook")
+        if not item then return false, "fan_diary_unavailable" end
+        U().call(item, "setName", "Corey's diary")
+        local data = U().modData(item)
+        if type(data) ~= "table" then return false, "fan_diary_metadata_unavailable" end
+        data.lfCoreyGroupId = group.id
+        data.lfCoreyTales = value.tales
+    end
+    if value.initialTale and #value.tales == 0 then
+        value.tales[1] = value.initialTale
+        local item = notebook(actor, group.id)
+        local data = item and U().modData(item)
+        if type(data) == "table" then data.lfCoreyTales = value.tales end
+    end
+    return true, "fan_following"
+end
+
+function Corey.noteKill(group, player, zombie)
+    local value = story(group)
+    local actor = actorFor(group)
+    if not value or value.stage ~= "following" or not actor
+        or U().distance(actor, player) > 25
+        or U().canSee(actor, player) ~= true then
+        return false, "fan_did_not_witness_kill"
+    end
+    local tale = Corey.describeKill(player, zombie)
+    -- The notebook keeps only its last twelve tales. A separate persisted
+    -- count preserves every-third-kill speech after that history fills. Older
+    -- saves have no count, so recover at least the pre-trim history length.
+    local witnessed = tonumber(value.witnessedKillCount)
+    if not witnessed or witnessed ~= witnessed or witnessed < 0
+        or witnessed >= MAX_EXACT_COUNT or witnessed % 1 ~= 0 then
+        witnessed = #value.tales
+    end
+    witnessed = math.max(witnessed, #value.tales) + 1
+    value.witnessedKillCount = witnessed
+    value.tales[#value.tales + 1] = tale
+    while #value.tales > 12 do table.remove(value.tales, 1) end
+    local item = notebook(actor, group.id)
+    local data = item and U().modData(item)
+    if type(data) == "table" then data.lfCoreyTales = value.tales end
+    if witnessed % 3 == 0 and U().distance(actor, player) <= SPEAK_DISTANCE then
+        local openings = {
+            "I'm writing it all down. Put this one in the book as ",
+            "Somebody has to keep the record. This one's ",
+            "History survives on cheap paper. I'll call this ",
+            "Another page earned the hard way. Today we witnessed ",
+            "People ought to remember. I'm recording ",
+            { "That was one hell of a chapter. Call it ",
+                clean = "That was one heck of a chapter. Call it " },
+        }
+        local openingIndex = (math.floor(#value.tales / 3) - 1) % #openings + 1
+        local previousIndex = tonumber(value.diaryOpeningIndex)
+        if #value.tales >= 12 and previousIndex and previousIndex >= 1
+            and previousIndex <= #openings and previousIndex % 1 == 0 then
+            openingIndex = previousIndex % #openings + 1
+        end
+        value.diaryOpeningIndex = openingIndex
+        local opening = openings[openingIndex]
+        if type(opening) == "table" then
+            opening = U().config("profanityEnabled") == false and opening.clean or opening[1]
+        end
+        U().say(actor, opening .. tale .. ".")
+    end
+    return true, "real_kill_written_in_diary"
+end
+
+function Corey.pulse(group, player)
+    local value = story(group)
+    if not value then return false, "wrong_oddball" end
+    if value.stage ~= "following" then return true, value.stage end
+    local actor = actorFor(group)
+    local day = dayNow()
+    if not actor or not player or U().distance(actor, player) > 90 then
+        value.awaySinceDay = value.awaySinceDay or day
+        if day and value.awaySinceDay and day - value.awaySinceDay >= 3
+            and (not actor or U().canSee(player, actor) ~= true) then
+            local member = group.members and group.members[1]
+            local gone = member and member.hibernated == true
+            if not gone and actor and SC.Factions
+                and type(SC.Factions.hibernateOddballRoamer) == "function" then
+                gone = SC.Factions.hibernateOddballRoamer(group.id, player)
+            end
+            if gone then
+                value.stage = "gave_up"
+                group.lifecycle = "destroyed"
+                if SC.Oddballs then SC.Oddballs.retire(group, "gave_up") end
+                return true, "fan_gave_up_after_three_days"
+            end
+        end
+        return true, "fan_away"
+    end
+    value.awaySinceDay = nil
+    if value.greeted ~= true and U().distance(actor, player) <= SPEAK_DISTANCE
+        and U().canSee(actor, player) == true then
+        value.greeted = true
+        group.discovered = true
+        U().say(actor,
+            "I saw what you did back there. Incredible. I'm writing it down.")
+    end
+    return true, "fan_trailing"
+end
+
+function Corey.intentFor(actor, player, snapshot, group)
+    local value = story(group)
+    if not value then return nil end
+    if group.standing == "Hostile" then
+        return { mode = "hostile", priority = 110 }
+    end
+    local threats = type(snapshot) == "table"
+        and (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) or 0
+    if threats > 0 then return { mode = "zombie_defense", priority = 18 } end
+    return { mode = "fan_follow", priority = 30 }
+end
+
+function Corey.update(actor, player, runtime, intent, group)
+    if not intent or intent.mode ~= "fan_follow" or not player then return false end
+    local value = story(group)
+    local needsIntroduction = value and value.greeted ~= true
+    local distance = U().distance(actor, player)
+    local hasSight = U().sameFloor(actor, player)
+        and U().canSee(actor, player) == true
+    if hasSight and distance <= (needsIntroduction and SPEAK_DISTANCE
+        or HOLD_DISTANCE) then
+        -- A native route can outlive the tick that brought Corey into range.
+        -- Retire only his follow route, as ordinary player followers do when
+        -- their formation slot becomes a hold, or he walks through the player
+        -- and repeatedly starts a new path in the opposite direction.
+        if SC.Navigation and type(SC.Navigation.peek) == "function"
+            and type(SC.Navigation.cancel) == "function" then
+            local route = SC.Navigation.peek(actor)
+            if route and route.goalAction == "faction_follow" then
+                SC.Navigation.cancel(actor, "fan_holding_distance")
+            end
+        end
+        return true, "fan_trailing"
+    end
+    if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+        return false, "navigation_unavailable"
+    end
+    local target = U().squareOf(player)
+    if not target then return true, "fan_target_unloaded" end
+    -- Use the same moving-target route and recovery path as player followers.
+    -- Corey's previous static request replanned from each tile and never used
+    -- Navigation's far-follow engine or continuous route smoothing.
+    return SC.Navigation.request(actor, target,
+        distance > 18 and "jog" or "walk", {
+        action = "faction_follow",
+        -- A wide follow radius must not count as arrival through a wall or
+        -- across a floor. Keep routing until Corey can actually see the player.
+        arrivalDistance = hasSight and (needsIntroduction and 5 or 8) or 0.85,
+        player = player, followRecovery = true, movingTarget = true,
+        continuousApproach = true, movementPriority = 20,
+    })
+end
+
+function Corey.canRecruit(group)
+    local value = story(group)
+    return value and value.stage == "following" or false,
+        "fan_has_moved_on"
+end
+
+function Corey.menuOptions(group, player)
+    local value = story(group)
+    local actor = actorFor(group)
+    if not value or not actor or not player
+        or U().distance(actor, player) > 6 then return {} end
+    return { { id = "ask_diary", label = "Ask what Corey wrote",
+        enabled = true } }
+end
+
+function Corey.action(group, action, player)
+    local value = story(group)
+    if not value then return false, "wrong_oddball" end
+    if action == "hurt" then
+        U().say(actorFor(group), "I thought you were better than that.")
+        return SC.Factions.forceStanding(group.id, "Wary")
+    end
+    local actor = actorFor(group)
+    if not actor or not player or U().distance(actor, player) > 6 then
+        return false, "fan_too_far"
+    end
+    if action == "ask_diary" then
+        local last = value.tales[#value.tales]
+        U().say(actor, last and "I wrote about " .. last .. "."
+            or "Can I carry something? Anything? Your shoes?")
+        return true, "fan_diary_recalled"
+    end
+    return false, "unknown_fan_choice"
+end
+
+return Corey

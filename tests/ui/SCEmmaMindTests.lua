@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real terminal entry, shared ModData and action tickets, using existing UI fixtures.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local M,B,Terminal=SC.EmmaMind,SC.TerminalBrain,SC.Terminal
 local check,before=T.check,T.checks
 local old={mod=ModData,specific=getSpecificPlayer,world=SC.TerminalWorld.new,perks=Perks,

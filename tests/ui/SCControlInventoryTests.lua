@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Material checks must find exact owned items beyond the display survey budget.
-local SC,U=SurvivorCompanion,SurvivorCompanion.ControlUtil
+local SC,U=LivingFellows,LivingFellows.ControlUtil
 local checks=0
 local function check(value,message)
     checks=checks+1

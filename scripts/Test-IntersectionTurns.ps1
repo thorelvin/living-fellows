@@ -8,8 +8,8 @@ New-Item -ItemType Directory -Path $logs -Force | Out-Null
 $java = 'C:\Program Files\Java\jdk-17\bin\java.exe'
 $javac = 'C:\Program Files\Java\jdk-17\bin\javac.exe'
 $classes = Join-Path $ProjectRoot 'build\native-bridge\classes'
-$sourceRoot = Join-Path $ProjectRoot 'bridge\src\main\java\survivorcompanion\bridge'
-$testRoot = Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge'
+$sourceRoot = Join-Path $ProjectRoot 'bridge\src\main\java\livingfellows\bridge'
+$testRoot = Join-Path $ProjectRoot 'bridge\src\test\java\livingfellows\bridge'
 $fixture = Join-Path $ProjectRoot 'tests\live\fixtures\intersection-phase0-42.22.2\junctions.tsv'
 & (Join-Path $PSScriptRoot 'Build-NativeBridge.ps1') -ProjectRoot $ProjectRoot > (Join-Path $logs 'build.log')
 if ($LASTEXITCODE -ne 0) { throw 'Native bridge build failed.' }
@@ -19,7 +19,7 @@ function Run-Turn([string]$Label, [string]$ClassPath, [string]$Check, [string]$C
     $argsList = @('-Xmx256m', '-XX:ActiveProcessorCount=2', '-XX:+UseSerialGC', "-DturnCheck=$Check",
         "-DturnFixturePath=$fixture", "-DturnReportDir=$logs")
     if ($SkipMatrix) { $argsList += '-DturnSmoke=true' }
-    $argsList += @('-cp', $ClassPath, "survivorcompanion.bridge.$Class")
+    $argsList += @('-cp', $ClassPath, "livingfellows.bridge.$Class")
     $prior = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'

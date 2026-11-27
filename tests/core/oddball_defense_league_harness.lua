@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local actors, groups = {}, {}
 local now, finalCalls = 1000, 0
 local function actor(id, x)

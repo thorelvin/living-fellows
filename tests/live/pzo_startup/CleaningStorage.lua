@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable native PZO world. Only fixture companions receive LF orders;
 -- the game's zombie navigation is untouched.
-local SC, s = SurvivorCompanion, { phase = 'menu', checks = 0 }
+local SC, s = LivingFellows, { phase = 'menu', checks = 0 }
 local function write(name, text)
     local writer = assert(getFileWriter(name, true, false))
     writer:write(text); writer:close()

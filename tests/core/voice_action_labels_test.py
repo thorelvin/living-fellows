@@ -5,7 +5,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CLIENT = ROOT / "SurvivorCompanion/42/media/lua/client"
+CLIENT = ROOT / "LivingFellows/42/media/lua/client"
 
 
 def mapping_block(source: str, name: str) -> str:

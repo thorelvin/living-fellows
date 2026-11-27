@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local O, U, F = SC.Oddballs, SC.GameplayUtil, SC.Factions
 local function check(value, message)
     checks = checks + 1

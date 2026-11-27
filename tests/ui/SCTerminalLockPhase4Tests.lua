@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local G,L,S=SC.TerminalLockStory,SC.TerminalLocks,SC.TerminalSystem
 local check,before=T.check,T.checks
 local old={random=ZombRand,mod=ModData,registry=SC.Registry,community=SC.Community,factions=SC.Factions,oddballs=SC.Oddballs,

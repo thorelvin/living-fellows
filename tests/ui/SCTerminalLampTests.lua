@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Lamp, World, check = SC.TerminalLamp, SC.TerminalWorld, T.check
 local checksBefore=T.checks
 local oldU, oldRegistry, oldFactions, oldCell = SC.GameplayUtil, SC.Registry, SC.Factions, getCell

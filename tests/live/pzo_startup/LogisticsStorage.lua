@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable native PZO regression: public camp changes during a Loot pose.
 -- Only LF companions receive orders; zombie navigation is untouched.
-local SC, s = SurvivorCompanion, { phase='menu', checks=0, caseIndex=0, completed=0 }
+local SC, s = LivingFellows, { phase='menu', checks=0, caseIndex=0, completed=0 }
 local kinds = { 'unmarked', 'relabeled', 'unchanged' }
 local function write(name, value)
     local writer=assert(getFileWriter(name,true,false));writer:write(value);writer:close()

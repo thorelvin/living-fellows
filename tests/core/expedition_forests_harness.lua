@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local F = SC.ExpeditionForests
 local checks, queried, squares = 0, 0, 0
 local function check(value, message)

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The native chop/pickup adapters expose real objects; production owns claims and receipts.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local W, L, U, X = SC.ExpeditionWood, SC.LoggingWork, SC.GameplayUtil, assert(SC.WoodTestFixture)
 local check = X.check
 local cutter, hauler = X.actor("cutter", 20), X.actor("hauler", 10)

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real job persistence and supervisor ownership; only native PC/radio surfaces
 -- are substituted, using the shared gameplay fixture and its actual actor.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local R,B,S,U = SC.RadioWork,SC.BaseLife,SC.ActionSupervisor,SC.GameplayUtil
 local check = f.check
 local oldTime=getGameTime

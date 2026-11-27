@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local priest = { id = "amos", x = 0, y = 0, z = 0,
     inv = { items = {} } }
 local player = { id = "player", x = 2, y = 0, z = 0,

@@ -20,10 +20,10 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 & (Join-Path $ProjectRoot 'scripts\Test-LuaCompile.ps1') `
     -ProjectRoot $ProjectRoot -GameRoot $GameRoot -VerifiedCompilation $VerifiedCompilation
-$Payload = Join-Path $ProjectRoot 'SurvivorCompanion'
+$Payload = Join-Path $ProjectRoot 'LivingFellows'
 $Workshop = Join-Path $ProjectRoot 'Workshop'
 $ModsStageRoot = Join-Path $Workshop 'Contents\mods'
-$Stage = Join-Path $ModsStageRoot 'SurvivorCompanion'
+$Stage = Join-Path $ModsStageRoot 'LivingFellows'
 $Build = Join-Path $ProjectRoot 'build\release'
 $VersionFile = Join-Path $ProjectRoot 'VERSION.txt'
 if (-not (Test-Path -LiteralPath $VersionFile -PathType Leaf)) {
@@ -38,7 +38,7 @@ $ChannelLabel = switch ($Channel) {
     'public-beta' { 'PUBLIC-BETA' }
     'release' { 'RELEASE' }
 }
-$Zip = Join-Path $Build ("LivingFellowsCompanion-$ReleaseVersion-$ChannelLabel.zip")
+$Zip = Join-Path $Build ("LivingFellows-$ReleaseVersion-$ChannelLabel.zip")
 $Manifest = Join-Path $Build 'HASH-MANIFEST.sha256'
 $Config = Join-Path $Payload '42\media\lua\shared\SCConfig.lua'
 
@@ -78,7 +78,7 @@ if ($configText -notmatch '(?m)^\s*movementRecorderEnabled\s*=\s*false,\s*$') {
 $looseClasses = Get-ChildItem -LiteralPath $Payload -Recurse -File -Filter '*.class'
 if ($looseClasses) { throw "Loose Java classes are forbidden in release payload: $($looseClasses.FullName -join ', ')" }
 $payloadJars = @(Get-ChildItem -LiteralPath $Payload -Recurse -File -Filter '*.jar')
-$expectedPayloadJar = Join-Path $Payload '42\media\java\SurvivorCompanionBridge.jar'
+$expectedPayloadJar = Join-Path $Payload '42\media\java\LivingFellowsBridge.jar'
 if ($payloadJars.Count -ne 1 -or $payloadJars[0].FullName -ne $expectedPayloadJar) {
     throw 'Release payload must contain exactly the owned versioned native bridge JAR.'
 }
@@ -107,8 +107,8 @@ if (Test-Path -LiteralPath $ModsStageRoot) { Remove-Item -LiteralPath $ModsStage
 New-Item -ItemType Directory -Path $ModsStageRoot -Force | Out-Null
 Copy-Item -LiteralPath $Payload -Destination $Stage -Recurse
 $stagedMods = @(Get-ChildItem -LiteralPath $ModsStageRoot -Directory)
-if ($stagedMods.Count -ne 1 -or $stagedMods[0].Name -ne 'SurvivorCompanion') {
-    throw 'Workshop staging must contain exactly one SurvivorCompanion mod payload.'
+if ($stagedMods.Count -ne 1 -or $stagedMods[0].Name -ne 'LivingFellows') {
+    throw 'Workshop staging must contain exactly one LivingFellows mod payload.'
 }
 
 $sourceHashes = RelativeHashes $Payload
@@ -131,18 +131,18 @@ Assert-ChildPath $Build $ArchiveCheck
 if (Test-Path -LiteralPath $ArchiveCheck) { Remove-Item -LiteralPath $ArchiveCheck -Recurse -Force }
 try {
     Expand-Archive -LiteralPath $Zip -DestinationPath $ArchiveCheck
-    foreach ($required in @('workshop.txt', 'preview.png', 'Contents\mods\SurvivorCompanion\mod.info',
-            'Contents\mods\SurvivorCompanion\42\mod.info',
-            'Contents\mods\SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar',
-            'Contents\mods\SurvivorCompanion\LICENSE.txt',
-            'Contents\mods\SurvivorCompanion\README.txt')) {
+    foreach ($required in @('workshop.txt', 'preview.png', 'Contents\mods\LivingFellows\mod.info',
+            'Contents\mods\LivingFellows\42\mod.info',
+            'Contents\mods\LivingFellows\42\media\java\LivingFellowsBridge.jar',
+            'Contents\mods\LivingFellows\LICENSE.txt',
+            'Contents\mods\LivingFellows\README.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $ArchiveCheck $required) -PathType Leaf)) {
             throw "Archive is missing required content: $required"
         }
     }
     $archiveModsRoot = Join-Path $ArchiveCheck 'Contents\mods'
     $archiveMods = @(Get-ChildItem -LiteralPath $archiveModsRoot -Directory)
-    if ($archiveMods.Count -ne 1 -or $archiveMods[0].Name -ne 'SurvivorCompanion') {
+    if ($archiveMods.Count -ne 1 -or $archiveMods[0].Name -ne 'LivingFellows') {
         throw 'Archive contains an unexpected mod payload.'
     }
     $forbidden = Get-ChildItem -LiteralPath $ArchiveCheck -Recurse -File | Where-Object {
@@ -150,10 +150,10 @@ try {
     }
     if ($forbidden) { throw "Archive contains private or loose-class content: $($forbidden.FullName -join ', ')" }
     $archiveJars = @(Get-ChildItem -LiteralPath $ArchiveCheck -Recurse -File -Filter '*.jar')
-    if ($archiveJars.Count -ne 1 -or $archiveJars[0].Name -ne 'SurvivorCompanionBridge.jar') {
+    if ($archiveJars.Count -ne 1 -or $archiveJars[0].Name -ne 'LivingFellowsBridge.jar') {
         throw 'Archive native bridge JAR ownership check failed.'
     }
-    $archiveConfig = Get-Content -LiteralPath (Join-Path $ArchiveCheck 'Contents\mods\SurvivorCompanion\42\media\lua\shared\SCConfig.lua') -Raw -Encoding utf8
+    $archiveConfig = Get-Content -LiteralPath (Join-Path $ArchiveCheck 'Contents\mods\LivingFellows\42\media\lua\shared\SCConfig.lua') -Raw -Encoding utf8
     foreach ($setting in @('experimentalNpcPlayerActor', 'debugSpawnEnabled',
             'movementRecorderEnabled')) {
         if ($archiveConfig -notmatch "(?m)^\s*$setting\s*=\s*false,\s*$") {
@@ -167,7 +167,7 @@ finally {
 
 $lines = @('# SPDX-License-Identifier: MIT', '# source and Workshop staging hashes')
 foreach ($relative in $sourceHashes.Keys) {
-    $lines += "$($sourceHashes[$relative])  SurvivorCompanion/$relative"
+    $lines += "$($sourceHashes[$relative])  LivingFellows/$relative"
 }
 $lines += "$( (Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $Zip)"
 Set-Content -LiteralPath $Manifest -Value $lines -Encoding utf8

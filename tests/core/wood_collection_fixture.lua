@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exact native effects are supplied by this fixture; the worker must observe
 -- those objects and move them, and cannot manufacture successful output.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Wood, Logging = SC.ExpeditionWood, SC.LoggingWork
 local checks, clock, serial = 0, 1000, 0
 local function check(value, message)

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local B = SC.BaseLife
 local dead, alive = "sc-former-resident", "sc-living-resident"
 local actor = f.actor(alive, 2, 3, {})

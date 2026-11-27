@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Names = SC.Names
 local settings = {
     nicknamesEnabled = true, nicknameMaxLength = 16,

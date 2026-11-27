@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local System, Files = SurvivorCompanion.TerminalSystem, SurvivorCompanion.TerminalFiles
+local System, Files = LivingFellows.TerminalSystem, LivingFellows.TerminalFiles
 local checks = 0
 local function check(value, reason) checks = checks + 1 assert(value, reason) end
 local function copy(value)

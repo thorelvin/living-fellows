@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run the production import, retry and save transaction with a provider that
 -- can become available after the old six-attempt budget would have expired.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local P = SC.Persistence
 local checks, calls, successes = 0, 0, 0
 local function check(value, message)
@@ -71,7 +71,7 @@ check(successes == 1, 'a completed restore cannot create a duplicate')
 -- An installed old bridge is an environment wait too. Updating it must not
 -- cost this recruit restore attempts or quarantine its original save record.
 check(P.reset() == true, 'reset before protocol mismatch')
-failure = 'native bridge protocol mismatch: expected 42.22-isocompanion-37, received 42.22-isocompanion-33; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled'
+failure = 'native bridge protocol mismatch: expected 42.22-isocompanion-38, received 42.22-isocompanion-33; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled'
 original = savedRecord()
 store = SC_TEST_SET_WORLD_STORE({document={schema=SC.Identity.saveSchema,
     companions={[original.id]=original},factionActors={}}})

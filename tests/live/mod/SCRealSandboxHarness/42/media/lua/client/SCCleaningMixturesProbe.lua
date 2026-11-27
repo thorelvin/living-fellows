@@ -82,7 +82,7 @@ local function besideWater(SC, actor, base)
     end
 end
 local function fixture(H, check, result)
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local base = SC.BaseLife.active()
     if not base then return nil end
     local record, leastLoad
@@ -161,7 +161,7 @@ local function fixture(H, check, result)
     return selected
 end
 local function nextCase(f, current, check)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local stats = f.actor:getStats()
     -- This is controlled native-action acceptance, not a hunger/sleep test.
     -- Keep real health and damage enabled; set ordinary needs only at setup.
@@ -200,7 +200,7 @@ local function nextCase(f, current, check)
     return true
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "cleaning_mixtures_setup" then
         if current - H.phaseStartedAt < 8000 then return end
         H.cleaningMixtures = fixture(H, check, result)

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Three real registered tool destinations, exact item capacity and identity.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local f=assert(SC.TestFixture)
 local checks=0
 local function check(value,message)

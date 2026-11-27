@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Run with PrepareWorld.ps1 in an approved, disposable PZO fixture.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local phase, at, checks, opens = "menu", 0, 0, 0
 local menu, form, expectedUrl, originalCall
 local function check(ok, reason)

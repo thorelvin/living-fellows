@@ -27,7 +27,7 @@ try {
             (Join-Path $taskLua 'client\BanditPlayer.lua'),
             (Join-Path $taskLua 'shared\PlayerDamageModel.lua'),
             (Join-Path $taskLua 'server\BanditServerCommands.lua'),
-            (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCBanditsAdapter.lua'),
+            (Join-Path $taskRoot 'LivingFellows\42\media\lua\client\SCBanditsAdapter.lua'),
             (Join-Path $PSScriptRoot 'bandits_source_harness.lua')
         )
         & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskSourceFiles

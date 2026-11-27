@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- A blocked saved tile is replaced by a free tile in the same kind of place:
 -- outdoors for an outdoor origin, the same room or building for an indoor one.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local nearby = assert(SC.Persistence._nearbyRestoreSquareForTests, 'restore square test hook')
 local checks = 0
 local function check(value, message)

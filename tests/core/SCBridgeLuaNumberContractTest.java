@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import se.krka.kahlua.vm.KahluaTable;
-import survivorcompanion.bridge.SCBridge;
+import livingfellows.bridge.SCBridge;
 
 /** Verifies that direct Kahlua raw writes never publish boxed Java numbers. */
 public final class SCBridgeLuaNumberContractTest {

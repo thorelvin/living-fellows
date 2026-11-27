@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, NativeActions = {}, Navigation = {}, BaseLife = {} }
-local SC, F = SurvivorCompanion, { now = 1000, squares = {}, lines = {}, created = 0, fires = 0 }
+LivingFellows = { GameplayUtil = {}, Registry = {}, NativeActions = {}, Navigation = {}, BaseLife = {} }
+local SC, F = LivingFellows, { now = 1000, squares = {}, lines = {}, created = 0, fires = 0 }
 CalebFixture = F
 local U, N = SC.GameplayUtil, SC.NativeActions
 function U.call(o, method, ...)

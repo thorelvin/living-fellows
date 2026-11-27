@@ -1507,26 +1507,30 @@ if ($LowImpact) {
 }
 $isolatedVanillaBootstrap = $IsolatedSourceBridge -and -not $SteamLaunch -and
     $launcher.mainClass -eq 'zombie/gameStates/MainScreenState'
+$isolatedLegacyBootstrap = $IsolatedSourceBridge -and -not $SteamLaunch -and
+    $launcher.mainClass -eq 'survivorcompanion/bridge/SCLauncher'
 if ($isolatedVanillaBootstrap) {
     # In-memory config for the disposable direct Java process only. Current
     # normal installs bootstrap through ZombieBuddy and retain vanilla's main.
     # A live source run does not need to reinstall the obsolete global wrapper.
-    $launcher.classpath = @($launcher.classpath) + @('SurvivorCompanionBridge.jar')
-    $launcher.mainClass = 'survivorcompanion/bridge/SCLauncher'
+    $launcher.classpath = @($launcher.classpath) + @('LivingFellowsBridge.jar')
 }
-if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
+if ($isolatedVanillaBootstrap -or $isolatedLegacyBootstrap) {
+    $launcher.mainClass = 'livingfellows/bridge/SCLauncher'
+}
+if ($launcher.mainClass -ne 'livingfellows/bridge/SCLauncher') {
     throw 'The native SCLauncher is not installed; run Install-Local.ps1 -NativeBridge first.'
 }
 $bridgeClassPath = @($launcher.classpath | Where-Object {
-    $_ -match '^(?:SurvivorCompanion|LivingFellows).*Bridge.*\.jar$'
+    $_ -match '^(?:LivingFellows|SurvivorCompanion).*Bridge.*\.jar$'
 })
 if ($bridgeClassPath.Count -ne 1) {
     throw 'ProjectZomboid64.json does not contain exactly one Living Fellows bridge classpath entry.'
 }
 $bridgePath = $bridgeClassPath[0].Replace('/', '\')
 if (-not [System.IO.Path]::IsPathRooted($bridgePath)) { $bridgePath = Join-Path $GameRoot $bridgePath }
-if ($isolatedVanillaBootstrap) {
-    $bridgePath = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+if ($isolatedVanillaBootstrap -or $isolatedLegacyBootstrap) {
+    $bridgePath = Join-Path $ProjectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
     if ($IsolatedBridgePath) { $bridgePath = $IsolatedBridgePath }
 }
 if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) {
@@ -1643,7 +1647,7 @@ if (-not $RunRoot.StartsWith($runsPrefix, [System.StringComparison]::OrdinalIgno
 }
 $CacheRoot = Join-Path $RunRoot 'cache'
 $SandboxMods = Join-Path $CacheRoot 'mods'
-$SandboxLua = Join-Path $CacheRoot 'Lua\SurvivorCompanionHarness'
+$SandboxLua = Join-Path $CacheRoot 'Lua\LivingFellowsHarness'
 $SandboxSaves = Join-Path (Join-Path $CacheRoot 'Saves') $GameMode
 $TargetSave = Join-Path $SandboxSaves $runId
 
@@ -1691,7 +1695,7 @@ Copy-Item -LiteralPath $SeedSave -Destination $TargetSave -Recurse
 $realMods = Join-Path $UserCache 'mods'
 if (-not $LivingFellowsOnly -and (Test-Path -LiteralPath $realMods -PathType Container)) {
     foreach ($directory in Get-ChildItem -LiteralPath $realMods -Directory) {
-        if ($directory.Name -eq 'SurvivorCompanion' -or
+        if ($directory.Name -eq 'LivingFellows' -or
             $directory.Name -eq 'SCRealSandboxHarness') { continue }
         $link = Join-Path $SandboxMods $directory.Name
         if (-not (Test-Path -LiteralPath $link)) {
@@ -1715,13 +1719,13 @@ if ($SourcePayloadProjectRoot) {
 }
 & (Join-Path $ProjectRoot 'scripts\New-PrivatePlaytestPayload.ps1') `
     -ProjectRoot $payloadProjectRoot -OutputRoot $privatePayloadRoot -AllowExternalOutput | Out-Null
-$sourceMod = Join-Path $privatePayloadRoot 'SurvivorCompanion'
+$sourceMod = Join-Path $privatePayloadRoot 'LivingFellows'
 $harnessMod = Join-Path $ProjectRoot 'tests\live\mod\SCRealSandboxHarness'
 if (-not (Test-Path -LiteralPath $sourceMod -PathType Container) -or
     -not (Test-Path -LiteralPath $harnessMod -PathType Container)) {
     throw 'Source mod or live harness mod is missing.'
 }
-$sourceBridge = Join-Path $sourceMod '42\media\java\SurvivorCompanionBridge.jar'
+$sourceBridge = Join-Path $sourceMod '42\media\java\LivingFellowsBridge.jar'
 if ($IsolatedBridgePath) { $sourceBridge = $IsolatedBridgePath }
 if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
     throw "Source payload native bridge is missing: $sourceBridge"
@@ -1785,7 +1789,7 @@ if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly -and
 if ($IsolatedSourceBridge) {
     Write-Output "Using source bridge in isolated Java process: $sourceBridge"
 }
-Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
+Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'LivingFellows') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
 if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $FirstHourProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or $HomeTripProbe) {
     # Keep view diagnostics focused. Unrelated large probes can exceed
@@ -1805,7 +1809,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $FirstHourProbe -or 
 if ($OfficeHaulBaseline) {
     if (-not $OfficeHaulProbe) { throw 'OfficeHaulBaseline requires OfficeHaulProbe.' }
     foreach ($name in @('SCProduction.lua', 'SCNavigation.lua', 'SCNavTraversal.lua')) {
-        $relative = 'SurvivorCompanion/42/media/lua/client/' + $name
+        $relative = 'LivingFellows/42/media/lua/client/' + $name
         $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
         if ($LASTEXITCODE -ne 0) { throw "Could not load office-haul baseline: $relative" }
         $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
@@ -1826,10 +1830,10 @@ if ($FollowRoadVehicle -and $FollowRoadCompanionId) {
 if ($FollowRoadBaseline) {
     if (-not $FollowRoadProbe) { throw 'FollowRoadBaseline requires FollowRoadProbe.' }
     foreach ($relative in @(
-        'SurvivorCompanion/42/media/lua/client/SCDecision.lua',
-        'SurvivorCompanion/42/media/lua/client/SCMedical.lua',
-        'SurvivorCompanion/42/media/lua/client/SCVehicle.lua',
-        'SurvivorCompanion/42/media/lua/client/SCPositioning.lua')) {
+        'LivingFellows/42/media/lua/client/SCDecision.lua',
+        'LivingFellows/42/media/lua/client/SCMedical.lua',
+        'LivingFellows/42/media/lua/client/SCVehicle.lua',
+        'LivingFellows/42/media/lua/client/SCPositioning.lua')) {
         $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
         if ($LASTEXITCODE -ne 0) { throw "Could not load Follow baseline: $relative" }
         $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
@@ -1842,8 +1846,8 @@ if ($FollowRoadBaseline) {
 if ($SquadCombatBaseline) {
     if (-not $SquadCombatProbe) { throw 'SquadCombatBaseline requires SquadCombatProbe.' }
     foreach ($relative in @(
-        'SurvivorCompanion/42/media/lua/client/SCCombat.lua',
-        'SurvivorCompanion/42/media/lua/client/SCNativeActions.lua')) {
+        'LivingFellows/42/media/lua/client/SCCombat.lua',
+        'LivingFellows/42/media/lua/client/SCNativeActions.lua')) {
         $baselineText = & git -C $ProjectRoot show "HEAD:$relative"
         if ($LASTEXITCODE -ne 0) { throw "Could not load combat baseline: $relative" }
         $targetPath = Join-Path $SandboxMods ($relative -replace '/', '\')
@@ -1854,8 +1858,8 @@ if ($SquadCombatBaseline) {
 }
 if ($DoorwayStallBaseline) {
     if (-not $DoorwayStallProbe) { throw 'DoorwayStallBaseline requires DoorwayStallProbe.' }
-    foreach ($relative in @('SurvivorCompanion/42/media/lua/client/SCNavigation.lua',
-        'SurvivorCompanion/42/media/lua/client/SCNativeActions.lua')) {
+    foreach ($relative in @('LivingFellows/42/media/lua/client/SCNavigation.lua',
+        'LivingFellows/42/media/lua/client/SCNativeActions.lua')) {
         $baselineText = & git -C $ProjectRoot show "c8601157:$relative"
         if ($LASTEXITCODE -ne 0) { throw "Could not load 0.26.84 navigation control: $relative" }
         [System.IO.File]::WriteAllText((Join-Path $SandboxMods ($relative -replace '/', '\')),
@@ -1865,7 +1869,7 @@ if ($DoorwayStallBaseline) {
 }
 if ($DrivingGateNegativeControl) {
     $cachedDecision = Join-Path $SandboxMods `
-        'SurvivorCompanion\42\media\lua\client\SCDecision.lua'
+        'LivingFellows\42\media\lua\client\SCDecision.lua'
     if (-not (Test-Path -LiteralPath $cachedDecision -PathType Leaf)) {
         throw "Isolated driving decision module is missing: $cachedDecision"
     }
@@ -1949,21 +1953,21 @@ foreach ($excludedId in $ExcludeModId) {
     $modText = Remove-ModEntry $modText $excludedId
 }
 if ($BanditsAdapterProbe -or $BanditsEnabled) {
-    $modText = Remove-ModEntry $modText 'SurvivorCompanion'
+    $modText = Remove-ModEntry $modText 'LivingFellows'
     $modText = Remove-ModEntry $modText 'Bandits2'
     if ($BanditsLoadOrder -eq 'before') { $modText = Add-ModEntry $modText 'Bandits2' }
-    $modText = Add-ModEntry $modText 'SurvivorCompanion'
+    $modText = Add-ModEntry $modText 'LivingFellows'
     if ($BanditsLoadOrder -eq 'after') { $modText = Add-ModEntry $modText 'Bandits2' }
-} else { $modText = Add-ModEntry $modText 'SurvivorCompanion' }
+} else { $modText = Add-ModEntry $modText 'LivingFellows' }
 if ($FieldCargoProbe) {
     $modText = Add-ModEntry $modText 'damnlib'
     $modText = Add-ModEntry $modText '93fordF350'
 }
 if ($ProjectALifeDamageProbe -or $ProjectALifeAdapterProbe -or $ProjectALifeEnabled) {
-    $modText = Remove-ModEntry $modText 'SurvivorCompanion'
+    $modText = Remove-ModEntry $modText 'LivingFellows'
     $modText = Remove-ModEntry $modText 'ProjectALifeNPCs'
     if ($ProjectALifeLoadOrder -eq 'before') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
-    $modText = Add-ModEntry $modText 'SurvivorCompanion'
+    $modText = Add-ModEntry $modText 'LivingFellows'
     if ($ProjectALifeLoadOrder -eq 'after') { $modText = Add-ModEntry $modText 'ProjectALifeNPCs' }
 }
 foreach ($compatibilityMod in $compatibilityMods) {
@@ -2372,6 +2376,7 @@ $manifest = [ordered]@{
     oddballSceneScreenshot = if ($captureOddballScene) { $OddballSceneScreenshot } else { $null }
     sourceBridge = $sourceBridge
     isolatedVanillaBootstrap = [bool]$isolatedVanillaBootstrap
+    isolatedLegacyBootstrap = [bool]$isolatedLegacyBootstrap
     sourcePayloadProjectRoot = $payloadProjectRoot
     isolatedBridgePath = $IsolatedBridgePath
     sourceBridgeSha256 = $sourceBridgeHash
@@ -2576,14 +2581,14 @@ if ($autoGateAgent) {
     $agentSource = Join-Path $ProjectRoot 'tests\live\auto_start\SCLoadingGateAgent.java'
     & $javac -encoding UTF-8 -d $agentClasses $agentSource
     if ($LASTEXITCODE -ne 0) { throw 'Could not compile the isolated loading-gate agent.' }
-    $agentEntries = @('survivorcompanion/harness/SCLoadingGateAgent.class')
+    $agentEntries = @('livingfellows/harness/SCLoadingGateAgent.class')
     if ($ConvoyProbe) {
         # Test-only lead-car input; the shipped bridge finds it by name.
         $convoySource = Join-Path $ProjectRoot 'tests\live\auto_start\SCConvoyHarness.java'
         & $javac -encoding UTF-8 -cp (Join-Path $GameRoot 'projectzomboid.jar') `
             -d $agentClasses $convoySource
         if ($LASTEXITCODE -ne 0) { throw 'Could not compile the convoy live-run helper.' }
-        $agentEntries += 'survivorcompanion/harness/SCConvoyHarness.class'
+        $agentEntries += 'livingfellows/harness/SCConvoyHarness.class'
     }
     # Write the JAR in place. jar.exe stages a temp file and its cross-directory
     # move is denied in a restricted desktop session.
@@ -2594,7 +2599,7 @@ if ($autoGateAgent) {
         $stream = $manifestEntry.Open()
         try {
             $manifestBytes = [System.Text.Encoding]::ASCII.GetBytes(
-                "Manifest-Version: 1.0`r`nPremain-Class: survivorcompanion.harness.SCLoadingGateAgent`r`n`r`n")
+                "Manifest-Version: 1.0`r`nPremain-Class: livingfellows.harness.SCLoadingGateAgent`r`n`r`n")
             $stream.Write($manifestBytes, 0, $manifestBytes.Length)
         } finally { $stream.Dispose() }
         foreach ($entry in $agentEntries) {
@@ -2657,7 +2662,7 @@ if ($SteamLaunch) {
         }
         $directArguments = (($launcher.vmArgs -join ' ') +
             ' -XX:+UseZGC' + $gateAgentArgument + ' -cp "' + $gameClassPath +
-            '" survivorcompanion.bridge.SCLauncher ' + $argumentLine)
+            '" livingfellows.bridge.SCLauncher ' + $argumentLine)
     }
     $startOptions = @{
         FilePath = $directExecutable

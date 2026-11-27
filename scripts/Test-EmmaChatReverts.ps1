@@ -10,8 +10,8 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Core = Join-Path $ProjectRoot 'tests/core'
 $Gameplay = Join-Path $ProjectRoot 'tests/gameplay'
 $UI = Join-Path $ProjectRoot 'tests/ui'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion/42/media/lua/shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion/42/media/lua/client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows/42/media/lua/shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows/42/media/lua/client'
 $Essential = Join-Path $ProjectRoot 'tests/essential'
 $InterfaceGroups = @(. (Join-Path $Essential 'Interface.ps1'))
 & python (Join-Path $PSScriptRoot 'Build-EmmaTalkPolishData.py') | Out-Null
@@ -49,7 +49,7 @@ foreach ($Fix in $Fixes) {
     if ($LASTEXITCODE -ne 0) { throw "Cannot resolve $($Fix.Id) parent." }
     $Overrides = @{}
     foreach ($Module in $Fix.Modules) {
-        $Relative = 'SurvivorCompanion/42/media/lua/client/' + $Module + '.lua'
+        $Relative = 'LivingFellows/42/media/lua/client/' + $Module + '.lua'
         $Content = @(& git -C $ProjectRoot show ($Parent + ':' + $Relative))
         if ($LASTEXITCODE -ne 0) { throw "Cannot read $($Fix.Id) reverted module $Module." }
         $Path = Join-Path $Snapshot ($Module + '.lua')

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real topology/perception code with instrumented native-world boundaries.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local U, T, S, Scan = SC.GameplayUtil, SC.Topology, SC.Senses, SC.PerceptionScan
 local function check(value, message)
     checks = checks + 1

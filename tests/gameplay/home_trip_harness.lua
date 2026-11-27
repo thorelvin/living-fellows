@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Extended Home permutations share the compact journey's native/world fixture.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local E,H,I=SC.ExpeditionPrototype,SC.HomeTrip,SC.ExpeditionIntegration
 local F=assert(SC.HomeTestFixture)
 local at,actor,reset,blocked=F.at,F.actor,F.reset,F.blocked

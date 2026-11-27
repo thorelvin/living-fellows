@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Started from user_comfort_harness: drives the production Banter/Tales APIs,
 -- retaining their budgets. Game time advances 24 times faster than wall time.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local T,U=SC.TestFixture,SC.GameplayUtil
 local days=SC_VOICE_SOAK_DAYS or 60
 local clock,gameHours,paused=0,24,false

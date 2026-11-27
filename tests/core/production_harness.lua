@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 
 local function check(condition, message)
@@ -61,7 +61,7 @@ do
             end
         end
     end
-    for topic, pool in pairs(SurvivorCompanion.Dialogue._allPoolsForTests()) do
+    for topic, pool in pairs(LivingFellows.Dialogue._allPoolsForTests()) do
         inspectRows(topic, pool, "")
     end
     check(inspected > 1000 and failures == 0,
@@ -75,7 +75,7 @@ end
 
 -- Voice-pool expansion floors count common plus one stable voice; moods are extra.
 do
-    local Dialogue = SurvivorCompanion.Dialogue
+    local Dialogue = LivingFellows.Dialogue
     local targets = {
         -- Priority 1
         { "burial.ritual.rubber_duck_oracle", 4, 0 },
@@ -3919,7 +3919,7 @@ do
     tick(ctx, nil, nil, 31000)
     local again = SC.BaseLife.productionOrder(order.id)
     print, SC.Config.get = originalPrint, originalGet
-    local wanted = "[SurvivorCompanion][production:" .. tostring(order.id)
+    local wanted = "[LivingFellows][production:" .. tostring(order.id)
         .. "] blocked: missing_tool:choptree"
     local lines = 0
     for _, line in ipairs(printed) do

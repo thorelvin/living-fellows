@@ -83,7 +83,7 @@ def analyze(record):
     require(record["exit"] == 0, "native runner must exit zero: " + record["label"])
     root = Path(record["run"])
     manifest = json.loads((root / "run-manifest.json").read_text(encoding="utf-8-sig"))
-    base = root / "cache/Lua/SurvivorCompanionHarness"
+    base = root / "cache/Lua/LivingFellowsHarness"
     events = (base / "events.log").read_text(encoding="utf-8-sig")
     require("FAIL|" not in events, "native assertion failed: " + record["label"])
     baseline = record["variant"] == "baseline"
@@ -165,7 +165,7 @@ def plot(records, results, output):
         for record in records:
             if record["side"] != side:
                 continue
-            path = Path(record["run"]) / "cache/Lua/SurvivorCompanionHarness/turn-track-csv.txt"
+            path = Path(record["run"]) / "cache/Lua/LivingFellowsHarness/turn-track-csv.txt"
             rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
             ax.plot([float(row["x"]) - ox for row in rows], [float(row["y"]) - oy for row in rows],
                     color=colors[record["variant"]], alpha=.65, linewidth=1.4)

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Factions, Oddballs, U = SC.Factions, SC.Oddballs, SC.GameplayUtil
 local player = SC_TEST_PLAYER
 local definition = assert(Oddballs.definition("evacuation"))

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local M,P,C,U,F,T=SC.Medical,SC.MedicalProcedures,SC.MedicalMaintenance,SC.GameplayUtil,SC.TestMedicalStitching,SC.TestFixture
 local checks=0
 local function check(value,message) checks=checks+1;assert(value,'medical stitching '..checks..': '..message) end

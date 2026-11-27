@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exact native-resource outcomes and secondary-effect failures through treat().
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local M,F,U=SC.Medical,SC.TestMedicalProcedures,SC.GameplayUtil
 local checks=0
 local function check(value,reason) checks=checks+1;assert(value,'procedure resources '..checks..': '..reason) end

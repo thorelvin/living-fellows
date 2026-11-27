@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Production controller + home handover: no native actor duplication, no
 -- one-member arrival shortcut, no search/site work hidden behind a home kind.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local E,H,I=SC.ExpeditionPrototype,SC.HomeTrip,SC.ExpeditionIntegration
 local F={owned=false,now=1000,routeCalls=0,remoteReleases=0,joinedReleases=0,
     available=true,roadAvailable=true,visible=true,releaseFailure=false,removed=false,prepares=0,commits=0,

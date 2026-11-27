@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 -- The hotwire order must board through the normal driver path, use the
 -- game's attempt API, and leave the car without creating a key.
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 clock, boards, exits, attempts = 0, 0, 0, 0
 events, exitBlocked = {}, false
 Perks = { Electricity = "electrical", Mechanics = "mechanics" }

@@ -6,7 +6,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2] / "SurvivorCompanion/42/media/lua/client"
+ROOT = Path(__file__).resolve().parents[2] / "LivingFellows/42/media/lua/client"
 RULE = re.compile(r'\{ id = "([a-z0-9_]+)"')
 STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 FORBIDDEN = re.compile(

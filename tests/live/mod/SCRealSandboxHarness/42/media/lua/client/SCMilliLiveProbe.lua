@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 -- Focused native scene smoke test on a disposable save clone.
 local Probe = {}
-local READY = "SurvivorCompanionHarness/milli-ready.txt"
-local CAPTURED = "SurvivorCompanionHarness/milli-captured.txt"
+local READY = "LivingFellowsHarness/milli-ready.txt"
+local CAPTURED = "LivingFellowsHarness/milli-captured.txt"
 local TOYS = { Base_ToyBear = true, Base_ToyCar = true,
     Base_ToyPlane = true, Base_Yoyo = true, Base_Doll = true,
     Base_Spiffo = true, Base_FluffyfootBunny = true,
@@ -122,7 +122,7 @@ end
 
 local function restoreSpeech(H)
     if H.milliOriginalSay then
-        SurvivorCompanion.GameplayUtil.say = H.milliOriginalSay
+        LivingFellows.GameplayUtil.say = H.milliOriginalSay
     end
     H.milliOriginalSay = nil
 end
@@ -134,7 +134,7 @@ local function fail(H, result, setPhase, current, name, detail)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "milli_prepare" then
         if current - H.phaseStartedAt < 1500 then return end
         local definition = SC.Oddballs and SC.Oddballs.definition

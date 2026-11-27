@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Deterministic contract for Rhonda's badge, captives, checkpoint, and gear.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Deputy = SC.OddballDeputy
 local now = 1000
 local records, groups, worldDrops = {}, {}, {}

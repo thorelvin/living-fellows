@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 check(type(SC) == "table" and SC.Identity.worldSaveKey == "SC_WorldV1"
         and SC.Identity.saveSchema == 3, "namespace identity")
 do

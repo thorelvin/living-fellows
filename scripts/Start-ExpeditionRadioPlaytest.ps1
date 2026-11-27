@@ -31,7 +31,7 @@ foreach ($required in @('mods.txt', 'map_ver.bin', 'players.db', 'global_mod_dat
     }
 }
 $saveMods = Get-Content -LiteralPath (Join-Path $VerifiedSave 'mods.txt') -Raw -Encoding utf8
-if ($saveMods -notmatch '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$' -or
+if ($saveMods -notmatch '(?m)^\s*mod\s*=\s*LivingFellows\s*,?\s*$' -or
     $saveMods -notmatch '(?m)^\s*mod\s*=\s*SCRealSandboxHarness\s*,?\s*$') {
     throw 'The source must be a verified radio harness save with both mod entries.'
 }
@@ -50,10 +50,10 @@ if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf) -or
     throw "Project Zomboid client was not found under $GameRoot"
 }
 $launcher = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
-if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
+if ($launcher.mainClass -ne 'livingfellows/bridge/SCLauncher') {
     throw 'The native SCLauncher is not installed.'
 }
-$bridgeClassPath = @($launcher.classpath | Where-Object { $_ -match 'SurvivorCompanion.*Bridge.*\.jar' })
+$bridgeClassPath = @($launcher.classpath | Where-Object { $_ -match 'LivingFellows.*Bridge.*\.jar' })
 if ($bridgeClassPath.Count -ne 1) { throw 'Expected one native bridge in the launcher classpath.' }
 $installedBridge = $bridgeClassPath[0].Replace('/', '\')
 if (-not [System.IO.Path]::IsPathRooted($installedBridge)) {
@@ -89,7 +89,7 @@ if (-not (Test-Path -LiteralPath $realMods -PathType Container)) {
     throw "User mod directory is missing: $realMods"
 }
 foreach ($directory in Get-ChildItem -LiteralPath $realMods -Directory) {
-    if ($directory.Name -in @('SurvivorCompanion', 'SCRealSandboxHarness')) { continue }
+    if ($directory.Name -in @('LivingFellows', 'SCRealSandboxHarness')) { continue }
     New-Item -ItemType Junction -Path (Join-Path $cacheMods $directory.Name) `
         -Target $directory.FullName | Out-Null
 }
@@ -102,14 +102,14 @@ Copy-Item -LiteralPath $resetMarker -Destination (Join-Path $cacheMods 'reset-mo
 $payloadRoot = Join-Path $runRoot 'private-playtest-payload'
 & (Join-Path $ProjectRoot 'scripts\New-PrivatePlaytestPayload.ps1') `
     -ProjectRoot $ProjectRoot -OutputRoot $payloadRoot | Out-Null
-$sourceMod = Join-Path $payloadRoot 'SurvivorCompanion'
-$sourceBridge = Join-Path $sourceMod '42\media\java\SurvivorCompanionBridge.jar'
+$sourceMod = Join-Path $payloadRoot 'LivingFellows'
+$sourceBridge = Join-Path $sourceMod '42\media\java\LivingFellowsBridge.jar'
 if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
     throw "Private payload bridge is missing: $sourceBridge"
 }
 $installedHash = (Get-FileHash -LiteralPath $installedBridge -Algorithm SHA256).Hash
 $candidateHash = (Get-FileHash -LiteralPath $sourceBridge -Algorithm SHA256).Hash
-Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $cacheMods 'SurvivorCompanion') -Recurse
+Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $cacheMods 'LivingFellows') -Recurse
 
 $playMods = [regex]::Replace($saveMods,
     '(?m)^[ \t]*mod[ \t]*=[ \t]*SCRealSandboxHarness[ \t]*,?[ \t]*\r?\n?', '')

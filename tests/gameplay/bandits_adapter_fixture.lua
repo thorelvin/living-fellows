@@ -15,7 +15,7 @@ ArrayList = { new = function()
     return list
 end }
 local records, byActor, revision = {}, {}, 1
-SurvivorCompanion = {
+LivingFellows = {
     UserOptions = { get = function() return true end },
     Actor = { _isRegistryActor = function(actor) return actor.lf == true end },
     Registry = {

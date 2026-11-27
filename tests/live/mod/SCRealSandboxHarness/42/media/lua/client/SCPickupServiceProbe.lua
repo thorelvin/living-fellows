@@ -2,10 +2,10 @@
 -- A disposable camp and kit are arranged before the measurement. Thereafter
 -- production AI, radio delivery, boarding, driving and persistence own the trip.
 local P={}
-local function call(o,name,...) return (SurvivorCompanion.GameplayUtil.call(o,name,...)) end
+local function call(o,name,...) return (LivingFellows.GameplayUtil.call(o,name,...)) end
 local function originalCargo(t,car)
     if not t.pickupCargoId then return true end
-    local _,container=SurvivorCompanion.Vehicle.cargoPart(car)
+    local _,container=LivingFellows.Vehicle.cargoPart(car)
     local items=container and container:getItems()
     if not items then return false end
     for index=0,items:size()-1 do
@@ -17,13 +17,13 @@ end
 local function originalKey(t,actor,car)
     local key=actor:getInventory():haveThisKeyId(car:getKeyId()) or car:getCurrentKey()
     if key then return key:getID()==t.pickupKeyId,"native="..tostring(key:getID()).." expected="..tostring(t.pickupKeyId) end
-    local record=SurvivorCompanion.Registry.byId(t.pickupDriverId)
+    local record=LivingFellows.Registry.byId(t.pickupDriverId)
     if record and record.actor~=actor then
         key=record.actor:getInventory():haveThisKeyId(car:getKeyId())
         if key then return key:getID()==t.pickupKeyId,"restored="..tostring(key:getID()) end
     end
-    local document=SurvivorCompanion.Persistence.lastDocument()
-    local outcome=SurvivorCompanion.PickupService.export().outcome
+    local document=LivingFellows.Persistence.lastDocument()
+    local outcome=LivingFellows.PickupService.export().outcome
     local completed=document and document.pickup
     if not outcome or not completed or completed.state~="idle" or not completed.outcome
         or completed.outcome.requestId~=outcome.requestId or completed.outcome.result~="returned" then
@@ -36,7 +36,7 @@ local function originalKey(t,actor,car)
     return false,"key absent from native inventory, ignition and durable returned-driver record"
 end
 function P.step(H,current,check,result,setPhase)
-    local SC,t=SurvivorCompanion,H.driveTest
+    local SC,t=LivingFellows,H.driveTest
     local actor,car=t.actor,t.vehicle
     local S=SC.PickupService
     local function fail(name,detail) check(name,false,detail) setPhase("finish",current) end

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 SC_TEST = { ms = 0, calls = {}, door = nil, player = nil }
 local T = SC_TEST
 BodyPartType = { LowerLeg_L = "left_lower_leg" }

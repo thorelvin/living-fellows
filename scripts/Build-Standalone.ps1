@@ -73,7 +73,7 @@ foreach ($script in @(
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\$script") -Destination $scriptsRoot
 }
 
-$payload = Join-Path $stageRoot 'SurvivorCompanion'
+$payload = Join-Path $stageRoot 'LivingFellows'
 $metadata = Get-Content -LiteralPath (Join-Path $payload '42\mod.info') -Raw -Encoding utf8
 if (($metadata -match '(?m)^require=\\ZombieBuddy$') -or
     ($metadata -match '(?m)^ZBVersionMin=')) {
@@ -99,7 +99,7 @@ if (Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Filter '*.class') {
     throw 'Standalone archive contains forbidden loose Java classes.'
 }
 $jars = @(Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Filter '*.jar')
-if ($jars.Count -ne 1 -or $jars[0].Name -ne 'SurvivorCompanionBridge.jar') {
+if ($jars.Count -ne 1 -or $jars[0].Name -ne 'LivingFellowsBridge.jar') {
     throw 'Standalone archive must contain exactly one owned bridge JAR.'
 }
 
@@ -123,7 +123,7 @@ $originalConfig = [ordered]@{
 & (Join-Path $stageRoot 'scripts\Install-Standalone.ps1') `
     -ProjectRoot $stageRoot -GameRoot $gameRoot -ModsRoot $modsRoot `
     -InstallDataRoot $dataRoot | Out-Null
-$installed = Join-Path $modsRoot 'SurvivorCompanion'
+$installed = Join-Path $modsRoot 'LivingFellows'
 $manifestPath = Join-Path $installed '.sc-install-manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw 'Standalone staged installer did not create an owned installation.'
@@ -134,7 +134,7 @@ if ($manifest.version -ne "${version}-standalone-native") {
 }
 $patched = Get-Content -LiteralPath (Join-Path $gameRoot 'ProjectZomboid64.json') `
     -Raw -Encoding utf8 | ConvertFrom-Json
-if ($patched.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
+if ($patched.mainClass -ne 'livingfellows/bridge/SCLauncher') {
     throw 'Standalone staged installer did not activate the native launcher.'
 }
 & (Join-Path $stageRoot 'scripts\Uninstall-Standalone.ps1') `
@@ -152,7 +152,7 @@ if ($remainingBackups.Count -ne 0 -or
     throw 'Standalone staged uninstaller left a managed update generation or active bridge manifest.'
 }
 
-$zipName = "LivingFellowsCompanion-$version-STANDALONE-WINDOWS.zip"
+$zipName = "LivingFellows-$version-STANDALONE-WINDOWS.zip"
 $zipPath = Join-Path $OutputRoot $zipName
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path (Join-Path $stageRoot '*') -DestinationPath $zipPath `

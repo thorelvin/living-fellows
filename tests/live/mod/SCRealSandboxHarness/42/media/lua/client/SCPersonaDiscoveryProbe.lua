@@ -3,7 +3,7 @@
 -- physical UPS, and a second-process reload/deletion checkpoint. Clone only.
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 local Probe={} SCRealSandboxHarnessProbes.SCPersonaDiscoveryProbe=Probe
-local function SC() return SurvivorCompanion end
+local function SC() return LivingFellows end
 local function call(o,m,...) return SC().ControlUtil.call(o,m,...) end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-persona-discovery-"..name..".png") end
 local function stand(player,pc)

@@ -38,7 +38,7 @@ end
 local function findComputer(x,y,z)
     local tile=square(x,y,z)
     for _,object in ipairs(list(call(tile,"getObjects"))) do
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end
 end
 local function pc(SC,player,tile)
@@ -95,9 +95,9 @@ local function showGrid(H,SC,object)
     return true
 end
 local function startSite(H,f,current,setPhase)
-    local site=SurvivorCompanion.GridControl.SITES[f.siteIndex]
+    local site=LivingFellows.GridControl.SITES[f.siteIndex]
     if not site then
-        local first=SurvivorCompanion.GridControl.SITES[1]
+        local first=LivingFellows.GridControl.SITES[1]
         H.player:teleportTo(first.x,first.y,0)
         setPhase("grid_control_yard_load",current) return
     end
@@ -106,7 +106,7 @@ local function startSite(H,f,current,setPhase)
     setPhase("grid_control_site_load",current)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local G,U=SC.GridControl,SC.ControlUtil
     if H.phase=="grid_control_setup" then
         SC.Scheduler.unregister("decision")

@@ -80,7 +80,7 @@ local function park(SC, vehicle)
     return nil
 end
 local function setup(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local base = SC.BaseLife.active()
     local person = base and worker(SC)
     if base and not person and not H.upkeepMoved then
@@ -116,7 +116,7 @@ local function setup(H, current, check, result, setPhase)
 end
 local function ready(H, current, check, result, setPhase)
     if current - H.phaseStartedAt < 2000 then return end
-    local SC, f = SurvivorCompanion, H.upkeep
+    local SC, f = LivingFellows, H.upkeep
     local zone = park(SC, f.car)
     if not check("upkeep_parking", zone ~= nil, tostring(zone and zone.id)) then
         return finish(H, current, setPhase) end
@@ -241,7 +241,7 @@ local function stageYard(H, SC, f, job)
     return false
 end
 local function progress(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.upkeep
+    local SC, f = LivingFellows, H.upkeep
     local job = SC.BaseLife.job(f.jobId)
     local elapsed = current - H.phaseStartedAt
     if job and job.target.stage == "carrying" and not f.yardStaged then

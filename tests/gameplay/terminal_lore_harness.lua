@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local Files,Lore,Brands,System=SC.TerminalFiles,SC.TerminalLore,SC.TerminalBrands,SC.TerminalSystem
 local checks=0
 local function check(value,message) checks=checks+1 assert(value,message) end

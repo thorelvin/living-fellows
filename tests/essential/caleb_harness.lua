@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,F=SurvivorCompanion,CalebFixture
+local SC,F=LivingFellows,CalebFixture
 local C=SC.OddballCaleb
 local function check(value,message) assert(value,message) end
 local function tick()

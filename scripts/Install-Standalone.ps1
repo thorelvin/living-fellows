@@ -38,7 +38,7 @@ if ([string]::IsNullOrWhiteSpace($GameRoot)) { $GameRoot = Find-ProjectZomboidRo
 $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 $InstallDataRoot = [System.IO.Path]::GetFullPath($InstallDataRoot)
-$bridgeJar = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$bridgeJar = Join-Path $ProjectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
 if (-not (Test-Path -LiteralPath $bridgeJar -PathType Leaf)) {
     throw 'The bundled native bridge is missing. Download a complete release or source archive again.'
 }
@@ -47,7 +47,7 @@ $stageRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('LivingFellowsStandalone-' + [guid]::NewGuid().ToString('N'))
 $tempPrefix = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\') + '\'
 try {
-    # Both payload builders emit an identically structured $stageRoot\SurvivorCompanion
+    # Both payload builders emit an identically structured $stageRoot\LivingFellows
     # (ZombieBuddy dependency dropped, exactly one owned bridge JAR). The private
     # builder additionally flips debugSpawnEnabled/movementRecorderEnabled on and
     # writes the PRIVATE-NATIVE-BRIDGE.txt marker; -NativeBridge is the matching
@@ -66,7 +66,7 @@ try {
         BackupRoot          = (Join-Path $InstallDataRoot 'mod-backups')
         BridgeRoot          = (Join-Path $InstallDataRoot 'bridge')
         ConfigBackupRoot    = (Join-Path $InstallDataRoot 'config-backups')
-        PreparedPayloadRoot = (Join-Path $stageRoot 'SurvivorCompanion')
+        PreparedPayloadRoot = (Join-Path $stageRoot 'LivingFellows')
         PrebuiltBridgeJar   = $bridgeJar
         OpenWorkshopPageOnConflict = $true
     }
@@ -86,7 +86,7 @@ finally {
 
 Write-Output ''
 Write-Output 'INSTALL COMPLETE'
-Write-Output 'Start Project Zomboid and enable Living Fellows: Companion for the save.'
+Write-Output 'Start Project Zomboid and enable Living Fellows for the save.'
 Write-Output 'Do not enable a second Workshop copy at the same time.'
 $nativeManifestPath = Join-Path $InstallDataRoot 'bridge\install-manifest.json'
 if (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf) {

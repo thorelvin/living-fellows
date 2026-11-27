@@ -119,7 +119,7 @@ local function makeCorpse(square)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "pyre_burn_setup" then
         if current - H.phaseStartedAt < 4000 then return end
         local base = SC.BaseLife.active()

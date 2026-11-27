@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- "Missing" stops a camp job, so it has to mean the item is really not in marked
 -- storage. A held container, a far shelf or a very full crate must not read as it.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U, E, checks = SC.GameplayUtil, SC.Encounter, 0
 local function check(value, message)
     checks = checks + 1

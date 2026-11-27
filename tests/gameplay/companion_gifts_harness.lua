@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local gifts = SurvivorCompanion.CompanionGifts
+local gifts = LivingFellows.CompanionGifts
 local clock, day = 100000, 30
 local function inventory()
     local result = { items = {} }
@@ -29,7 +29,7 @@ end
 local state = { recruited = true, order = "base_duty", trust = 85,
     bond = 85, care = {} }
 local speech, dialog, conversation, held = {}, nil, nil, nil
-SurvivorCompanion.GameplayUtil = {
+LivingFellows.GameplayUtil = {
     isValidActor = function(value) return value == actor or value == player end,
     call = function(value, name, ...)
         local method = value and value[name]
@@ -66,16 +66,16 @@ SurvivorCompanion.GameplayUtil = {
         return true, "transferred"
     end,
 }
-SurvivorCompanion.BaseLife = {
+LivingFellows.BaseLife = {
     isInside = function() return true end,
     jobFor = function() return nil end,
 }
-SurvivorCompanion.Senses = { cached = function()
+LivingFellows.Senses = { cached = function()
     return { threatCount = 0, immediateCount = 0, pressure = 0,
         player = { danger = 0 } }
 end }
-SurvivorCompanion.Relationship = { score = function() return 85 end }
-SurvivorCompanion.Commands = {
+LivingFellows.Relationship = { score = function() return 85 end }
+LivingFellows.Commands = {
     peek = function() return state end,
     persist = function() return true end,
     isTemporaryStay = function() return held ~= nil end,
@@ -90,7 +90,7 @@ SurvivorCompanion.Commands = {
         return true
     end,
 }
-SurvivorCompanion.Positioning = {
+LivingFellows.Positioning = {
     activeConversation = function() return conversation end,
     beginConversation = function(_, _, options)
         conversation = options
@@ -102,7 +102,7 @@ SurvivorCompanion.Positioning = {
         if old and old.onCancel then old.onCancel(reason) end
     end,
 }
-SurvivorCompanion.UI = {
+LivingFellows.UI = {
     canOpenGiftOffer = function() return dialog == nil end,
     openGiftOffer = function(_, item)
         dialog = item
@@ -110,7 +110,7 @@ SurvivorCompanion.UI = {
     end,
     closeGiftOffer = function() dialog = nil end,
 }
-SurvivorCompanion.Dialogue = {
+LivingFellows.Dialogue = {
     lastSpokenAt = function() return -math.huge end,
     say = function(_, topic)
         speech[#speech + 1] = topic
@@ -152,7 +152,7 @@ conversation = nil
 assert(gifts.pulse(player, { record }) == true and conversation.onReady() == true,
     "third offer was not staged")
 local stolen = gifts.current().item
-assert(SurvivorCompanion.GameplayUtil.transferItemVerified(
+assert(LivingFellows.GameplayUtil.transferItemVerified(
     actor.inventory, player.inventory, stolen), "test could not move offered item")
 assert(gifts.accept(actor, player) == false and gifts.current() == nil
     and player.inventory:contains(stolen) and held == nil,
@@ -168,7 +168,7 @@ function bagItem:getContainer() return self.container end
 local bag = inventory()
 function bag:getContainingItem() return bagItem end
 actor.inventory.items[#actor.inventory.items + 1] = bagItem
-assert(SurvivorCompanion.GameplayUtil.transferItemVerified(
+assert(LivingFellows.GameplayUtil.transferItemVerified(
     actor.inventory, bag, bagGift), "test could not move offer into donor bag")
 assert(gifts.accept(actor, player) == true
     and player.inventory:contains(bagGift) and not bag:contains(bagGift),

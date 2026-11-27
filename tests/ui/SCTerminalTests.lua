@@ -4,7 +4,7 @@
 -- and typewriter on a fake clock, Enter to skip, history, clear, exit,
 -- walking away, losing power, Escape, wrapping, and memory kept in the
 -- computer's mod data across sessions.
-local T, SC = TERMINAL_TEST, SurvivorCompanion
+local T, SC = TERMINAL_TEST, LivingFellows
 local Terminal, Brain = SC.Terminal, SC.TerminalBrain
 local check = T.check
 T.originalWorldNew = SC.TerminalWorld.new

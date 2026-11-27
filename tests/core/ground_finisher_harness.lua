@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Load after core_fixture, native action modules, GameplayUtil and Combat.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local C, N, U = SC.Combat, SC.NativeActions, SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

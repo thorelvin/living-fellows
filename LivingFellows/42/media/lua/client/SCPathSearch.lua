@@ -1,0 +1,374 @@
+-- SPDX-License-Identifier: MIT
+
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
+
+SC.PathSearch = SC.PathSearch or {}
+local PathSearch = SC.PathSearch
+
+-- The search job owns only graph-search state. World topology, traversal,
+-- movement, reservations and recovery remain behind the caller's adapter.
+
+local function heapEntryLess(a, b)
+    if a.f ~= b.f then return a.f < b.f end
+    if a.h ~= b.h then return a.h < b.h end
+    local aFamiliarity = tonumber(a.familiarity) or 0
+    local bFamiliarity = tonumber(b.familiarity) or 0
+    if aFamiliarity ~= bFamiliarity then return aFamiliarity > bFamiliarity end
+    return a.seq < b.seq
+end
+
+local function heapPush(heap, entry)
+    heap[#heap + 1] = entry
+    local child = #heap
+    while child > 1 do
+        local parent = math.floor(child / 2)
+        if heapEntryLess(heap[child], heap[parent]) then
+            heap[child], heap[parent] = heap[parent], heap[child]
+            child = parent
+        else
+            break
+        end
+    end
+end
+
+local function heapPop(heap)
+    local size = #heap
+    if size == 0 then return nil end
+    local top = heap[1]
+    local last = heap[size]
+    heap[size] = nil
+    size = size - 1
+    if size > 0 then
+        heap[1] = last
+        local parent = 1
+        while true do
+            local left, right = parent * 2, parent * 2 + 1
+            local smallest = parent
+            if left <= size and heapEntryLess(heap[left], heap[smallest]) then smallest = left end
+            if right <= size and heapEntryLess(heap[right], heap[smallest]) then smallest = right end
+            if smallest == parent then break end
+            heap[parent], heap[smallest] = heap[smallest], heap[parent]
+            parent = smallest
+        end
+    end
+    return top
+end
+
+local function reconstruct(nodes, goalKey)
+    local reverse, key = {}, goalKey
+    while key do
+        local node = nodes[key]
+        if not node then break end
+        reverse[#reverse + 1] = node.square
+        key = node.parent
+    end
+    local path = {}
+    for index = #reverse, 1, -1 do path[#path + 1] = reverse[index] end
+    return path
+end
+
+-- Outdoor egress uses the same stable heap primitives with a different goal
+-- predicate. They remain stateless and never acquire world-side authority.
+PathSearch.heapPush = heapPush
+PathSearch.heapPop = heapPop
+PathSearch.reconstruct = reconstruct
+
+function PathSearch.classifyFailure(job, reason)
+    if reason == "budget" then return "budget_exhausted", true end
+    local rejections = type(job) == "table" and job.rejections or {}
+    if (tonumber(rejections.safehouse_boundary) or 0) > 0 then
+        return "policy", false
+    end
+    if (tonumber(rejections.native_directional_edge) or 0) > 0 then
+        return "topology_native_required", true
+    end
+    for rejection in pairs(rejections) do
+        if string.find(tostring(rejection), "blacklisted_dynamic", 1, true) then
+            return "blocked_dynamic", false
+        end
+    end
+    return reason == "invalid_square" and "invalid" or "blocked_static", false
+end
+
+local function adapterValid(adapter)
+    return type(adapter) == "table"
+        and type(adapter.sameSquare) == "function"
+        and type(adapter.key) == "function"
+        and type(adapter.heuristic) == "function"
+        and type(adapter.neighbors) == "function"
+        and type(adapter.edge) == "function"
+end
+
+function PathSearch.new(startSquare, goalSquare, options, adapter)
+    options = type(options) == "table" and options or {}
+    if not adapterValid(adapter) then
+        return {
+            complete = true, path = nil, reason = "invalid_adapter", expanded = 0,
+            startSquare = startSquare, goalSquare = goalSquare, options = options,
+        }
+    end
+    local candidateGoals = type(options.goalSquares) == "table"
+        and options.goalSquares or nil
+    if not candidateGoals and adapter.sameSquare(startSquare, goalSquare) then
+        return {
+            complete = true, path = { startSquare }, reason = nil, expanded = 0,
+            startSquare = startSquare, goalSquare = goalSquare, options = options,
+            adapter = adapter,
+        }
+    end
+    local startKey = adapter.key(startSquare)
+    local goalKey = adapter.key(goalSquare)
+    if not startKey or not goalKey then
+        return {
+            complete = true, path = nil, reason = "invalid_square", expanded = 0,
+            startSquare = startSquare, goalSquare = goalSquare, options = options,
+            adapter = adapter,
+        }
+    end
+    local goals, goalKeys = {}, {}
+    for _, square in ipairs(candidateGoals or { goalSquare }) do
+        local key = square == goalSquare and goalKey or adapter.key(square)
+        if key ~= nil and not goalKeys[key] then
+            goals[#goals + 1], goalKeys[key] = square, true
+        end
+    end
+    if #goals == 0 then
+        goals[1], goalKeys[goalKey] = goalSquare, true
+    end
+    local function distanceToGoal(square)
+        local best
+        for _, candidate in ipairs(goals) do
+            local value = adapter.heuristic(square, candidate)
+            if best == nil or value < best then best = value end
+        end
+        return best or 0
+    end
+    if goalKeys[startKey] then
+        return {
+            complete = true, path = { startSquare }, reason = nil, expanded = 0,
+            startSquare = startSquare, goalSquare = goalSquare, options = options,
+            adapter = adapter, goalSquares = goals, goalKeys = goalKeys,
+        }
+    end
+    local defaultBudget = type(adapter.nodeBudget) == "function"
+        and adapter.nodeBudget(options) or adapter.nodeBudget
+    local nodeBudget = tonumber(options.nodeBudget) or tonumber(defaultBudget) or 220
+    local penalties = type(options.penalties) == "table" and options.penalties or {}
+    local startH = distanceToGoal(startSquare)
+    local nodes = {
+        [startKey] = { square = startSquare, g = 0, h = startH, f = startH,
+            familiarity = 0, parent = nil, seq = 0 },
+    }
+    return {
+        complete = false,
+        path = nil,
+        reason = nil,
+        startSquare = startSquare,
+        goalSquare = goalSquare,
+        goalSquares = goals,
+        goalKeys = goalKeys,
+        startKey = startKey,
+        goalKey = goalKey,
+        nodeBudget = nodeBudget,
+        options = options,
+        penalties = penalties,
+        adapter = adapter,
+        nodes = nodes,
+        -- The closest node to the goal reached so far, so a search that runs
+        -- out of room still has somewhere to offer instead of nothing at all.
+        startH = startH,
+        bestKey = startKey,
+        bestH = startH,
+        bestG = 0,
+        open = { { key = startKey, f = startH, h = startH,
+            familiarity = 0, seq = 0 } },
+        seqCounter = 0,
+        closed = {},
+        rejections = {},
+        requiresNative = false,
+        expanded = 0,
+    }
+end
+
+-- Build 42 exposes getTimestampMs as System.currentTimeMillis, not world time.
+-- A caller may inject a clock for deterministic tests. A slice is shared across
+-- primary/alternative searches so changing jobs never replenishes its deadline.
+function PathSearch.newSlice(options, defaultBudgetMs)
+    options = type(options) == "table" and options or {}
+    local budget = tonumber(options.sliceBudgetMs) or tonumber(defaultBudgetMs)
+    if not budget or budget <= 0 or budget ~= budget or budget == math.huge then return nil end
+    local clock = options.clock or getTimestampMs
+    if type(clock) ~= "function" then return nil end
+    local now = tonumber(clock())
+    if not now or now ~= now or math.abs(now) == math.huge then return nil end
+    return { clock = clock, deadline = now + budget, startedAt = now, budgetMs = budget }
+end
+
+function PathSearch.sliceExpired(slice)
+    if not slice then return false end
+    local now = tonumber(slice.clock())
+    -- A wall-clock correction backwards must not buy extra work in this frame.
+    return now ~= nil and now == now and (now >= slice.deadline or now < slice.startedAt)
+end
+
+function PathSearch.resume(job, expansionQuota, slice)
+    if type(job) ~= "table" then return "failed", nil, "invalid_job", 0, 0 end
+    if job.complete then
+        return job.path and "complete" or "failed", job.path, job.reason, job.expanded or 0, 0
+    end
+    if not adapterValid(job.adapter) then
+        job.complete, job.reason = true, "invalid_adapter"
+        return "failed", nil, job.reason, job.expanded or 0, 0
+    end
+    local adapter = job.adapter
+    local quota = math.max(1, math.floor(tonumber(expansionQuota) or job.nodeBudget or 1))
+    slice = slice or PathSearch.newSlice(job.options)
+    job.lastYieldReason = nil
+    local used = 0
+    while job.pendingExpansion or (#job.open > 0 and job.expanded < job.nodeBudget and used < quota) do
+        -- Check even lazy-deleted heap entries, and between world-edge calls.
+        -- One native edge query cannot be preempted, but a costly node need not
+        -- perform all eight queries after the frame's time allowance is gone.
+        if PathSearch.sliceExpired(slice) then
+            job.lastYieldReason = "deadline"
+            return "pending", nil, "searching", job.expanded, used
+        end
+        if not job.pendingExpansion then
+            local entry = heapPop(job.open)
+            if entry == nil then break end
+            local bestKey = entry.key
+            local node = job.nodes[bestKey]
+            -- Improvements use lazy deletion. Superseded priorities and already
+            -- closed nodes do not consume the caller's expansion quota.
+            if node ~= nil and not job.closed[bestKey]
+                and entry.f == node.f and entry.h == node.h
+                and (tonumber(entry.familiarity) or 0) == (tonumber(node.familiarity) or 0) then
+                if job.goalKeys[bestKey] then
+                    job.complete = true
+                    job.path = reconstruct(job.nodes, bestKey)
+                    return "complete", job.path, nil, job.expanded, used
+                end
+                job.closed[bestKey] = true
+                job.expanded = job.expanded + 1
+                job.workSerial = (tonumber(job.workSerial) or 0) + 1
+                used = used + 1
+                -- Production neighbors can supply keys from the coordinates
+                -- already used for grid lookup. Other adapters keep the
+                -- square-only contract and use key() below.
+                local neighbors, neighborKeys =
+                    adapter.neighbors(node.square, job.goalSquare, job.options)
+                job.pendingExpansion = {
+                    key = bestKey, node = node, index = 1,
+                    neighbors = neighbors or {}, neighborKeys = neighborKeys,
+                }
+            end
+        else
+            local pending = job.pendingExpansion
+            local bestKey, current = pending.key, pending.node
+            local otherSquare = pending.neighbors[pending.index]
+            if otherSquare == nil then
+                job.pendingExpansion = nil
+            else
+                -- Advance only after remembering the edge being processed; a
+                -- resumed node neither skips neighbors nor repeats their costs.
+                pending.index = pending.index + 1
+                job.workSerial = (tonumber(job.workSerial) or 0) + 1
+                local otherKey = pending.neighborKeys
+                    and pending.neighborKeys[pending.index - 1]
+                    or adapter.key(otherSquare)
+                if otherKey and not job.closed[otherKey] then
+                    local passable, cost, rejection, ignoredObject, edgeFamiliarity =
+                        adapter.edge(current.square, otherSquare, job.options,
+                            job.goalKeys[otherKey] == true)
+                    if passable then
+                        local dynamicPenalty = 0
+                        if type(job.options.squarePenalty) == "function" then
+                            local value = tonumber(job.options.squarePenalty(
+                                otherSquare, current.square))
+                            if value and value == value and value > 0 and value < math.huge then
+                                dynamicPenalty = value
+                            end
+                        end
+                        local tentative = current.g + cost
+                            + (tonumber(job.penalties[otherKey]) or 0) + dynamicPenalty
+                        local tentativeFamiliarity = (tonumber(current.familiarity) or 0)
+                            + (tonumber(edgeFamiliarity) or 0)
+                        local known = job.nodes[otherKey]
+                        if not known or tentative < known.g
+                            or (tentative == known.g and tentativeFamiliarity
+                                > (tonumber(known.familiarity) or 0)) then
+                            local seq = known and known.seq
+                            if seq == nil then
+                                job.seqCounter = job.seqCounter + 1
+                                seq = job.seqCounter
+                            end
+                            local h
+                            for _, goal in ipairs(job.goalSquares) do
+                                local distance = adapter.heuristic(otherSquare, goal)
+                                if h == nil or distance < h then h = distance end
+                            end
+                            local fScore = tentative + h
+                            job.nodes[otherKey] = {
+                                square = otherSquare,
+                                g = tentative,
+                                h = h,
+                                f = fScore,
+                                familiarity = tentativeFamiliarity,
+                                parent = bestKey,
+                                seq = seq,
+                            }
+                            -- Ties break on cost so the same ground always
+                            -- yields the same partial route.
+                            if h < job.bestH
+                                or (h == job.bestH and tentative < job.bestG) then
+                                job.bestKey, job.bestH, job.bestG = otherKey, h, tentative
+                            end
+                            heapPush(job.open, { key = otherKey, f = fScore, h = h,
+                                familiarity = tentativeFamiliarity, seq = seq })
+                        end
+                    elseif rejection then
+                        job.rejections[rejection] = (job.rejections[rejection] or 0) + 1
+                        if rejection == "native_directional_edge" then
+                            job.requiresNative = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if not job.pendingExpansion and (#job.open == 0 or job.expanded >= job.nodeBudget) then
+        job.complete = true
+        job.reason = job.expanded >= job.nodeBudget and "budget" or "unreachable"
+        job.failureClass, job.nativeFallbackAllowed = PathSearch.classifyFailure(job, job.reason)
+        return "failed", nil, job.reason, job.expanded, used
+    end
+    job.lastYieldReason = "quota"
+    return "pending", nil, "searching", job.expanded, used
+end
+
+-- The route to the closest point the search actually reached. A search that
+-- exhausts its node budget, or proves the goal enclosed, otherwise returns
+-- nothing and the companion stands still while the identical search is run
+-- again seconds later. Walking to the nearest reachable point is real progress
+-- and leaves the next attempt a shorter problem. Only offered when it closes
+-- `minimumGain` tiles of the gap, so a route going nowhere is still a failure.
+function PathSearch.partialPath(job, minimumGain)
+    if type(job) ~= "table" or job.bestKey == nil or job.bestKey == job.startKey then
+        return nil
+    end
+    local gain = (tonumber(job.startH) or 0) - (tonumber(job.bestH) or 0)
+    if gain < math.max(0, tonumber(minimumGain) or 0) then return nil end
+    local path = reconstruct(job.nodes, job.bestKey)
+    if type(path) ~= "table" or #path < 2 then return nil end
+    return path, gain
+end
+
+function PathSearch.run(startSquare, goalSquare, options, adapter)
+    local job = PathSearch.new(startSquare, goalSquare, options, adapter)
+    local status, path, reason, expanded = PathSearch.resume(job, job.nodeBudget or 1)
+    if status == "pending" then return nil, "budget", expanded end
+    return path, reason, expanded
+end
+
+return PathSearch

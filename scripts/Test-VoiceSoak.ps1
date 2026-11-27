@@ -17,19 +17,19 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Core = Join-Path $ProjectRoot 'tests\core'
 $Gameplay = Join-Path $ProjectRoot 'tests\gameplay'
 $Essential = Join-Path $ProjectRoot 'tests\essential'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 . (Join-Path $Essential 'Gameplay.ps1')
 $RunRoot = Join-Path $ProjectRoot ('build\voice-soak\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,6))
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 if ($SourceRef) {
     $SnapshotRoot=Join-Path $RunRoot 'source'
     $SnapshotZip=Join-Path $RunRoot 'source.zip'
-    & git -C $ProjectRoot archive --format=zip -o $SnapshotZip $SourceRef SurvivorCompanion/42/media/lua
+    & git -C $ProjectRoot archive --format=zip -o $SnapshotZip $SourceRef LivingFellows/42/media/lua
     if ($LASTEXITCODE -ne 0) { throw 'Historical voice source snapshot failed.' }
     Expand-Archive -LiteralPath $SnapshotZip -DestinationPath $SnapshotRoot
-    $Shared=Join-Path $SnapshotRoot 'SurvivorCompanion\42\media\lua\shared'
-    $Client=Join-Path $SnapshotRoot 'SurvivorCompanion\42\media\lua\client'
+    $Shared=Join-Path $SnapshotRoot 'LivingFellows\42\media\lua\shared'
+    $Client=Join-Path $SnapshotRoot 'LivingFellows\42\media\lua\client'
 }
 $ConfigFile = Join-Path $RunRoot 'soak_config.lua'
 $Strict = if ($Baseline) { 'false' } else { 'true' }

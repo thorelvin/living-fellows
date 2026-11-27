@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- One compact scenario group: production ownership, scans, projections and receipts.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check, U = f.check, SC.GameplayUtil
 local commandViews, visuals, poses, durations, lines, pacing = {}, {}, {}, {}, {}, {}
 local originalMove, originalDialogue = U.move, SC.Dialogue.say

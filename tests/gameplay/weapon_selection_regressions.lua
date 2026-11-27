@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Uses the gameplay world's inventory, command, logistics and combat services.
 function SC_WEAPON_SELECTION_REGRESSIONS(f)
-    local SC, checks, actors = SurvivorCompanion, 0, {}
+    local SC, checks, actors = LivingFellows, 0, {}
     local function check(ok, message)
         checks = checks + 1
         f.check(ok, "weapon selection: " .. message)

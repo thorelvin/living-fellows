@@ -1,4 +1,4 @@
 Manifest-Version: 1.0
-Premain-Class: survivorcompanion.bridge.SCBridgeAgent
+Premain-Class: livingfellows.bridge.SCBridgeAgent
 Can-Redefine-Classes: false
 Can-Retransform-Classes: false

@@ -33,7 +33,7 @@ local function encode(v,depth)
     parts[#parts+1]='}';return table.concat(parts)
 end
 Events.OnInitGlobalModData.Add(function()
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local store=ModData.getOrCreate(SC.Identity.worldSaveKey)
     if mode=='disk-restored' then
         assert(store.document and store.document.companions[ID], 'waiting record must load from native GlobalModData')
@@ -66,16 +66,16 @@ Events.OnGameStart.Add(function()
     started=getTimestampMs()
     if mode=='seed' then
         local primary=getSpecificPlayer(0)
-        assert(primary and SurvivorCompanion.Registry.byId(ID)==nil,'clean primary fixture required')
+        assert(primary and LivingFellows.Registry.byId(ID)==nil,'clean primary fixture required')
         input.position={x=primary:getX()+2,y=primary:getY(),z=primary:getZ()}
-        assert(SurvivorCompanion.Persistence.restore(primary),'fixture seed import failed')
+        assert(LivingFellows.Persistence.restore(primary),'fixture seed import failed')
     end
     print('SC_PZO_WORLD entered mode='..mode)
 end)
 Events.OnTick.Add(function()
     if done or started==0 then return end
     local now=getTimestampMs();if now-last<1000 then return end;last=now
-    local SC=SurvivorCompanion; local P=SC.Persistence
+    local SC=LivingFellows; local P=SC.Persistence
     local record=SC.Registry.byId(ID)
     if mode=='waiting' then
         if now-started<170000 then return end

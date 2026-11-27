@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local hour, visible, current = 100, true, 1000
 local squares = {}
 local function square(x, y, z)

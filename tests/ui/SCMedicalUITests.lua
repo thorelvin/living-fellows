@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local MedicalUI = assert(SC.MedicalUI)
 local prior = {
     Actor = SC.Actor, Registry = SC.Registry, Commands = SC.Commands,

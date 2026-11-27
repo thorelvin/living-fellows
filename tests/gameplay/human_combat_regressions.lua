@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Runs inside the gameplay integration world's real perception/combat modules.
 function SC_HUMAN_COMBAT_REGRESSIONS(f)
-    local SC, checks = SurvivorCompanion, 0
+    local SC, checks = LivingFellows, 0
     local function check(condition, message)
         checks = checks + 1
         f.check(condition, message)

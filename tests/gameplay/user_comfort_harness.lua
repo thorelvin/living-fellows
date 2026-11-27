@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local banter, tales, gestures = SC.Banter, SC.Tales, SC.Gestures
 local checks = 0
 local function check(value, message)

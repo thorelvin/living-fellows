@@ -6,7 +6,7 @@ local function expect(value, why)
     assert(value, "vehicle evidence " .. checks .. ": " .. why)
 end
 local status = { lastVictim = "lf:sc-window", lastModel = "MeleeHit" }
-SurvivorCompanion = { BanditsAdapter = { status = function() return status end } }
+LivingFellows = { BanditsAdapter = { status = function() return status end } }
 local function fixture()
     return { id = "sc-window", stage = "test", closedProtected = 0, openWound = 0, brokenWound = 0 }
 end
@@ -52,7 +52,7 @@ getCell = function() return { getGridSquare = function(_, x, y)
     if not loaded then return nil end
     return { getVehicleContainer = function() return x == vehicleX and y == vehicleY and {} or nil end }
 end } end
-SurvivorCompanion.Call = { resolve = function(value, key)
+LivingFellows.Call = { resolve = function(value, key)
     local method = value and value[key]
     return type(method) == "function", method
 end }

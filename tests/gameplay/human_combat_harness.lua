@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Subject scenarios use the same native-shaped fixture as the essential checks.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject

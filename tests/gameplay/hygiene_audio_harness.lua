@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local sc = SurvivorCompanion
+local sc = LivingFellows
 local needs, utility = sc.Needs, sc.GameplayUtil
 local oldNative = sc.NativeActions
 local native, navigation = oldNative or {}, sc.Navigation

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, A, P = SurvivorCompanion, SurvivorCompanion.ALifeAdapter, ProjectALife
+local SC, A, P = LivingFellows, LivingFellows.ALifeAdapter, ProjectALife
 local checks = 0
 local function check(value, message) checks = checks + 1 assert(value, "A-Life check " .. checks .. ": " .. message) end
 local member = ALIFE_TEST_ACTOR("sc-alife-member", true)

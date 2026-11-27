@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the production reading transaction and supervisor as its native
 -- passenger changes world position, seat, vehicle or driver role.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local D, S = SC.Downtime, SC.ActionSupervisor
 local choose = D._readingForTests()
 local _, _, _, begin, _, _, _, _, _, _, _, stateFor = D._furnitureForTests()

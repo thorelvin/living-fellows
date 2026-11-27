@@ -5,7 +5,7 @@
 local Probe = {}
 
 local function call(object, method, ...)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     return select(1, utility.call(object, method, ...))
 end
 
@@ -29,7 +29,7 @@ local function refillFlags(bottle, fluid)
 end
 
 local function label(object)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local sprite = call(call(object, "getSprite"), "getName")
     local x, y, z = utility.position(object)
     return tostring(sprite or "water") .. "@" .. tostring(x) .. ","
@@ -153,7 +153,7 @@ local function beginRefill(H, SC, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "water_source_setup" then
         if (not SC.BaseLife.active() or #(SC.Registry.snapshot() or {}) == 0)
             and current - H.phaseStartedAt < 12000 then return end

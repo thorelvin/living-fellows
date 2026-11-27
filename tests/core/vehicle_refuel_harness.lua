@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, SC_REFUEL_TEST
+local SC, T = LivingFellows, SC_REFUEL_TEST
 local Refuel = SC.VehicleRefuel
 local checks = 0
 local function check(value, message)

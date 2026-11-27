@@ -2,7 +2,7 @@
 
 FarmLifecycleFixture = {}
 local F = FarmLifecycleFixture
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U = SC.GameplayUtil
 F.realBaseLife, F.realBaseWork = SC.BaseLife, SC.BaseWork
 

@@ -4,7 +4,7 @@
 local Probe = {}
 SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCLockProbe = Probe
-local function call(o, m, ...) return SurvivorCompanion.ControlUtil.call(o, m, ...) end
+local function call(o, m, ...) return LivingFellows.ControlUtil.call(o, m, ...) end
 local function log(s) print("SC_REAL_SANDBOX|LOCK_BINDING|" .. s) end
 local function shot(H, name) getCore():TakeFullScreenshot(H.config.run_id .. "-locks-" .. name .. ".png") end
 local function percentile(a, p) table.sort(a) return a[math.max(1, math.ceil(#a*p))] or 0 end
@@ -14,7 +14,7 @@ local function tags(o)
         .. tostring(call(props, "get", "CustomName") or ""))
 end
 local function ready(H, f)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local sq = f.pc:getSquare()
     for _,d in ipairs({{1,0},{0,1},{-1,0},{0,-1},{0,0}}) do
         local stand = getCell():getGridSquare(sq:getX()+d[1],sq:getY()+d[2],sq:getZ())
@@ -47,7 +47,7 @@ local function ready(H, f)
     end
 end
 local function inspect(H,f,check,result)
-    local SC, player = SurvivorCompanion,H.player
+    local SC, player = LivingFellows,H.player
     local x,y,z=f.pc:getX(),f.pc:getY(),f.pc:getZ()
     local desks={}
     for dx=-1,1 do for dy=-1,1 do
@@ -150,7 +150,7 @@ local function cleanup(f)
     for _,z in ipairs(f.zombies) do if not z:isDead() then z:removeFromWorld() z:removeFromSquare() end end
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if H.phase:find("lock_probe_phase4_",1,true)==1 then
         require("SCLockPhase4Probe")
         return SCRealSandboxHarnessProbes.SCLockPhase4Probe.step(H,current,check,result,setPhase)

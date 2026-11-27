@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Subject identity, ambiguity, recency and fresh facts across real multi-turn
 -- exchanges. The provider is mutable so cached answers cannot satisfy these.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B,C=SC.TerminalBrain,SC.TerminalConversation
 local checks=0
 local function check(value,message) checks=checks+1 assert(value,"conversation "..checks..": "..message) end

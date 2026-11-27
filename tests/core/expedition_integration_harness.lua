@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, INTEGRATION_TEST
+local SC, T = LivingFellows, INTEGRATION_TEST
 local I = SC.ExpeditionIntegration
 local checks = 0
 local function check(value, label)

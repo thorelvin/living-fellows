@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local H,B,F=SC.EmmaHooks,SC.TerminalBrain,SC.EmmaTalkPolishFixture
 local count=0
 local function check(ok,why) count=count+1 assert(ok,why) end

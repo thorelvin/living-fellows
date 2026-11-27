@@ -4,7 +4,7 @@
 -- later phase replaces on purpose; that phase flips the check to its new
 -- expectation in the same commit, so the change is visible in review. Checks
 -- without GAP are invariants every phase must keep.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local Squad = SC.CombatSquad
 local oldUsable, oldOpen, oldFacts =

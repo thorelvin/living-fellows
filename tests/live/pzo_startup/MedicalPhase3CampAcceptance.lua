@@ -2,13 +2,13 @@
 -- Real camp shelves, physical native kit packing and MedicalVisits audit jobs.
 local Probe={}
 local function refresh(s,actor,check)
-    local SC=SurvivorCompanion;local context=SC.GameplayUtil.actorState(actor)
+    local SC=LivingFellows;local context=SC.GameplayUtil.actorState(actor)
     local seen=SC.Senses.snapshot(actor,s.primary,context)
     check(type(seen)=='table' and seen.valid and SC.Medical.canTreatNow(actor,seen),'native Phase3 camp sees actual semi-safe world')
     return context
 end
 local function clear(actor)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     actor:getBodyDamage():RestoreToFullHealth();actor:setPainEffect(0);actor:setPainDelta(0);actor:setReduceInfectionPower(0)
     actor:getBodyDamage():setPainReduction(0)
     local stats=actor:getStats()
@@ -27,7 +27,7 @@ local function clear(actor)
     SC.Medical.invalidate(actor)
 end
 local function shelves(origin,check)
-    local U=SurvivorCompanion.GameplayUtil;local result={}
+    local U=LivingFellows.GameplayUtil;local result={}
     for radius=2,6 do for dx=-radius,radius do for dy=-radius,radius do
         if math.abs(dx)==radius or math.abs(dy)==radius then
             local square=getCell():getGridSquare(origin:getX()+dx,origin:getY()+dy,origin:getZ())
@@ -45,8 +45,8 @@ local function crate(square,category,check)
     object:setIsContainer(true);object:setContainer(ItemContainer.new('crate',square,object))
     local container=object:getContainer();container:setCapacity(100);container:setExplored(true)
     square:AddSpecialObject(object);square:RecalcAllWithNeighbours(true)
-    local okay,row=SurvivorCompanion.BaseLife.registerStorage(object,category)
-    check(okay and SurvivorCompanion.BaseLife.resolveContainer(row)==container,'real camp registers exact '..category..' source')
+    local okay,row=LivingFellows.BaseLife.registerStorage(object,category)
+    check(okay and LivingFellows.BaseLife.resolveContainer(row)==container,'real camp registers exact '..category..' source')
     return {object=object,container=container,row=row}
 end
 local function findJob(state)
@@ -58,7 +58,7 @@ local function findJob(state)
     return count,found
 end
 local function audit(s,check,kind)
-    local SC,state=SurvivorCompanion,s.phase3Camp
+    local SC,state=LivingFellows,s.phase3Camp
     refresh(s,state.medic,check);refresh(s,state.patient,check)
     local need=SC.Medical.campCareNeed(state.patient)
     check(need and need.kind==kind,'actual camp selector requests '..kind)
@@ -71,7 +71,7 @@ local function audit(s,check,kind)
     state.patientX,state.patientY,state.patientZ=SC.GameplayUtil.position(state.patient)
 end
 local function drive(s,check)
-    local SC,state=SurvivorCompanion,s.phase3Camp
+    local SC,state=LivingFellows,s.phase3Camp
     local context=refresh(s,state.medic,check);local patientContext=refresh(s,state.patient,check)
     SC.ActionSupervisor.update(state.medic)
     if not SC.NativeActions.pacingStatus(state.medic) then
@@ -89,7 +89,7 @@ local function drive(s,check)
     return state.job.state=='completed'
 end
 function Probe.step(s,check,note,phase)
-    local SC,K,M,N,B=SurvivorCompanion,SurvivorCompanion.MedicKit,SurvivorCompanion.Medical,SurvivorCompanion.NativeActions,SurvivorCompanion.BaseLife
+    local SC,K,M,N,B=LivingFellows,LivingFellows.MedicKit,LivingFellows.Medical,LivingFellows.NativeActions,LivingFellows.BaseLife
     local now=getTimestampMs()
     if s.phase=='acceptance-phase3-camp-start' then
         if N.pacingStatus(s.actor) or N.pacingStatus(s.helper) then check(now-s.at<30000,'prior medicine pacing settles before real camp');return end

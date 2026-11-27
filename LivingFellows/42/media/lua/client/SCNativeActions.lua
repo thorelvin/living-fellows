@@ -1,0 +1,6408 @@
+-- SPDX-License-Identifier: MIT
+require "SCBedGeometry"
+
+require "SCNamespace"
+require "SCCall"
+require "SCConfig"
+require "SCTopology"
+require "SCNativeTraversalActions"
+require "SCNativeVisualActions"
+require "SCNativeCombatActions"
+require "SCNativeWorkActions"
+require "SCNativeCareActions"
+require "SCNativeMovementActions"
+require "TimedActions/ISBaseTimedAction"
+require "TimedActions/ISTimedActionQueue"
+require "TimedActions/ISBarricadeAction"
+require "TimedActions/ISUnbarricadeAction"
+require "TimedActions/ISDismantleAction"
+require "TimedActions/ISChopTreeAction"
+require "TimedActions/ISForceOpen"
+require "TimedActions/ISBuryCorpse"
+require "TimedActions/ISFillGrave"
+require "TimedActions/ISGrabCorpseAction"
+require "TimedActions/ISDropCorpseAction"
+require "TimedActions/ISBurnCorpseAction"
+require "TimedActions/ISEatFoodAction"
+require "TimedActions/ISDrinkFromBottle"
+require "TimedActions/ISDrinkFluidAction"
+require "TimedActions/ISTakeWaterAction"
+require "TimedActions/ISAddFuel"
+require "TimedActions/ISCleanBlood"
+require "SCCleaningSupplies"
+require "Fluids/ISFluidContainer"
+require "Fluids/ISFluidTransferAction"
+require "TimedActions/ISWearClothing"
+require "TimedActions/ISUnequipAction"
+require "TimedActions/ISDryMyself"
+require "Vehicles/TimedActions/ISPathFindAction"
+require "Vehicles/TimedActions/ISAddGasolineToVehicle"
+require "Vehicles/TimedActions/ISInflateTire"
+require "Vehicles/TimedActions/ISWashVehicle"
+require "TimedActions/ISRestAction"
+require "TimedActions/ISGetOnBedAction"
+require "Farming/ISUI/ISFarmingMenu"
+require "Farming/TimedActions/ISPlowAction"
+require "Farming/TimedActions/ISSeedActionNew"
+require "Farming/TimedActions/ISWaterPlantAction"
+require "Farming/TimedActions/ISHarvestPlantAction"
+require "Farming/TimedActions/ISFertilizeAction"
+require "Farming/TimedActions/ISCurePlantAction"
+require "TimedActions/ISInventoryTransferAction"
+require "FeedingTrough/TimedActions/ISAddWaterToTrough"
+require "TimedActions/Animals/ISHutchGrabEgg"
+require "TimedActions/Animals/ISToggleHutchDoor"
+require "TimedActions/Animals/ISToggleHutchEggHatchDoor"
+require "TimedActions/Animals/ISHutchCleanFloor"
+require "TimedActions/Animals/ISHutchCleanNest"
+require "TimedActions/Animals/ISMilkAnimal"
+require "TimedActions/ISPickupDung"
+require "TimedActions/Animals/ISShearAnimal"
+require "TimedActions/Animals/ISPetAnimal"
+
+local SC = LivingFellows
+SC.NativeActions = SC.NativeActions or {}
+
+local actions = SC.NativeActions
+local activeWork = setmetatable({}, { __mode = "k" })
+local activeNeeds = setmetatable({}, { __mode = "k" })
+local activeFinal = setmetatable({}, { __mode = "k" })
+
+-- Keep the stock fluid consumption and drink animation. The completion mark
+-- distinguishes drinking from a cancelled queue entry when the crisis polls.
+local SCCrisisDrinkBleachAction
+local function crisisDrinkActionClass()
+    if SCCrisisDrinkBleachAction then return SCCrisisDrinkBleachAction end
+    if type(ISDrinkFluidAction) ~= "table"
+        or type(ISDrinkFluidAction.derive) ~= "function" then return nil end
+    local class = ISDrinkFluidAction:derive("SCCrisisDrinkBleachAction")
+    function class:isValidStart()
+        return self.fluidContainer ~= nil and not self.fluidContainer:isEmpty()
+    end
+    function class:complete()
+        local completed = ISDrinkFluidAction.complete(self)
+        self.scCompleted = completed ~= false
+        return completed
+    end
+    function class:stop()
+        self.scStopped = true
+        ISDrinkFluidAction.stop(self)
+    end
+    SCCrisisDrinkBleachAction = class
+    return class
+end
+local activeVisual = setmetatable({}, { __mode = "k" })
+local activeFurnitureActions = setmetatable({}, { __mode = "k" })
+local activeBedActions = setmetatable({}, { __mode = "k" })
+local BedExit = { pending = setmetatable({}, { __mode = "k" }),
+    probes = setmetatable({}, { __mode = "k" }) }
+local leavingFurniture = setmetatable({}, { __mode = "k" })
+local activeGroundActions = setmetatable({}, { __mode = "k" })
+local pacingStates = setmetatable({}, { __mode = "k" })
+local forwardTurns = setmetatable({}, { __mode = "k" })
+local resultHistory = setmetatable({}, { __mode = "k" })
+local pendingCombat = setmetatable({}, { __mode = "k" })
+local pendingPurdyShots = setmetatable({}, { __mode = "k" })
+local pacingSequence = 0
+local cancelOwnedTimedAction
+local cancelSeatingRecord
+local humanEmotes = {
+    wavehi = true, wavebye = true, clap = true, thumbsup = true, thankyou = true,
+    insult = true, stop = true, surrender = true, thumbsdown = true,
+    followme = true, comehere = true, yes = true, no = true, shrug = true,
+    undecided = true, ceasefire = true, signalok = true, moveout = true,
+    freeze = true, followbehind = true, signalfire = true, comefront = true,
+    salute = true,
+}
+local emoteAliases = {
+    -- The stock radial menu expands this UI alias before calling playEmote().
+    salute = "salutecasual",
+}
+
+local movementActions = {
+    move = true,
+    path = true,
+    ordered_move = true,
+    approach_interaction = true,
+    approach_player_cautiously = true,
+    check_room = true,
+    collision_recovery = true,
+    combat_retreat = true,
+    corner_escape = true,
+    hide_indoors = true,
+    investigate_sound = true,
+    leave_group = true,
+    move_to_scavenge = true,
+    move_to_camp_storage = true,
+    move_to_base_storage = true,
+    move_to_log_yard = true,
+    move_to_clean_stain = true,
+    move_to_base_build = true,
+    base_guard_patrol = true,
+    return_to_base = true,
+    move_to_quarantine = true,
+    leave_base = true,
+    crisis_approach = true,
+    move_to_memorial = true,
+    move_to_water_source = true,
+    move_to_seat = true,
+    move_to_light_switch = true,
+    move_to_corpse = true,
+    crowd_yield_order = true,
+    move_to_treat = true,
+    offscreen_safe_recovery = true,
+    ordered_retreat = true,
+}
+
+local combatActions = {
+    attack_firearm = true,
+    attack_melee = true,
+    shove = true,
+    stomp = true,
+}
+
+local windowActions = {
+    open_window = true,
+    smash_window = true,
+    remove_glass = true,
+    climb_window = true,
+    climb_window_emergency = true,
+}
+local fenceActions = { climb_fence = true, climb_wall = true }
+local ropeActions = { climb_sheet_rope = true, climb_down_sheet_rope = true }
+
+-- These are effect-free, human animation adapters.  The gameplay subsystem owns
+-- the associated inventory/body mutation and performs it only after this native
+-- timed action has demonstrably entered the actor's native action queue.  Using
+-- the real transfer/medical/craft actions here would apply each effect twice.
+local visualActionSpecs = {
+    loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 180,
+        sound = "RummageInInventory" },
+    remove_broken_glass = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "Mid", ticks = 100, sound = "RemoveBrokenGlass" },
+    kneel_treat = { animation = "Bandage", animationEnum = true,
+        event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
+    apply_splint = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "Mid", ticks = 140, sound = "FirstAidApplySplint" },
+    rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120,
+        sound = "ClothesRipping" },
+    read = { animation = "Read", animationEnum = true, event = "EventRead",
+        secondaryItem = true, ticks = 3600, maxTicks = 10800 },
+    -- Writing in a private diary uses the same verified pose as vanilla's own
+    -- ISWriteSomething (the Read animation with the book in hand). The page
+    -- itself is committed by SCDiary only after this completes.
+    write_diary = { animation = "Read", animationEnum = true, event = "EventRead",
+        secondaryItem = true, ticks = 360 },
+    repair = { animation = "Craft", animationEnum = true, primaryItem = true, ticks = 180 },
+    -- A short inspection of the item already in hand. Downtime records only
+    -- the observed pause; this adapter never repairs or replaces equipment.
+    gear_check = { animation = "Craft", animationEnum = true,
+        primaryItem = true, ticks = 140 },
+    -- Inspect the real handheld radio. Downtime broadcasts the chosen check
+    -- line after this verified pose and never changes the channel here.
+    radio_check = { animation = "Craft", animationEnum = true,
+        primaryItem = true, ticks = 150 },
+    -- A short desk interaction uses the existing native hand-work pose. No
+    -- fabricated book, tool, learned recipe or reward is attached to it.
+    computer_use = { animation = "LF_ComputerUse",
+        ticks = 1080, maxTicks = 3600 },
+    -- The visible shelf routine does not duplicate the base sorting job's
+    -- inventory transfers.
+    tidy_camp = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "", ticks = 250, sound = "RummageInInventory" },
+    -- A short wipe-down while sheltered. Downtime commits one vanilla towel
+    -- use on completion when available; the game owns wetness and warmth.
+    weather_recovery = { animation = "WashFace", event = "EventWashClothing",
+        primaryItem = true, ticks = 400 },
+    replace_bandage = { animation = "Bandage", animationEnum = true,
+        event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
+    craft_supply = { animation = "Craft", animationEnum = true, ticks = 180 },
+    wear_clothing = { animation = "WearClothing", event = "EventWearClothing", ticks = 90,
+        sound = "RummageInInventory" },
+    pee_stand = { animation = "LF_PeeStanding", ticks = 330, maxTicks = 420 },
+    pee_hip = { animation = "LF_PeeHip", ticks = 330, maxTicks = 420 },
+    pee_free = { animation = "LF_PeeFree", ticks = 330, maxTicks = 420 },
+    pee_squat = { animation = "LF_PeeSquat", ticks = 330, maxTicks = 420 },
+    -- No verified non-local projectile throw exists in Build 42.20.4. These
+    -- stay effect-free; the autonomy layer applies sound/item consequences
+    -- only after this human timed action reports successful completion.
+    stress_bottle_smash = { animation = "Craft", animationEnum = true,
+        primaryItem = true, ticks = 150 },
+    stress_furniture_hit = { animation = "Craft", animationEnum = true, ticks = 150 },
+    -- Effect-free household routine poses. Resource accounting remains owned
+    -- by SCFactionLife; these only make meals and drinks visible to the player.
+    ambient_eat = { animation = "Eat", animationEnum = true, ticks = 100, sound = "Eating" },
+    ambient_drink = { animation = "Drink", animationEnum = true, ticks = 100,
+        sound = "DrinkingFromBottle" },
+    -- Crouched low over a zombie corpse while talking it through. Nothing on
+    -- the body changes; SCDowntime only remembers that it was looked at.
+    study_corpse = { animation = "Loot", lootPosition = "Low", ticks = 360 },
+    -- The same crouch for a quiet moment at a body. Nothing on it is taken.
+    pay_respects = { animation = "Loot", lootPosition = "Low", ticks = 360 },
+    -- Visual-only workout: the stock fitness state (AnimSets/player/fitness)
+    -- entered through its own variables, never through ISFitnessAction, so no
+    -- fitness XP, stiffness or endurance change is applied.
+    workout = { fitness = true, ticks = 1800, maxTicks = 2700 },
+}
+
+local VisualTimedAction
+
+local function nowMs()
+    if type(getTimestampMs) == "function" then
+        local ok, value = pcall(getTimestampMs)
+        local numeric = ok and tonumber(value) or nil
+        if numeric ~= nil then return numeric end
+    end
+    return math.floor((os.clock and os.clock() or 0) * 1000)
+end
+
+local function stableHash(text)
+    local hash = 2166136261
+    text = tostring(text or "")
+    for index = 1, #text do
+        hash = (hash * 16777619 + string.byte(text, index)) % 2147483647
+    end
+    return hash
+end
+
+local function actorKey(actor)
+    local utility = SC.GameplayUtil
+    if type(utility) == "table" and type(utility.idOf) == "function" then
+        local ok, value = pcall(utility.idOf, actor)
+        if ok and value ~= nil then return tostring(value) end
+    end
+    return tostring(actor)
+end
+
+local function commandSerial(actor)
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local ok, state = pcall(SC.Commands.peek, actor)
+        if ok and type(state) == "table" then return tonumber(state.commandSerial) or 0 end
+    end
+    return 0
+end
+
+local function isUrgentAction(action, intent)
+    intent = type(intent) == "table" and intent or {}
+    return intent.urgent == true or intent.emergency == true
+        or intent.survivalCritical == true or combatActions[action] == true
+        or action == "combat_retreat" or action == "ordered_retreat"
+        or action == "corner_escape" or action == "climb_window_emergency"
+        or action == "downed" or action == "recover_from_downed"
+        or action == "exit_vehicle"
+end
+
+local function method(object, name)
+    if object == nil then
+        return nil
+    end
+    local ok, value = pcall(function()
+        return object[name]
+    end)
+    if not ok or type(value) ~= "function" then
+        return nil
+    end
+    return value
+end
+
+local function invoke(object, name, ...)
+    return SC.Call.method(object, name, ...)
+end
+
+local function finite(value)
+    value = tonumber(value)
+    return value ~= nil and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function position(value)
+    if value == nil then
+        return nil
+    end
+    if type(value) == "table" and finite(value.x) and finite(value.y) then
+        return tonumber(value.x), tonumber(value.y), tonumber(value.z) or 0
+    end
+    -- A world object removed from the map keeps its Lua reference but loses
+    -- its square, and Build 42's IsoObject.getX() dereferences that square
+    -- without checking it. The read throws inside the pcall that wraps it and
+    -- still costs a full Java and Lua stack trace in the log for every target
+    -- coordinate we ask for. Something that can report a square and has none
+    -- is nowhere; everything else is read exactly as before.
+    local squareOk, square = invoke(value, "getSquare")
+    if squareOk and square == nil then return nil end
+    local xOk, x = invoke(value, "getX")
+    local yOk, y = invoke(value, "getY")
+    local zOk, z = invoke(value, "getZ")
+    if xOk and yOk and finite(x) and finite(y) then
+        return tonumber(x), tonumber(y), zOk and tonumber(z) or 0
+    end
+    return nil
+end
+
+local function normalizeMode(mode)
+    if mode == "jog" then
+        return "run"
+    end
+    if mode == "walk" or mode == "run" or mode == "sneak" then
+        return mode
+    end
+    return nil
+end
+
+local function heldWeapon(actor)
+    local ok, item = invoke(actor, "getPrimaryHandItem")
+    if not ok or item == nil then return nil end
+    if type(instanceof) == "function" then
+        local classOk, isWeapon = pcall(instanceof, item, "HandWeapon")
+        if classOk and isWeapon == true then return item end
+    end
+    local categoryOk, category = invoke(item, "getCategory")
+    if categoryOk and tostring(category) == "Weapon" then return item end
+    if method(item, "isRanged") ~= nil or method(item, "getMaxDamage") ~= nil then return item end
+    return nil
+end
+
+local function nativeAttackRange(actor, action, intent)
+    if action == "attack_firearm" then return true end
+    local ax, ay, az = position(actor)
+    local tx, ty, tz = position(intent and intent.target)
+    if ax == nil or tx == nil then return false, "attack target position is unavailable" end
+    if math.floor(az or 0) ~= math.floor(tz or 0) then
+        return false, "attack target is on another floor"
+    end
+    local dx, dy = tx - ax, ty - ay
+    local distance = math.sqrt(dx * dx + dy * dy)
+    local tolerance = tonumber(SC.Config.get("combatMeleeOuterTolerance")) or 0.08
+
+    if action == "attack_melee" then
+        local weapon = intent.weapon or heldWeapon(actor)
+        local minimum, maximum
+        if SC.Combat and type(SC.Combat.meleeRange) == "function" then
+            local ok, minValue, maxValue = pcall(SC.Combat.meleeRange, actor, weapon)
+            if ok then minimum, maximum = tonumber(minValue), tonumber(maxValue) end
+        end
+        if maximum == nil then
+            local rangeOk, range = invoke(weapon, "getMaxRange", actor)
+            maximum = rangeOk and tonumber(range) or 1.5
+            local modOk, rangeMod = invoke(weapon, "getRangeMod", actor)
+            rangeMod = modOk and tonumber(rangeMod) or 1.0
+            maximum = maximum * (rangeMod and rangeMod > 0 and rangeMod or 1.0) + tolerance
+            local minOk, minRange = invoke(weapon, "getMinRange")
+            minimum = math.max(0.15, (minOk and tonumber(minRange) or 0)
+                - (tonumber(SC.Config.get("combatMeleeInnerTolerance")) or 0.15))
+        end
+        -- A player floor swing can reach a prone target beneath the weapon's
+        -- standing minimum range. Keep the real outer reach, but do not convert
+        -- that valid downward attack into a defensive shove/backstep decision.
+        if intent.floorAttack ~= true and distance < (minimum or 0) then
+            return false, "attack target is inside minimum melee range"
+        end
+        if distance > maximum then
+            local lead = tonumber(intent.anticipatoryLead) or 0
+            local closing = tonumber(intent.closingSpeed) or 0
+            if intent.anticipatorySwing ~= true or intent.floorAttack == true
+                or closing < 0.65 or lead < 0.08 or lead > 0.55
+                or distance > maximum + lead then
+                return false, "attack target is outside melee range"
+            end
+        end
+        return true
+    end
+
+    local maximum = action == "stomp"
+        and (tonumber(SC.Config.get("combatStompDistance")) or 0.72)
+        or (tonumber(SC.Config.get("combatShoveDistance")) or 1.35)
+    if distance > maximum + tolerance then
+        return false, "attack target is outside " .. tostring(action) .. " range"
+    end
+    return true
+end
+
+local function attackTargetDead(target)
+    if target == nil then return true end
+    local deadOk, dead = invoke(target, "isDead")
+    if deadOk and dead == true then return true end
+    -- Build 42 can publish zero health one update before isDead. This final
+    -- dispatch boundary must reject that transition for every attack kind,
+    -- including standing shove/melee and firearms, not only floor attacks.
+    local healthOk, health = invoke(target, "getHealth")
+    return healthOk and tonumber(health) ~= nil and tonumber(health) <= 0
+end
+
+local function setTacticalMovement(actor, enabled, strafeX, strafeY)
+    if method(actor, "setCompanionTacticalMovement") == nil then
+        return nil, "native tactical movement is unavailable"
+    end
+    local changed, retained = invoke(actor, "setCompanionTacticalMovement",
+        enabled == true, tonumber(strafeX) or 0, tonumber(strafeY) or 0)
+    if not changed then return false, retained end
+    if retained ~= true then return false, "native tactical movement was not retained" end
+    return true, enabled and "tactical_movement" or "tactical_movement_cleared"
+end
+
+local function setWeaponReady(actor, enabled, target)
+    enabled = enabled == true and heldWeapon(actor) ~= nil
+    if not enabled then
+        setTacticalMovement(actor, false, 0, 0)
+        -- A completed/interrupted swing can leave the bridge's precise combat
+        -- target alive after the player aiming flag has lowered. Ordinary
+        -- forward movement must own facing completely; otherwise postupdate can
+        -- turn the body back toward that stale target and select WalkBwdAim.
+        invoke(actor, "setCompanionAimTarget", nil)
+        invoke(actor, "setAimAtFloor", false)
+        invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
+    end
+    if enabled then
+        -- faceLocationF() is only a one-frame/coarse turn. The generic update
+        -- of a non-local IsoPlayer may overwrite its forward vector while the
+        -- actor remains in PlayerAimState (observed live as the default
+        -- southwest direction with a zombie behind the actor). Retain a real
+        -- moving target in the bridge so it reapplies the exact bearing after
+        -- every native update, not only during the eventual attack animation.
+        -- Squares/coordinate tables are not IsoMovingObjects and therefore keep
+        -- the one-shot facing path while also clearing any stale combat target.
+        local persistentTarget = target ~= nil
+            and method(target, "getCurrentSquare") ~= nil and target or nil
+        local retained, retainReason = invoke(
+            actor, "setCompanionAimTarget", persistentTarget)
+        if persistentTarget ~= nil and not retained then
+            return false, retainReason or "native combat-facing target is unavailable"
+        end
+    end
+    if enabled and target ~= nil then
+        local x, y = position(target)
+        if x ~= nil then
+            -- Character coordinates are already exact world positions. Only a
+            -- square contributes a tile corner that needs centring.
+            if method(target, "isFree") ~= nil and method(target, "getCurrentSquare") == nil then
+                x, y = x + 0.5, y + 0.5
+            end
+            invoke(actor, "faceLocationF", x, y)
+        end
+    end
+    if enabled then invoke(actor, "setAimAtFloor", false) end
+    local changed, reason = invoke(actor, "setIsAiming", enabled)
+    if not changed then
+        if enabled then invoke(actor, "setCompanionAimTarget", nil) end
+        return false, reason
+    end
+    local checked, aiming = invoke(actor, "isAiming")
+    if checked and aiming ~= enabled then
+        if enabled then invoke(actor, "setCompanionAimTarget", nil) end
+        return false, enabled and "native weapon-ready state was not retained"
+            or "native weapon-ready state did not clear"
+    end
+    if enabled then return true, "weapon_ready" end
+    return true, heldWeapon(actor) and "weapon_lowered" or "unarmed_ready_skipped"
+end
+
+-- Navigation may need to release a stale aiming pose before its normal
+-- movement tick reaches the stuck detector. This changes posture only; the
+-- shared navigation request continues to own route and locomotion.
+function actions.lowerWeaponForNavigation(actor)
+    return setWeaponReady(actor, false)
+end
+
+-- restObject is the cot or bed of a furniture-pose rest, which stands up
+-- through this same getup and holds its seat the same way.
+local function leaveFurniture(actor, restObject)
+    local leaving = leavingFurniture[actor]
+    if leaving then
+        local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+        context = contextOk and string.lower(tostring(context or "")) or ""
+        if context == "getup" then leaving.sawGetup = true end
+        -- The sit state can clear its flag one update before the getup state
+        -- enters. Releasing the chair in that gap makes the actor drop to the
+        -- floor and then play the stand-up clip from the wrong height.
+        local holding = (sittingOk and sitting == true) or context == "sitonfurniture"
+            or context == "getup"
+            or (not leaving.sawGetup and nowMs() - leaving.requestedAt < 1250)
+        -- Every gameplay action, attacking and fleeing included, waits on this
+        -- getup. If the stock clip never starts (interrupted, or the chair is
+        -- gone) or never ends, clear the native seat directly instead.
+        local overdue = nowMs() - leaving.requestedAt
+            >= (leaving.sawGetup and 6000 or 2500)
+        if holding and not overdue then
+            return false, "standing_from_furniture"
+        end
+        leavingFurniture[actor] = nil
+        if leaving.object then invoke(leaving.object, "setSatChair", false) end
+        if holding then
+            invoke(actor, "setSittingOnFurniture", false)
+            invoke(actor, "setSitOnFurnitureObject", nil)
+            local verifyOk, after = invoke(actor, "isSittingOnFurniture")
+            if not verifyOk or after == true then
+                return false, "native furniture-sitting state could not be cleared"
+            end
+            return true, "forced_stand_from_furniture"
+        end
+        invoke(actor, "setSitOnFurnitureObject", nil)
+        return true, "stood_from_furniture"
+    end
+    local record = activeFurnitureActions[actor]
+    local seatObject = record and record.object or restObject
+    local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+    local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+    context = contextOk and string.lower(tostring(context or "")) or ""
+    if (sittingOk and sitting == true) or context == "sitonfurniture"
+        or context == "getup" then
+        local objectOk, object = invoke(actor, "getSitOnFurnitureObject")
+        leavingFurniture[actor] = {
+            object = objectOk and object or seatObject,
+            requestedAt = nowMs(),
+            sawGetup = context == "getup",
+        }
+        -- Stop any leftover seat-entry locomotion before asking the native
+        -- furniture state to stand. Its own getup action owns root motion.
+        if context ~= "getup" then
+            actions.stopDirect(actor, { preservePosture = true })
+            invoke(actor, "setVariable", "forceGetUp", true)
+        end
+        if record and cancelSeatingRecord then
+            -- A failed entry may leave its BaseAction after the Lua queue is
+            -- gone. A normal seated exit keeps the stock get-up clip intact.
+            cancelSeatingRecord(actor, record, not (sittingOk and sitting == true))
+        end
+        activeFurnitureActions[actor] = nil
+        return false, "standing_from_furniture"
+    end
+    if record and cancelSeatingRecord then cancelSeatingRecord(actor, record, true) end
+    activeFurnitureActions[actor] = nil
+    if seatObject then invoke(seatObject, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    return true, record and "furniture_entry_cancelled" or "already_standing"
+end
+
+local function groundSeatState(actor)
+    local ok, seated = invoke(actor, "isSitOnGround")
+    return ok and seated == true
+end
+
+local function requestGroundSeat(actor, seated)
+    if seated then
+        if groundSeatState(actor) then
+            activeGroundActions[actor] = activeGroundActions[actor]
+                or { startedAt = nowMs() }
+            return true, "already_sitting_on_ground"
+        end
+        actions.stopDirect(actor)
+        local requested, reason = invoke(actor, "reportEvent", "EventSitOnGround")
+        if requested then
+            activeGroundActions[actor] = { startedAt = nowMs(), leaving = false }
+        end
+        return requested, requested and "ground_sit_requested" or reason
+    end
+    if not groundSeatState(actor) then
+        activeGroundActions[actor] = nil
+        return true, "already_standing"
+    end
+    local requested, reason = invoke(actor, "setVariable", "forceGetUp", true)
+    if requested and activeGroundActions[actor] then
+        activeGroundActions[actor].leaving = true
+    end
+    return requested, requested and "ground_stand_requested" or reason
+end
+
+-- PlayerGetUpState.exit needs the original furniture object: it ejects the
+-- body from a solid bed before clearing that reference. Clearing onbed or
+-- the object early skips both the bed animation and that native ejection.
+function BedExit.overlap(actor)
+    local okay, square = invoke(actor, "getCurrentSquare")
+    local utility = SC.GameplayUtil
+    local x, y, z = position(actor)
+    if x ~= nil and utility and type(utility.gridSquare) == "function" then
+        -- Get-up root motion can update coordinates before the cached current
+        -- square. Recover only the physical tile, never the previous mattress.
+        square = utility.gridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
+    end
+    if square == nil then return nil end
+    local previous = BedExit.probes[actor]
+    if previous and previous.square == square and nowMs() - previous.at < 1000 then
+        if not previous.object then return nil end
+        local present, current = invoke(previous.object, "getSquare")
+        if present and current == square then return previous.object, square end
+    end
+    local probe = { square = square, at = nowMs() }
+    BedExit.probes[actor] = probe
+    local solidOk, solid = invoke(square, "isSolid")
+    local transOk, trans = invoke(square, "isSolidTrans")
+    if not (solidOk and solid == true or transOk and trans == true) then return nil end
+    local listOk, objects = invoke(square, "getObjects")
+    local sizeOk, size = invoke(objects, "size")
+    if not listOk or not sizeOk then return nil end
+    for index = 0, math.min(16, tonumber(size) or 0) - 1 do
+        local _, object = invoke(objects, "get", index)
+        local _, sprite = invoke(object, "getSprite")
+        local _, grid = invoke(sprite, "getSpriteGrid")
+        local _, name = invoke(sprite, "getName")
+        local _, props = invoke(sprite, "getProperties")
+        local _, custom = invoke(props, "get", "CustomName")
+        local _, bedType = invoke(props, "get", "BedType")
+        name, custom = string.lower(tostring(name or "")),
+            string.lower(tostring(custom or "")):gsub("[%s_%-]", "")
+        -- Bedding sheets also contain bedside furniture. A texture prefix
+        -- alone must never turn a table into a bed-exit movement gate.
+        if grid and bedType ~= nil and (name:find("furniture_bedding", 1, true)
+            or custom:find("bed", 1, true) or custom == "cot"
+            or custom:find("mattress", 1, true) or custom == "stretcher"
+            or custom == "sleepingbag") then
+            probe.object = object
+            return object, square
+        end
+    end
+    return nil
+end
+
+function BedExit.clearFootprint(actor, state)
+    local object, square = BedExit.overlap(actor)
+    -- Get-up may move over another segment or nearby furniture. The bed being
+    -- left owns this exit; do not switch its footprint halfway through it.
+    local bed = state.object or object
+    if not bed then return true end
+    local utility = SC.GameplayUtil
+    if not utility or not SC.Actor or type(SC.Actor.recover) ~= "function"
+        or type(utility.isClearActorSpawnSquare) ~= "function" then
+        return false, "standing_from_bed_exit_blocked"
+    end
+    if nowMs() < (state.retryAt or 0) then return false, "standing_from_bed_exit_blocked" end
+    state.retryAt = nowMs() + 1000
+    local geometry = SC.BedGeometry
+    local choices, geometric = {}, false
+    if geometry and type(geometry.exitTargets) == "function" then
+        local okay, targets, touching = pcall(geometry.exitTargets, bed, actor)
+        if okay and type(targets) == "table" then
+            if touching == false then return true end
+            choices, geometric = targets, true
+        end
+    end
+    if not geometric and not object then return true end
+    -- Older providers without mattress geometry retain the conservative
+    -- one-tile native collision check; missing APIs never widen the search.
+    if not geometric then
+        local x, y, z = utility.position(square)
+        local _, room = invoke(square, "getRoom")
+        if x == nil or y == nil then return false, "standing_from_bed_exit_blocked" end
+        for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
+            local target = utility.gridSquare(x + offset[1], y + offset[2], z or 0)
+            local _, targetRoom = invoke(target, "getRoom")
+            local edgeOk, blocked = invoke(square, "testCollideAdjacent", actor, offset[1], offset[2], 0)
+            if target and targetRoom == room and edgeOk and blocked == false
+                and utility.isClearActorSpawnSquare(target) == true then
+                choices[#choices + 1] = target
+            end
+        end
+        table.sort(choices, function(a, b) return utility.distance(actor, a) < utility.distance(actor, b) end)
+    end
+    for _, target in ipairs(choices) do
+        -- One verified clear tile on the same floor and in the same room.
+        -- Geometry may cross the other half of this exact mattress, never
+        -- unrelated furniture. The original actor and inventory stay intact.
+        local recovered
+        if geometric and type(SC.Actor.recoverBedExit) == "function" then
+            recovered = SC.Actor.recoverBedExit(actor, bed, target)
+        else
+            recovered = SC.Actor.recover(actor, target)
+        end
+        if recovered == true then
+            BedExit.probes[actor] = nil
+            if utility.sameSquare(actor, target) == true then
+                if geometric then
+                    local okay, _, touching = pcall(geometry.exitTargets, bed, actor)
+                    if not okay or touching ~= false then return false, "standing_from_bed_exit_unverified" end
+                end
+                return true, "stepped_clear_of_bed"
+            end
+            return false, "standing_from_bed_exit_unverified"
+        end
+    end
+    return false, "standing_from_bed_exit_blocked"
+end
+
+function BedExit.leave(actor, record)
+    local _, dead = invoke(actor, "isDead")
+    if dead == true then
+        BedExit.pending[actor], BedExit.probes[actor] = nil, nil
+        return true
+    end
+    local state = BedExit.pending[actor]
+    local _, onBed = invoke(actor, "isOnBed")
+    local _, context = invoke(actor, "getCurrentActionContextStateName")
+    context = string.lower(tostring(context or ""))
+    if not state then
+        local object = record and record.pose == "bed" and record.fallbackGround ~= true and record.object
+        if not object then
+            local _, current = invoke(actor, "getSitOnFurnitureObject")
+            if onBed == true or context == "onbed" then object = current end
+        end
+        local overlap
+        if onBed ~= true and context ~= "onbed" then overlap = BedExit.overlap(actor) end
+        if not object and onBed ~= true and context ~= "onbed" and not overlap then return true end
+        state = { object = object or overlap, requestedAt = nowMs(),
+            sawGetup = context == "getup", orphan = overlap ~= nil and not object }
+        BedExit.pending[actor] = state
+        if not state.orphan then
+            actions.stopDirect(actor, { preservePosture = true })
+            invoke(actor, "setVariable", "forceGetUp", true)
+            return false, "standing_from_bed"
+        end
+    end
+    if context == "getup" then state.sawGetup = true end
+    local _, owner = invoke(actor, "getCompanionMovementOwner")
+    if owner == "grapple" or owner == "traversal" or owner == "attack" or owner == "corpse_drag"
+        or (owner == "reaction" and context ~= "getup") then return false, "standing_from_bed" end
+    local elapsed = nowMs() - state.requestedAt
+    local holding = onBed == true or context == "onbed" or context == "getup"
+        or not state.orphan and not state.sawGetup and elapsed < 1250
+    if holding and elapsed < (state.sawGetup and 8000 or 4000) then return false, "standing_from_bed" end
+    -- Only the watchdog clears a stalled pose. Normal exits keep the bed
+    -- object and onbed flag until PlayerGetUpState has finished with them.
+    if holding then
+        invoke(actor, "setVariable", "OnBedStarted", false)
+        invoke(actor, "setOnBed", false)
+        invoke(actor, "setbOnBed", false)
+    end
+    if method(actor, "setCollidable") then
+        local restored = invoke(actor, "setCollidable", true)
+        local readable, collidable = invoke(actor, "isCollidable")
+        if not restored or readable and collidable ~= true then return false, "standing_from_bed" end
+    end
+    invoke(actor, "setIgnoreMovement", false)
+    invoke(actor, "setBlockMovement", false)
+    local cleared, reason = BedExit.clearFootprint(actor, state)
+    if not cleared then return false, reason end
+    if state.object then invoke(state.object, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    BedExit.pending[actor] = nil
+    return true, reason or "stood_from_bed"
+end
+
+local function leaveSeating(actor)
+    local bedRecord = activeBedActions[actor]
+    if bedRecord and cancelSeatingRecord then cancelSeatingRecord(actor, bedRecord, true) end
+    activeBedActions[actor] = nil
+    -- A bed or cot taken in the furniture pose stands through the chair's getup.
+    -- Releasing its seat or furniture object first drops the companion to
+    -- the floor before the stand-up clip plays.
+    local restObject = bedRecord and bedRecord.pose == "furniture"
+        and bedRecord.object or nil
+    if restObject == nil then
+        local standing, reason = BedExit.leave(actor, bedRecord)
+        if not standing then return false, reason end
+    end
+    local standing, reason = leaveFurniture(actor, restObject)
+    if not standing then return false, reason end
+    if groundSeatState(actor) then
+        local requested, standReason = requestGroundSeat(actor, false)
+        if not requested then return false, standReason end
+        -- The animation graph clears isSitOnGround asynchronously. Refuse the
+        -- requested gameplay action this tick so it is retried only after the
+        -- native character is actually standing.
+        return false, "standing_from_ground"
+    end
+    return true, reason
+end
+
+local function targetOf(intent)
+    return intent.nextSquare or intent.targetSquare or intent.targetPosition
+end
+
+local function vectorFor(actor, intent)
+    local dx = tonumber(intent.dx)
+    local dy = tonumber(intent.dy)
+    if finite(dx) and finite(dy) then
+        return dx, dy
+    end
+
+    local ax, ay = position(actor)
+    if ax == nil then
+        return nil, nil, "actor position is unavailable"
+    end
+
+    local destination = targetOf(intent)
+    if destination ~= nil then
+        local tx, ty = position(destination)
+        if tx == nil then
+            return nil, nil, "target square position is unavailable"
+        end
+        return tx + 0.5 - ax, ty + 0.5 - ay
+    end
+
+    local away = intent.awayFrom
+    if away ~= nil then
+        local tx, ty = position(away)
+        if tx == nil then
+            return nil, nil, "avoidance target position is unavailable"
+        end
+        dx = ax - tx
+        dy = ay - ty
+        if intent.lateral == true then
+            dx, dy = -dy, dx
+        end
+        return dx, dy
+    end
+
+    if finite(intent.x) and finite(intent.y) then
+        return tonumber(intent.x) - ax, tonumber(intent.y) - ay
+    end
+    return nil, nil, "movement intent has no direction or target"
+end
+
+function actions.inspectMovementBlocker(actor)
+    local utility = SC.GameplayUtil
+    if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
+        return utility.movementStateBlocker(actor)
+    end
+    local knockedOk, knocked = invoke(actor, "isKnockedDown")
+    if knockedOk and knocked == true then return "knocked_down" end
+    local climbingOk, climbing = invoke(actor, "isCompanionTraversalActive")
+    if not climbingOk then climbingOk, climbing = invoke(actor, "isClimbing") end
+    if climbingOk and climbing == true then return "climbing" end
+    local blockedOk, blocked = invoke(actor, "isBlockMovement")
+    if blockedOk and blocked == true then return "movement_locked" end
+    return nil
+end
+
+local function movementReady(actor, mode, intent)
+    local blocker = actions.inspectMovementBlocker(actor)
+    local serviceWalk = SC.NativeCombatActions.permitsServiceWalk(actor, mode, intent)
+    if blocker and not (serviceWalk
+        and (blocker == "unfinished_action" or blocker == "action_animation_state")) then
+        return false, "actor_state_blocked:" .. tostring(blocker)
+    end
+    return true
+end
+
+local function publicField(object, name)
+    if object == nil then return false, nil end
+    local ok, value = pcall(function() return object[name] end)
+    if not ok then return false, nil end
+    return true, value
+end
+
+-- Read-only engine path state used by the Lua planner.  PathFindBehavior2 can
+-- legitimately spend several updates waiting for PolygonalMap2, turning to an
+-- obstacle, or handing movement to a climb/open animation.  Those states are
+-- progress even when the actor's world position has not changed yet.
+function actions.pathTelemetry(actor)
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if not behaviorOk or behavior == nil then return { available = false } end
+    local telemetry = { available = true, behavior = behavior }
+    local methods = {
+        shouldBeMoving = "shouldBeMoving",
+        hasStartedMoving = "hasStartedMoving",
+        turningToObstacle = "isTurningToObstacle",
+        movingUsingPathFind = "isMovingUsingPathFind",
+        allowTurnAnimation = "allowTurnAnimation",
+        strafing = "isStrafing",
+    }
+    for key, name in pairs(methods) do
+        local ok, value = invoke(behavior, name)
+        if ok then telemetry[key] = value == true end
+    end
+    local fieldOk, field = publicField(behavior, "pathNextIsSet")
+    if fieldOk then telemetry.pathNextIsSet = field == true end
+    fieldOk, field = publicField(behavior, "pathNextX")
+    if fieldOk and finite(field) then telemetry.pathNextX = tonumber(field) end
+    fieldOk, field = publicField(behavior, "pathNextY")
+    if fieldOk and finite(field) then telemetry.pathNextY = tonumber(field) end
+    telemetry.active = telemetry.movingUsingPathFind == true
+        or telemetry.turningToObstacle == true
+        or (telemetry.movingUsingPathFind == nil and telemetry.shouldBeMoving == true)
+    telemetry.pending = telemetry.active == true
+        and telemetry.hasStartedMoving == false
+    local statusOk, status = invoke(actor, "getCompanionPathStatus")
+    if statusOk and (status == "none" or status == "pending" or status == "ready"
+        or status == "moving" or status == "stopping") then
+        -- Native ownership and visible motion differ while waiting for a route
+        -- and while draining its final animation frame.
+        telemetry.status = status
+        telemetry.active = status ~= "none"
+        telemetry.pending = status == "pending"
+        telemetry.moving = status == "moving"
+        telemetry.stopping = status == "stopping"
+    end
+    return telemetry
+end
+
+local function flattenTargets(targets)
+    local locations, firstX, firstY, firstZ = {}, nil, nil, nil
+    local seen = {}
+    for _, target in ipairs(type(targets) == "table" and targets or {}) do
+        local x, y, z = position(target)
+        if x ~= nil then
+            x, y, z = math.floor(x) + 0.5, math.floor(y) + 0.5, math.floor(z or 0)
+            local key = tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)
+            if not seen[key] then
+                seen[key] = true
+                locations[#locations + 1] = x
+                locations[#locations + 1] = y
+                locations[#locations + 1] = z
+                if firstX == nil then firstX, firstY, firstZ = x, y, z end
+            end
+        end
+    end
+    return locations, firstX, firstY, firstZ
+end
+
+-- The owned native actor exposes a narrow wrapper that pairs
+-- PathFindBehavior2.pathToNearestTable() with the same player path-state setup
+-- used by pathToLocationF().  External Workshop providers may not expose it;
+-- callers must retain a normal single-target fallback.
+function actions.pathToNearest(actor, targets, mode)
+    local ready, readyReason = movementReady(actor)
+    if not ready then return false, readyReason end
+    local locations, firstX, firstY, firstZ = flattenTargets(targets)
+    if #locations < 3 then return false, "nearest path has no valid targets" end
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if not behaviorOk or behavior == nil then
+        return false, "native path behavior is unavailable"
+    end
+    setTacticalMovement(actor, false, 0, 0)
+    local weaponReady, weaponReason = setWeaponReady(actor, false)
+    if not weaponReady then return false, weaponReason end
+    invoke(actor, "setRunning", mode == "run" or mode == "jog")
+    invoke(actor, "setSprinting", false)
+    invoke(actor, "setSneaking", mode == "sneak")
+    local started, reason = invoke(actor, "bridgePathToNearest",
+        locations, firstX, firstY, firstZ)
+    if not started or reason ~= true then
+        return false, started and "native nearest path request was rejected" or reason
+    end
+    local telemetry = actions.pathTelemetry(actor)
+    if telemetry.available and telemetry.active == false then
+        -- bridgePathToNearest already mutated native locomotion.  Roll back the
+        -- complete owned state, not just PathFindBehavior2's route.
+        actions.stopDirect(actor, { preservePosture = true })
+        return false, "native nearest path request did not become active"
+    end
+    return true, "nearest_path_started"
+end
+
+-- Decide whether a native path/face target must be centred on its tile (review
+-- 3.4). A tile/square reports integer corner coords and needs +0.5; a world
+-- position is already exact and must never be shifted. An explicit
+-- intent.targetKind = "square" | "world" is authoritative; otherwise the caller's
+-- own inference (whether the resolved target is the world-position field) decides,
+-- so existing callers keep their current behaviour.
+local function centerTargetOnTile(intent, inferredDefault)
+    local kind = type(intent) == "table" and intent.targetKind or nil
+    if kind == "square" then return true end
+    if kind == "world" then return false end
+    return inferredDefault == true
+end
+actions._centerTargetOnTileForTests = centerTargetOnTile
+
+local function directPath(actor, target, mode, intent)
+    local stateReady, stateReason = movementReady(actor)
+    if not stateReady then return false, stateReason end
+    local x, y, z = position(target)
+    if x == nil then
+        return false, "path target position is unavailable"
+    end
+    -- Center on the tile unless the resolved target is an exact world position
+    -- (a fractional world coord must not be pushed half a tile off). targetOf()
+    -- returns intent.targetPosition only when no square field was set, so a square
+    -- target still centers exactly as before.
+    local worldTarget = type(intent) == "table" and intent.targetPosition ~= nil
+        and target == intent.targetPosition
+    if centerTargetOnTile(intent, not worldTarget) then
+        x = x + 0.5
+        y = y + 0.5
+    end
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if not behaviorOk or behavior == nil then
+        return false, "native path behavior is unavailable"
+    end
+    -- Engine paths may turn at doors, vegetation and stairs. Do not hold a
+    -- stale strafe vector while PathFindBehavior2 owns those turns.
+    setTacticalMovement(actor, false, 0, 0)
+    local ready, readyReason = setWeaponReady(actor, false)
+    if not ready then return false, readyReason end
+    invoke(actor, "setRunning", mode == "run")
+    invoke(actor, "setSprinting", false)
+    invoke(actor, "setSneaking", mode == "sneak")
+    local retainedOk, retained = invoke(behavior, "isTargetLocation", x, y, z)
+    local activeOk, active = invoke(behavior, "shouldBeMoving")
+    if retainedOk and retained == true and activeOk and active == true then
+        return true, "path_continues"
+    end
+    -- Use the character entry point, not PathFindBehavior2 directly. Vanilla
+    -- pathToLocationF also selects bPathfind/direct movement and updates the
+    -- same locomotion state that the player animation graph consumes.
+    local started, reason = invoke(actor, "pathToLocationF", x, y, z)
+    if not started then
+        return false, reason
+    end
+    local verified, matches = invoke(behavior, "isTargetLocation", x, y, z)
+    if not verified or matches ~= true then
+        -- The native entry point has already selected path locomotion and may
+        -- have changed posture/speed.  Structured cleanup is required here.
+        actions.stopDirect(actor, { preservePosture = true })
+        return false, "native path request did not retain its target"
+    end
+    return true, "path_started"
+end
+
+-- Manual player-track movement translates the actor directly after the native
+-- animation update. Starting that translation during a sharp rendered turn
+-- makes the feet continue along the old facing for a frame or two. Let the
+-- stock player turn animation own sharp changes first; straight and shallow
+-- bends still start in the same pulse.
+local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent,
+        remaining)
+    if tactical or type(intent) == "table" and (intent.allowMovingTurn == true
+        or intent.urgent == true or intent.survivalCritical == true) then
+        forwardTurns[actor] = nil
+        return nil
+    end
+    -- A final fractional step must never wait for a turn. Within a fraction of
+    -- a tile the direction vector is dominated by numerical noise, so the
+    -- facing test below fails on almost every tick and the actor turns instead
+    -- of stepping. That is the Bob_IdleTurn90L loop seen in the 0.23.0
+    -- playtest: a companion stalled 0.036 tiles short of its goal square for
+    -- 1500 frames until the scavenge approach timed out, while following --
+    -- which has a generous arrival tolerance and a moving goal -- looked fine.
+    -- Facing is still applied by the caller immediately after this returns; all
+    -- that is skipped is waiting for the turn animation to finish.
+    local skipDistance = tonumber(SC.Config.get("movementTurnSkipDistance")) or 0.25
+    if finite(remaining) and remaining <= skipDistance then forwardTurns[actor] = nil return nil end
+    -- A follower keeps walking through a turn already underway; only a change
+    -- sharper than the continuous threshold below stops it. Stopping for every
+    -- native turn made followers run, stop and run again.
+    -- Cruising: a follow, or a walk across a room to a container. Both keep
+    -- walking through a turn; only a tactical reposition stops for one.
+    local continuous = type(intent) == "table"
+        and (intent.continuousFollow == true or intent.continuousApproach == true)
+    local turningOk, turning = invoke(actor, "isTurning")
+
+    local forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
+    local forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
+    if not forwardXOk or not forwardYOk or not finite(forwardX) or not finite(forwardY) then
+        return nil
+    end
+    local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+    if forwardLength <= 0.000001 then return nil end
+    local facingDot = (forwardX * nx + forwardY * ny) / forwardLength
+    local thresholdKey = continuous
+        and "movementContinuousTurnBeforeMoveDot" or "movementTurnBeforeMoveDot"
+    local threshold = tonumber(SC.Config.get(thresholdKey))
+        or (thresholdKey == "movementContinuousTurnBeforeMoveDot" and -0.25 or 0.8)
+    threshold = math.max(-1, math.min(1, threshold))
+    local modelOk, model = invoke(actor, "hasAnimationPlayer")
+    local angleOk, angle = invoke(actor, "getAnimAngle")
+    local bodyKnown = modelOk and model == true and angleOk and finite(angle)
+    local bodyDot = bodyKnown and math.cos(math.rad(angle)) * nx
+        + math.sin(math.rad(angle)) * ny or facingDot
+    if continuous and facingDot >= threshold or not continuous and bodyDot >= threshold
+        and (bodyKnown or not turningOk or turning ~= true) then
+        forwardTurns[actor] = nil
+        return nil
+    end
+
+    local current = nowMs()
+    local pending = forwardTurns[actor]
+    if pending and pending.x * nx + pending.y * ny < 0.985 then pending = nil end
+    if pending and (pending.failed or current - pending.at >= (tonumber(SC.Config.get("movementTurnMaxWaitMs")) or 1600)) then
+        pending.failed = true
+        forwardTurns[actor] = pending
+        return false, "movement_turn_timeout"
+    end
+
+    -- setMoving(false) cancels a retained vector from the previous segment.
+    -- Without it that vector keeps translating the actor during the new turn.
+    invoke(actor, "setMoving", false)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    if not pending then
+        -- Reissuing the stock turn on every decision restarts its animation.
+        -- Retain one request and its deadline while the real body catches up.
+        if facingDot < threshold or not turningOk or turning ~= true then
+            local requested, accepted = invoke(actor, "faceLocationF", actorX + nx * 2, actorY + ny * 2)
+            if not requested or accepted ~= true then return false, "movement_turn_rejected" end
+        end
+        forwardTurns[actor] = { x = nx, y = ny, at = current }
+    end
+    -- faceLocationF may retain only the coarse native direction. Supply the
+    -- exact logical target too; rendered alignment, rather than that input
+    -- vector alone, decides when this turn is ready for translation.
+    invoke(actor, "setForwardDirection", nx, ny)
+    return true, "turning_for_movement"
+end
+actions._prepareForwardTurnForTests = prepareForwardTurn
+
+local function directMove(actor, mode, dx, dy, intent)
+    local lengthSquared = dx * dx + dy * dy
+    if lengthSquared < 0.000001 then
+        actions.stopDirect(actor)
+        return true, "already_at_target"
+    end
+
+    local length = math.sqrt(lengthSquared)
+    local nx = dx / length
+    local ny = dy / length
+    local tacticalCorner = type(intent) == "table" and intent.tacticalCorner == true
+    local effectiveMode = tacticalCorner and "sneak" or mode
+    local distance = SC.Config.get(effectiveMode .. "Distance")
+    if not finite(distance) or distance <= 0 then
+        return false, "movement distance is invalid"
+    end
+    local distanceScale = type(intent) == "table"
+        and tonumber(intent.movementDistanceScale) or nil
+    if finite(distanceScale) then
+        distance = distance * math.max(0.25, math.min(1, distanceScale))
+    end
+
+    local x, y, z = position(actor)
+    if x == nil then
+        return false, "actor position is unavailable"
+    end
+    local endpointX, endpointY, endpointZ, arrivalTolerance, targetTtlMs
+    if intent.doorwayAlignment == true or intent.fenceAlignment == true
+        or intent.movementTarget == true then
+        endpointX, endpointY, endpointZ = position(intent.targetPosition)
+        if not finite(endpointX) or not finite(endpointY) or not finite(endpointZ)
+            or math.floor(endpointZ) ~= math.floor(z) then
+            actions.stopDirect(actor)
+            return false, "manual_movement_target_invalid"
+        end
+        arrivalTolerance = tonumber(intent.movementArrivalTolerance) or 0.06
+        targetTtlMs = tonumber(intent.movementTargetTtlMs) or 750
+    elseif finite(tonumber(intent.combatMinimumDistance)) then
+        local tx, ty, tz = position(intent.target)
+        if not finite(tx) or not finite(ty) or not finite(tz)
+            or math.floor(tz) ~= math.floor(z) then
+            actions.stopDirect(actor)
+            return false, "combat_movement_target_invalid"
+        end
+        local minimum = math.max(0, tonumber(intent.combatMinimumDistance))
+        local gap = math.sqrt((tx - x) ^ 2 + (ty - y) ^ 2) - minimum
+        if gap <= 0.01 then
+            local stopped
+            if type(actions.holdCombatPosition) == "function" then
+                stopped = actions.holdCombatPosition(actor)
+            else
+                stopped = actions.stopDirect(actor, { preservePosture = true })
+            end
+            if stopped ~= true then return false, "combat_position_hold_failed" end
+            local ready, readyReason = setWeaponReady(actor, true, intent.target)
+            return ready == true, ready and "combat_spacing_reached" or readyReason
+        end
+        -- Preserve the collision-checked steering direction. A target endpoint
+        -- at the zombie itself would undo a lateral detour chosen by navigation.
+        -- Travelling no farther than the remaining range gap is safe in any
+        -- direction and cannot carry the actor inside the requested range.
+        local travel = math.min(gap, tonumber(SC.Config.get("combatSteeringProbeDistance")) or 0.45)
+        endpointX, endpointY, endpointZ = x + nx * travel, y + ny * travel, z
+        arrivalTolerance, targetTtlMs = math.min(0.02, travel * 0.25), 250
+    end
+    if endpointX ~= nil then
+        if not finite(arrivalTolerance) or not finite(targetTtlMs) then
+            actions.stopDirect(actor)
+            return false, "manual_movement_bounds_invalid"
+        end
+        arrivalTolerance = math.max(0.001, math.min(0.15, arrivalTolerance))
+        targetTtlMs = math.floor(math.max(1, math.min(1000, targetTtlMs)))
+    end
+    local toX, toY = x + nx * distance, y + ny * distance
+    local stateReady, stateReason = movementReady(actor, mode, intent)
+    if not stateReady then return false, stateReason end
+    local collisionOk, movementClear = invoke(
+        actor, "isCompanionMovementClear", toX, toY, z)
+    if not collisionOk then
+        return false, "native_continuous_collision_probe_unavailable"
+    end
+    if movementClear ~= true then
+        return false, "continuous_collision_blocked"
+    end
+
+    -- Vanilla's BwdDrag grapple walks backward while the survivor faces the
+    -- body. Facing along travel makes the corpse appear to be pushed ahead.
+    local draggingBody = type(intent) == "table" and intent.draggingBody == true
+    local facingX, facingY = draggingBody and -nx or nx,
+        draggingBody and -ny or ny
+    local facingTarget = type(intent) == "table" and intent.facingTarget or nil
+    if facingTarget == nil and type(intent) == "table" and intent.keepFacing == true then
+        facingTarget = intent.target or intent.awayFrom
+    end
+    if facingTarget == nil and type(intent) == "table" and intent.weaponReady == true then
+        facingTarget = intent.observationTarget or intent.nextSquare or intent.targetSquare
+    end
+    if facingTarget ~= nil and not draggingBody then
+        local targetX, targetY = position(facingTarget)
+        if targetX ~= nil then
+            local lookX, lookY = targetX - x, targetY - y
+            local lookLength = math.sqrt(lookX * lookX + lookY * lookY)
+            if lookLength > 0.000001 then facingX, facingY = lookX / lookLength, lookY / lookLength end
+        end
+    end
+
+    -- The stock directional strafe blend must drive the animation whenever the
+    -- actor travels off its facing axis (strafing, backpedaling, kiting). The real
+    -- condition is simply that facing differs from the travel direction; relying on
+    -- a caller to flag it left off-axis moves playing the forward walk/run cycle
+    -- while the body slid backward or sideways -- the moonwalk. Detect the angle
+    -- directly (facing == travel gives dot 1; only an overridden facing can differ),
+    -- and keep the explicit flags for the aligned-advance-with-weapon-ready case.
+    local facingDot = facingX * nx + facingY * ny
+    local tactical = not draggingBody and type(intent) == "table" and (facingDot < 0.985
+        or (facingTarget ~= nil and (intent.tacticalStrafe == true
+            or intent.tacticalStair == true or intent.tacticalRetreat == true
+            or intent.keepFacing == true or intent.weaponReady == true)))
+    local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true, facingTarget)
+    if not ready then return false, readyReason end
+    if tactical then
+        -- Tactical locomotion owns its look direction even without a weapon.
+        -- Lowering a weapon must not leave the per-frame native actor without
+        -- the moving target that this same step asks it to keep facing.
+        if facingTarget and method(facingTarget, "getCurrentSquare") ~= nil then
+            local retained, failure = invoke(actor, "setCompanionAimTarget", facingTarget)
+            if not retained then return false, failure end
+        end
+        -- Convert the world-space translation into the stock player's local
+        -- strafe blend axes. Negative Y selects backward walking; X selects a
+        -- lateral or diagonal step while the upper body faces the threat.
+        local localX = nx * -facingY + ny * facingX
+        local localY = nx * facingX + ny * facingY
+        local tacticalSet, tacticalReason = setTacticalMovement(
+            actor, true, localX, localY)
+        if tacticalSet == false then return false, tacticalReason end
+    else
+        setTacticalMovement(actor, false, 0, 0)
+    end
+    -- Never let PathFindBehavior2 and manual MoveForward own the same frame.
+    -- Their competing vectors cause sliding and frozen-foot moonwalking.
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if behaviorOk and behavior ~= nil then invoke(behavior, "cancel") end
+    local waitingForTurn, turnReason = prepareForwardTurn(
+        actor, x, y, nx, ny, tactical or draggingBody, intent, length)
+    if waitingForTurn ~= nil then return waitingForTurn, turnReason end
+    invoke(actor, "setForwardDirection", facingX, facingY)
+    invoke(actor, "setRunning", mode == "run" and not tactical and intent.weaponReady ~= true)
+    invoke(actor, "setSprinting", false)
+    invoke(actor, "setSneaking", effectiveMode == "sneak")
+    invoke(actor, "setMoving", true)
+    local moved, reason = invoke(actor, "MoveForward", distance, nx, ny,
+        SC.Config.get("movementSoundDelta"))
+    if not moved then
+        actions.stopDirect(actor)
+        return false, reason
+    end
+    if endpointX ~= nil then
+        local bounded, accepted = invoke(actor, "setCompanionMovementTarget",
+            endpointX, endpointY, endpointZ, arrivalTolerance, targetTtlMs)
+        if not bounded or accepted ~= true then
+            actions.stopDirect(actor)
+            return false, "native_bounded_movement_rejected"
+        end
+    end
+    -- MoveForward owns the translation vector. Reapply the observation vector
+    -- afterwards so a corner step is a true sidestep rather than a blind turn.
+    if draggingBody or tactical and facingTarget ~= nil then
+        invoke(actor, "setForwardDirection", facingX, facingY)
+    end
+
+    local movingOk, moving = invoke(actor, "isMoving")
+    local newX, newY = position(actor)
+    local changed = newX ~= nil and (math.abs(newX - x) > 0.000001 or math.abs(newY - y) > 0.000001)
+    if not changed and (not movingOk or moving ~= true) then
+        actions.stopDirect(actor)
+        return false, "native movement did not start"
+    end
+    return true, "moving"
+end
+
+-- PathFindBehavior2 owns door alignment, but its travel bearing can turn a
+-- BwdDrag survivor toward the destination. Restore the backward grapple
+-- bearing on each retained native-path update as well as manual open steps.
+function actions.faceDraggedCorpse(actor, target)
+    if not actions.isDraggingCorpse(actor) then return false end
+    local ax, ay = position(actor)
+    local tx, ty = position(target)
+    if ax == nil or tx == nil then return false end
+    local dx, dy = tx - ax, ty - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0.001 then return false end
+    local changed = invoke(actor, "setForwardDirection", -dx / length, -dy / length)
+    return changed == true
+end
+
+local function useProvider(provider, operation, ...)
+    if type(provider) ~= "table" or type(provider[operation]) ~= "function" then
+        return nil, "provider operation is unavailable: " .. tostring(operation)
+    end
+    local values = SC.Call.pack(pcall(provider[operation], provider, ...))
+    if not values[1] then
+        return false, tostring(values[2])
+    end
+    if values[2] ~= true then
+        return false, values[3] or "native operation did not start"
+    end
+    return true, values[3]
+end
+
+SC.NativeTraversalActions.configure({
+    invoke = invoke,
+    useProvider = useProvider,
+    stopDirect = function(actor) return actions.stopDirect(actor) end,
+})
+SC.NativeVisualActions.configure({
+    invoke = invoke,
+    nowMs = nowMs,
+    useProvider = useProvider,
+    setWeaponReady = setWeaponReady,
+    position = position,
+    finite = finite,
+    centerTargetOnTile = centerTargetOnTile,
+    stopDirect = function(actor, options) return actions.stopDirect(actor, options) end,
+    humanEmotes = humanEmotes,
+    emoteAliases = emoteAliases,
+})
+
+local fitnessExercises = { pushups = true, situp = true, burpees = true, squats = true }
+
+-- Leave the stock fitness state the way ISFitnessAction does in single
+-- player: end the loop and mark the exercise finished. forceStop does not
+-- always reach the Lua stop callback, so cancellation calls this as well.
+local function endFitnessPose(timedAction)
+    if type(timedAction) ~= "table" or timedAction.fitness ~= true
+        or timedAction.scFitnessEnded == true then return end
+    timedAction.scFitnessEnded = true
+    local character = timedAction.character
+    invoke(character, "setVariable", "ExerciseStarted", false)
+    invoke(character, "setVariable", "ExerciseEnded", true)
+    invoke(character, "SetVariable", "FitnessFinished", "true")
+end
+
+-- The sounds the vanilla timed action makes for the same pose. The stand-in
+-- action carries none of its own, so washing, reading, bandaging and
+-- rummaging would otherwise be silent. Stock sounds only; they are heard,
+-- not noise that draws zombies.
+local function playActionSound(character, name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local ok, handle = invoke(character, "playSound", name)
+    return ok and handle ~= nil and handle ~= 0 and handle or nil
+end
+
+local function itemTypeOf(item)
+    local ok, itemType = invoke(item, "getType")
+    return ok and tostring(itemType or "") or ""
+end
+
+-- ISReadABook tells books from magazines by the item type.
+local function isBook(item)
+    return string.match(itemTypeOf(item), "Book") ~= nil
+end
+
+-- ISWashClothing cleans bandages and rags with a different sound.
+local function isRag(item)
+    local name = string.lower(itemTypeOf(item))
+    return string.find(name, "bandage", 1, true) ~= nil
+        or string.find(name, "rippedsheets", 1, true) ~= nil
+        or string.find(name, "strips", 1, true) ~= nil
+end
+
+local function containerSound(container, getter)
+    local ok, name = invoke(container, getter)
+    return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+local function startActionSounds(timedAction)
+    local character = timedAction.character
+    local name = timedAction.actionName
+    if name == "read" then
+        playActionSound(character, isBook(timedAction.soundItem) and "OpenBook" or "OpenMagazine")
+        return
+    end
+    if name == "write_diary" then
+        playActionSound(character, "OpenBook")
+        return
+    end
+    if name == "loot_container" and timedAction.soundContainer ~= nil then
+        playActionSound(character, containerSound(timedAction.soundContainer, "getOpenSound"))
+    end
+    local sound = timedAction.sound
+    if name == "wash_equipment" and isRag(timedAction.soundItem) then sound = "FirstAidCleanRag" end
+    timedAction.scSound = playActionSound(character, sound)
+end
+
+-- Stop the running sound once, on completion, stop or cancellation (forceStop
+-- does not always reach the Lua callbacks), then play the closing sound.
+local function endActionSounds(timedAction, completed)
+    if type(timedAction) ~= "table" or timedAction.scSoundsEnded == true then return end
+    timedAction.scSoundsEnded = true
+    local character = timedAction.character
+    if timedAction.scSound ~= nil then
+        invoke(character, "stopOrTriggerSound", timedAction.scSound)
+        timedAction.scSound = nil
+    end
+    local name = timedAction.actionName
+    if timedAction.scSoundsStarted ~= true then return end
+    if name == "read" then
+        playActionSound(character, isBook(timedAction.soundItem) and "CloseBook" or "CloseMagazine")
+    elseif name == "write_diary" then
+        playActionSound(character, "CloseBook")
+    elseif name == "loot_container" and timedAction.soundContainer ~= nil then
+        playActionSound(character, containerSound(timedAction.soundContainer, "getCloseSound"))
+    elseif name == "wear_clothing" and completed and timedAction.soundItem ~= nil then
+        local ok, equip = invoke(timedAction.soundItem, "getEquipSound")
+        if ok then playActionSound(character, equip) end
+    end
+end
+
+local function visualActionClass()
+    if VisualTimedAction ~= nil then
+        return VisualTimedAction
+    end
+    if type(ISBaseTimedAction) ~= "table" or type(ISBaseTimedAction.derive) ~= "function" then
+        return nil
+    end
+
+    local class = ISBaseTimedAction:derive("SCVerifiedVisualTimedAction")
+
+    function class:isValid()
+        if self.character == nil then return false end
+        local deadOk, dead = invoke(self.character, "isDead")
+        return not deadOk or dead ~= true
+    end
+
+    -- Only the idle state has a transition into the fitness state. Wait for it
+    -- briefly, as ISFitnessAction does, then start regardless.
+    function class:waitToStart()
+        if not self.fitness then return false end
+        self.scWaitTicks = (self.scWaitTicks or 0) + 1
+        if self.scWaitTicks > 90 then return false end
+        local ok, idle = pcall(function()
+            return self.character:isCurrentState(IdleState.instance())
+        end)
+        return ok and idle == false
+    end
+
+    function class:start()
+        if self.fitness then
+            self:setOverrideHandModels(nil, nil)
+            invoke(self.character, "setVariable", "FitnessStruggle", self.struggle == true)
+            invoke(self.character, "setVariable", "ExerciseType", self.exercise)
+            invoke(self.character, "reportEvent", "EventFitness")
+            invoke(self.character, "clearVariable", "ExerciseStarted")
+            invoke(self.character, "clearVariable", "ExerciseEnded")
+            invoke(self.character, "reportEvent", "EventUpdateFitness")
+            return
+        end
+        local animation = self.animation
+        if self.animationEnum then
+            local resolved, enumValue = pcall(function()
+                return CharacterActionAnims[self.animation]
+            end)
+            animation = resolved and enumValue or nil
+        end
+        if animation == nil then
+            self.scAnimationMissing = true
+            self:forceStop()
+            return
+        end
+        self:setActionAnim(animation)
+        if self.lootPosition ~= nil then
+            self:setAnimVariable("LootPosition", self.lootPosition)
+        end
+        if self.wearLocation ~= nil then
+            local animation = type(WearClothingAnimations) == "table"
+                and WearClothingAnimations[self.wearLocation] or ""
+            self:setAnimVariable("WearClothingLocation", animation or "")
+        end
+        if self.readType ~= nil then self:setAnimVariable("ReadType", self.readType) end
+        if self.bandageType ~= nil then self:setAnimVariable("BandageType", self.bandageType) end
+        if self.primaryItem ~= nil or self.secondaryItem ~= nil then
+            self:setOverrideHandModels(self.primaryItem, self.secondaryItem)
+        else
+            self:setOverrideHandModels(nil, nil)
+        end
+        if self.event ~= nil then
+            invoke(self.character, "reportEvent", self.event)
+        end
+        if self.reading then invoke(self.character, "setReading", true) end
+        self.scSoundsStarted = true
+        startActionSounds(self)
+    end
+
+    function class:update()
+        if self.faceTarget ~= nil and self.faceTarget ~= self.character then
+            invoke(self.character, "faceThisObject", self.faceTarget)
+        end
+    end
+
+    -- The read animation reports its page turns, as it does for ISReadABook.
+    function class:animEvent(event, parameter)
+        if event ~= "PageFlip" or self.actionName ~= "read" then return end
+        if type(getGameSpeed) == "function" and getGameSpeed() ~= 1 then return end
+        playActionSound(self.character, isBook(self.soundItem) and "PageFlipBook" or "PageFlipMagazine")
+    end
+
+    function class:stop()
+        self.scStopped = true
+        endActionSounds(self, false)
+        endFitnessPose(self)
+        if self.reading then invoke(self.character, "setReading", false) end
+        ISBaseTimedAction.stop(self)
+    end
+
+    function class:perform()
+        self.scCompleted = true
+        endActionSounds(self, true)
+        endFitnessPose(self)
+        if self.reading then invoke(self.character, "setReading", false) end
+        if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+            SC.InventoryIndex.touch(self.character)
+        end
+        ISBaseTimedAction.perform(self)
+    end
+
+    function class:new(character, actionName, spec, intent)
+        local value = ISBaseTimedAction.new(self, character)
+        value.actionName = actionName
+        value.animation = spec.animation
+        value.animationEnum = spec.animationEnum == true
+        value.event = spec.event
+        value.lootPosition = spec.lootPosition
+        if actionName == "loot_container" then
+            if intent.lootPosition ~= nil then
+                value.lootPosition = tostring(intent.lootPosition)
+            elseif intent.container ~= nil then
+                local positionOk, containerPosition = invoke(intent.container, "getContainerPosition")
+                if positionOk and containerPosition ~= nil and tostring(containerPosition) ~= "" then
+                    value.lootPosition = tostring(containerPosition)
+                end
+                local typeOk, containerType = invoke(intent.container, "getType")
+                local loweredType = typeOk and string.lower(tostring(containerType or "")) or ""
+                if loweredType == "freezer" then
+                    local freezerOk, freezerPosition = invoke(intent.container, "getFreezerPosition")
+                    if freezerOk and freezerPosition ~= nil and tostring(freezerPosition) ~= "" then
+                        value.lootPosition = tostring(freezerPosition)
+                    end
+                end
+                local parentOk, parent = invoke(intent.container, "getParent")
+                local corpse = false
+                if parentOk and parent ~= nil and type(instanceof) == "function" then
+                    local classOk, isCorpse = pcall(instanceof, parent, "IsoDeadBody")
+                    corpse = classOk and isCorpse == true
+                end
+                local itemOk, containingItem = invoke(intent.container, "getContainingItem")
+                local worldItemOk, worldItem = invoke(containingItem, "getWorldItem")
+                if loweredType == "floor" or corpse
+                    or (itemOk and worldItemOk and worldItem ~= nil) then
+                    value.lootPosition = "Low"
+                end
+            end
+        end
+        value.wearLocation = actionName == "wear_clothing" and intent.wearLocation or nil
+        if actionName == "wear_clothing" and value.wearLocation == nil and intent.item ~= nil then
+            local clothingOk, clothing = invoke(intent.item, "IsClothing")
+            local locationOk, location
+            if clothingOk and clothing == true then
+                locationOk, location = invoke(intent.item, "getBodyLocation")
+            else
+                locationOk, location = invoke(intent.item, "canBeEquipped")
+            end
+            if locationOk then value.wearLocation = location end
+        end
+        if actionName == "read" then
+            local typeOk, readType = invoke(intent.item, "getReadType")
+            value.readType = typeOk and tostring(readType or "book") or "book"
+            value.reading = true
+        elseif actionName == "write_diary" then
+            value.readType = "book"
+            value.reading = true
+        end
+        if actionName == "kneel_treat" or actionName == "replace_bandage"
+            or actionName == "apply_splint" then
+            -- Vanilla ISApplyBandage and ISSplint reach toward another patient
+            -- with Loot/Mid. Bandage is the actor's self-care pose and visibly
+            -- dresses the helper's own body when used for a rescue.
+            local treatingOther = intent.patient ~= nil and intent.patient ~= character
+            value.faceTarget = treatingOther and intent.patient or nil
+            if treatingOther and actionName ~= "apply_splint" then
+                value.animation = "Loot"
+                value.animationEnum = false
+                value.event = "EventLootItem"
+                value.lootPosition = "Mid"
+            elseif not treatingOther and actionName ~= "apply_splint" then
+                if type(ISHealthPanel) == "table" and type(ISHealthPanel.getBandageType) == "function"
+                    and intent.bodyPart ~= nil then
+                    local ok, bandageType = pcall(ISHealthPanel.getBandageType, intent.bodyPart)
+                    if ok then value.bandageType = bandageType end
+                end
+                value.bandageType = value.bandageType or "LeftLeg"
+            end
+        end
+        if actionName == "study_corpse" or actionName == "pay_respects"
+            or actionName == "pee_stand" or actionName == "pee_hip"
+            or actionName == "pee_free" or actionName == "shower" then
+            value.faceTarget = intent.object
+        end
+        value.sound = spec.sound
+        value.soundItem = intent.item
+        value.soundContainer = actionName == "loot_container" and intent.container or nil
+        value.fitness = spec.fitness == true
+        if value.fitness then
+            value.exercise = fitnessExercises[intent.exercise] and intent.exercise or "pushups"
+            value.struggle = intent.struggle == true
+        end
+        value.primaryItem = spec.primaryItem and intent.item or nil
+        value.secondaryItem = spec.secondaryItem and intent.item or nil
+        value.ignoreHandsWounds = true
+        value.stopOnWalk = true
+        value.stopOnRun = true
+        value.stopOnAim = true
+        local requestedTicks = tonumber(intent.durationTicks)
+        if requestedTicks == nil and tonumber(intent.durationMs) then
+            requestedTicks = tonumber(intent.durationMs) * 60 / 1000
+        end
+        local minimum = tonumber(SC.Config.get("actionVisualMinTicks")) or 45
+        local maximum = tonumber(spec.maxTicks)
+            or tonumber(SC.Config.get("actionVisualMaxTicks")) or 420
+        value.maxTime = math.max(minimum, math.min(maximum,
+            math.floor((requestedTicks or spec.ticks or 90) + 0.5)))
+        return value
+    end
+
+    VisualTimedAction = class
+    return class
+end
+
+-- Cancel exactly one timed-action instance owned by Living Fellows, leaving any
+-- unrelated third-party action queued on the companion untouched. Never clear the
+-- whole queue (ISTimedActionQueue.clear(actor)) -- on a companion an unknown mod's
+-- action can be sharing the queue.
+cancelOwnedTimedAction = function(queue, timedAction)
+    if timedAction ~= nil and timedAction.character ~= nil and timedAction.action ~= nil then
+        -- SCNativeCompanion defers StartAction until the originating Lua call has
+        -- unwound. Cancellation must revoke that hand-off as well as stopping an
+        -- action which has already entered the native stack.
+        invoke(timedAction.character, "cancelCompanionPendingAction", timedAction.action)
+    end
+    if timedAction ~= nil and timedAction.action ~= nil then
+        pcall(timedAction.forceStop, timedAction)
+    end
+    if type(queue) == "table" and type(queue.removeFromQueue) == "function" then
+        pcall(queue.removeFromQueue, queue, timedAction)
+        if queue.current == timedAction then queue.current = nil end
+    end
+end
+
+cancelSeatingRecord = function(actor, record, finishNative)
+    if type(record) ~= "table" then return end
+    local queue = type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+        and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+    local actionsToCancel = type(record.actions) == "table"
+        and record.actions or { record.timedAction }
+    for _, timedAction in ipairs(actionsToCancel) do
+        cancelOwnedTimedAction(queue, timedAction)
+    end
+    if finishNative ~= true then return end
+    -- forceStop marks a BaseAction for removal on the engine's next action
+    -- update. A failed bed or chair entry can leave that update stranded after its Lua
+    -- queue has already been removed. Use the stock native stop only when the
+    -- remaining native actions are exactly the seating actions we just cancelled.
+    -- A foreign action in either queue must keep its own cancellation contract.
+    local luaQueueEmpty = type(queue) == "table" and queue.current == nil
+        and type(queue.queue) == "table" and #queue.queue == 0
+    local listOk, list = invoke(actor, "getCharacterActions")
+    if not listOk or list == nil then return end
+    local sizeOk, size = invoke(list, "size")
+    if not sizeOk or tonumber(size) == nil or size <= 0 then return end
+    local ownedNative, allOwned = {}, true
+    for index = 0, size - 1 do
+        local itemOk, nativeAction = invoke(list, "get", index)
+        if not itemOk then return end
+        local owned = false
+        for _, timedAction in ipairs(actionsToCancel) do
+            if timedAction.action ~= nil and timedAction.action == nativeAction then
+                owned = true
+                break
+            end
+        end
+        if owned then
+            ownedNative[#ownedNative + 1] = nativeAction
+        else
+            allOwned = false
+        end
+    end
+    if #ownedNative == 0 then return end
+    if allOwned and luaQueueEmpty then
+        invoke(actor, "StopAllActionQueue")
+        return
+    end
+    -- A separate mod can enqueue an action while seating is failing. In that
+    -- case remove only our stopped BaseActions, leaving its native/Lua queues
+    -- intact. The seat's pathfinding is no longer a valid movement owner.
+    local pathOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if pathOk and behavior then invoke(behavior, "cancel") end
+    invoke(actor, "setPath2", nil)
+    for _, nativeAction in ipairs(ownedNative) do
+        invoke(list, "remove", nativeAction)
+    end
+end
+
+local function removeRejectedVisual(queue, timedAction)
+    cancelOwnedTimedAction(queue, timedAction)
+end
+
+local function nativeClothingVisual(actor, intent)
+    if not ISWearClothing or not intent.item or type(intent.validate) ~= "function" then
+        return nil, "native_clothing_context_required"
+    end
+    local action
+    if intent.unwear == true then
+        if not ISUnequipAction then return nil, "native_unequip_unavailable" end
+        if type(isForceDropHeavyItem) == "function" and isForceDropHeavyItem(intent.item) then
+            return nil, "native_clothing_heavy_item_protected"
+        end
+        -- The stock constructor queries getPlayerHotbar(playerNum). These are
+        -- its ordinary non-hotbar fields on a stock action instance; no player
+        -- UI or attachment ownership is borrowed for an NPC wardrobe action.
+        action = ISBaseTimedAction.new(ISUnequipAction, actor)
+        action.item, action.maxTimeInit, action.reason = intent.item, 50, "clothing"
+        action.maxTime = actor:isTimedActionInstant() and 1 or 50
+        action.stopOnAim, action.stopOnRun = false, true
+        action.stopOnWalk = ISWearClothing.isStopOnWalk(intent.item)
+        action.ignoreHandsWounds, action.clothingAction = true, true
+        action.hotbar, action.fromHotbar, action.animSpeed = nil, false, 1
+        action.animEvent = function() end -- attachConnect belongs to the player's hotbar.
+        action.stopSound = function(self)
+            if not self.sound then return end
+            if self.soundNoTrigger then actor:getEmitter():stopSound(self.sound)
+            else actor:stopOrTriggerSound(self.sound) end
+            self.sound = nil
+        end
+    else action = ISWearClothing:new(actor, intent.item) end
+    action.scUnequip = intent.unwear == true
+    local _, activatedBefore = invoke(intent.item, "isActivated")
+    local effect, valid, stop = action.complete, action.isValid, action.stop
+    -- Keep the existing inventory transaction's commit boundary. The stock
+    -- action owns the pose and sound; its stock complete() runs only once
+    -- logistics has verified the finished action and staged the exact item.
+    action.complete = function() return true end
+    action.isValid = function(self)
+        if self.character ~= actor or self.item ~= intent.item or intent.validate() ~= true then return false end
+        local root = SC.GameplayUtil.inventory(actor)
+        local _, source = invoke(self.item, "getContainer")
+        local _, outer = invoke(self.item, "getOutermostContainer")
+        return (source == root or outer == root)
+            and SC.GameplayUtil.containerContainsIdentity(source, self.item) == true
+            and (not self.scUnequip or valid(self) == true)
+            and (self.scUnequip or select(2, invoke(self.item, "isBroken")) ~= true)
+    end
+    action.scCancelClothing = function(self)
+        self.scStopped = true
+        self:stopSound()
+        invoke(self.item, "setJobDelta", 0)
+        if self.scUnequip and not self.scNativeCommitted and activatedBefore == true
+            and select(2, invoke(actor, "isEquippedClothing", self.item)) == true
+            and SC.GameplayUtil.containerContainsIdentity(SC.GameplayUtil.inventory(actor), self.item) == true then
+            invoke(self.item, "setActivated", true)
+            if type(syncItemActivated) == "function" then syncItemActivated(actor, self.item) end
+        end
+    end
+    action.stop = function(self)
+        self:scCancelClothing()
+        return stop(self)
+    end
+    action.perform = function(self)
+        self.scCompleted = true
+        self:stopSound()
+        if self.scUnequip then
+            local sound = self.item:getUnequipSound()
+            if sound then actor:getEmitter():playSound(sound) end
+        end
+        self.item:setJobDelta(0)
+        -- The stock bag perform() refreshes a local player's backpack UI.
+        -- Only that UI housekeeping is omitted for this NPC-owned instance.
+        return ISBaseTimedAction.perform(self)
+    end
+    action.scApplyClothing = function(self, fittedItem)
+        if self.scNativeCommitted then
+            return self.scNativeCommitResult == true and fittedItem == self.scClothingFit
+        end
+        if self.scStopped or not self:isValid() then return false end
+        local original = self.item
+        if fittedItem then
+            -- A spare pad keeps its original identity through the pose. Only
+            -- the stock wear effect receives the staged, opposite variant.
+            local utility = SC.GameplayUtil
+            if self.scUnequip or intent.location
+                or utility.containerContainsIdentity(utility.inventory(actor), fittedItem) ~= true then
+                return false
+            end
+            self.item = fittedItem
+        end
+        if not valid(self) then self.item = original; return false end
+        self.scNativeCommitted = true
+        self.scClothingFit = fittedItem
+        if intent.location and not self.scUnequip then
+            -- A shower receipt records the authoritative worn slot, which can
+            -- differ from an item's preferred slot. Delegate only this native
+            -- effect's slot lookup/write; every Java call still uses the actor.
+            self.character = setmetatable({
+                getWornItem = function() return actor:getWornItem(intent.location) end,
+                setWornItem = function(_, _, item)
+                    if item ~= intent.item then error("native clothing item changed") end
+                    return actor:setWornItem(intent.location, item)
+                end,
+            }, { __index = function(_, key)
+                return function(_, ...)
+                    local okay, value = invoke(actor, key, ...)
+                    if not okay then error(value) end
+                    return value
+                end
+            end })
+        end
+        local okay, result = pcall(effect, self)
+        self.character = actor
+        self.item = original
+        self.scNativeCommitResult = okay and result == true
+        return self.scNativeCommitResult
+    end
+    action.scCommitClothing = function(self, fittedItem)
+        return self.scCompleted == true and self:scApplyClothing(fittedItem)
+    end
+    return action
+end
+
+function actions.commitClothingVisual(actor, token, item, unwear, fittedItem)
+    local record = activeVisual[actor]
+    local action = record and record.timedAction
+    if not action or action ~= token or action.character ~= actor or action.item ~= item
+        or unwear ~= nil and action.scUnequip ~= unwear
+        or type(action.scCommitClothing) ~= "function"
+        or actions.visualStatus(actor, "wear_clothing") ~= "completed" then
+        return false, "native_clothing_action_unverified"
+    end
+    local okay = action:scCommitClothing(fittedItem)
+    return okay == true, okay and (action.scUnequip and "native_clothing_removed" or "native_clothing_equipped")
+        or "native_clothing_commit_failed"
+end
+
+local function startVerifiedVisual(actor, actionName, intent, provider)
+    -- Never replace an unclaimed completed visual record with a second visual.
+    -- The owning gameplay subsystem needs that record to know whether it may
+    -- commit its inventory/body effect exactly once.
+    if type(actions.visualStatus) == "function" then
+        local priorState, priorName, priorAt = actions.visualStatus(actor)
+        if priorState == "active" then
+            return false, "visual_action_active:" .. tostring(priorName)
+        elseif priorState == "completed" then
+            local grace = tonumber(SC.Config.get("visualEffectClaimMs")) or 2000
+            if nowMs() - (tonumber(priorAt) or 0) < grace then
+                return false, "visual_effect_pending:" .. tostring(priorName)
+            end
+            actions.clearVisual(actor)
+        elseif priorState ~= "none" then
+            actions.clearVisual(actor)
+        end
+    end
+
+    -- Navigation owns locomotion until an interaction takes over.  Reaching a
+    -- container does not automatically cancel PathFindBehavior2, so the next
+    -- native update could advance one more step and trip stopOnWalk on Loot (or
+    -- another interaction pose).  Hand ownership to the timed action
+    -- atomically: cancel the path, clear retained bridge movement/strafe, and
+    -- verify the actor is stationary before anything is queued.
+    if actions.stopDirect(actor) ~= true then
+        return false, "visual_action_could_not_acquire_stationary_actor"
+    end
+
+    local handled, reason = useProvider(provider, "animate", actor, actionName, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+
+    local lowered, lowerReason = setWeaponReady(actor, false)
+    if not lowered then return false, lowerReason end
+
+    local spec = visualActionSpecs[actionName]
+    if spec == nil then
+        return false, "no validated human timed-action mapping for " .. actionName
+    end
+    if type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function"
+        or type(ISTimedActionQueue.add) ~= "function" then
+        return false, "native timed-action queue is unavailable"
+    end
+
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= nil or type(queue.queue) ~= "table"
+        or #queue.queue ~= 0 then
+        return false, "actor already has a native timed action"
+    end
+    local class = visualActionClass()
+    if class == nil then
+        return false, "native timed-action base is unavailable"
+    end
+    local created, timedAction
+    if actionName == "wear_clothing" then
+        created, timedAction = pcall(nativeClothingVisual, actor, intent)
+    else
+        created, timedAction = pcall(class.new, class, actor, actionName, spec, intent)
+    end
+    if not created or timedAction == nil then
+        return false, created and "visual timed action was not created" or tostring(timedAction)
+    end
+    local queued, failure = pcall(ISTimedActionQueue.add, timedAction)
+    if not queued then
+        return false, tostring(failure)
+    end
+
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local nativeActionsOk, nativeActions = invoke(actor, "getCharacterActions")
+    local containedOk, contained = invoke(nativeActions, "contains", timedAction.action)
+    local startedOk, started = pcall(timedAction.isStarted, timedAction)
+    local pendingOk, pending = invoke(actor, "isCompanionActionStartPending", timedAction.action)
+    local retained = type(queue) == "table" and queue.current == timedAction
+        and type(queue.queue) == "table" and queue.queue[1] == timedAction
+    local nativeStarted = timedAction.action ~= nil and nativeActionsOk and containedOk
+        and contained == true and startedOk and started == true
+    nativeStarted = nativeStarted or (pendingOk and pending == true)
+    if not retained or not nativeStarted then
+        removeRejectedVisual(queue, timedAction)
+        return false, "native visual timed action did not start"
+    end
+    activeVisual[actor] = {
+        actionName = actionName,
+        timedAction = timedAction,
+        startedAt = nowMs(),
+    }
+    return true, "visual_timed_action_started:" .. actionName
+end
+
+function actions.startClothing(actor, item, unwear, validate, location)
+    return startVerifiedVisual(actor, "wear_clothing", {
+        item = item, unwear = unwear == true, validate = validate, location = location,
+    }, { directNative = true })
+end
+
+-- Emergency shower rollback uses the stock effect synchronously, without
+-- queuing dressing animations ahead of combat, a new order or save capture.
+function actions.restoreClothingNow(actor, item, location, validate)
+    if type(validate) ~= "function" or validate() ~= true then return false end
+    if actor:getWornItem(location) == item then return true end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local _, native = invoke(actor, "getCharacterActions")
+    local known, count = invoke(native, "size")
+    if not queue or queue.current or #queue.queue > 0 or not known or count ~= 0 then return false end
+    local action = nativeClothingVisual(actor, {item=item, location=location, validate=validate})
+    return action ~= nil and action:scApplyClothing() == true
+        and actor:getWornItem(location) == item
+end
+
+-- Traversal owns the portal and commits glass removal only after this
+-- effect-free native pose has completed. This is the same Loot/Mid animation
+-- vanilla ISRemoveBrokenGlass uses.
+function actions.startGlassRemovalVisual(actor, window, provider)
+    return startVerifiedVisual(actor, "remove_broken_glass",
+        { faceTarget = window }, provider)
+end
+
+local function nativeListSize(list)
+    if list == nil then return 0 end
+    if type(list) == "table" then return #list end
+    local ok, size = invoke(list, "size")
+    return ok and tonumber(size) or 0
+end
+
+local function nativeListGet(list, index)
+    if type(list) == "table" then return list[index + 1] end
+    local ok, value = invoke(list, "get", index)
+    return ok and value or nil
+end
+
+local function trackedActionIsActive(actor, record)
+    if type(record) ~= "table" then return false end
+    local tracked = type(record.actions) == "table" and record.actions
+        or { record.timedAction }
+    local queue = type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+        and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+    for _, timedAction in ipairs(tracked) do
+        if timedAction ~= nil then
+            if type(queue) == "table" then
+                if queue.current == timedAction then return true end
+                if type(queue.indexOf) == "function" then
+                    local ok, index = pcall(queue.indexOf, queue, timedAction)
+                    if ok and tonumber(index) and tonumber(index) >= 0 then return true end
+                elseif type(queue.queue) == "table" then
+                    for _, queued in ipairs(queue.queue) do
+                        if queued == timedAction then return true end
+                    end
+                end
+            end
+            local nativeOk, nativeActions = invoke(actor, "getCharacterActions")
+            local containedOk, contained = invoke(nativeActions, "contains", timedAction.action)
+            if nativeOk and containedOk and contained == true then return true end
+        end
+    end
+    return false
+end
+
+local function emptyTimedActionQueue(actor)
+    if type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function"
+        or type(ISTimedActionQueue.add) ~= "function" then
+        return nil, "native timed-action queue is unavailable"
+    end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= nil
+        or type(queue.queue) ~= "table" or #queue.queue ~= 0 then
+        return nil, "actor already has a native timed action"
+    end
+    return queue
+end
+
+local function fallbackSeatingToGround(actor, record, reason, cancelActions)
+    if type(record) ~= "table" or record.fallbackAttempted == true then return false end
+    record.fallbackAttempted = true
+    if cancelActions == true then cancelSeatingRecord(actor, record) end
+    if record.object then invoke(record.object, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    local requested, requestReason = requestGroundSeat(actor, true)
+    if requested == true then
+        record.failed = false
+        record.fallbackGround = true
+        record.failure = reason
+        record.startedAt = nowMs()
+        return true
+    end
+    record.failed = true
+    record.failure = requestReason or reason
+    return false
+end
+
+local function furniturePathFailed(actor, record)
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        local x = select(2, invoke(actor, "getX"))
+        local y = select(2, invoke(actor, "getY"))
+        local z = select(2, invoke(actor, "getZ"))
+        local object = record and record.object
+        local square = object and select(2, invoke(object, "getSquare"))
+        print("[LivingFellows][furniture] path_failed action="
+            .. tostring(record and record.actionName)
+            .. " actor=" .. tostring(x) .. "," .. tostring(y) .. ","
+                .. tostring(z)
+            .. " object=" .. tostring(object)
+            .. " square=" .. tostring(square)
+            .. " furniture_status=" .. tostring(record and record.failure))
+    end
+    -- This is the stock context-menu behavior: when a furniture seat has no
+    -- usable path (missing data or every entry blocked), sit on the ground
+    -- instead of silently abandoning the rest request.
+    fallbackSeatingToGround(actor, record, "furniture_path_failed", true)
+end
+
+local boundSeatingTurn
+
+local function furniturePathComplete(actor, pathAction, record)
+    if type(record) ~= "table" or record.cancelled == true then return end
+    local object = record.bedEntry and record.object
+        or pathAction and pathAction.goalFurnitureObject or record.object
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        print("[LivingFellows][furniture] path_complete action="
+            .. tostring(record.actionName)
+            .. " goal=" .. tostring(pathAction and pathAction.goalFurnitureObject)
+            .. " object=" .. tostring(record.object))
+    end
+    local restAction = record.queuedRest
+    if object == nil or restAction == nil then
+        record.failed = true
+        return
+    end
+    restAction.bed = object
+    record.object = object
+    record.timedAction = restAction
+    if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        print("[LivingFellows][furniture] rest_queued action="
+            .. tostring(record.actionName) .. " prequeued=true failed=" .. tostring(record.failed)
+            .. " reason=" .. tostring(record.failure)
+            .. " current=" .. tostring(queue and queue.current)
+            .. " index=" .. tostring(queue and queue:indexOf(restAction)))
+    end
+end
+
+-- Companion actors can remain in shouldBeTurning() after reaching the exact
+-- SeatingManager entry point. Vanilla ISRestAction can wait without a bound,
+-- leaving the timed action alive until
+-- SCDowntime's outer twelve-second watchdog fired.  Keep vanilla's alignment
+-- attempt, but let the action start after a short bounded turn settle.  The
+-- action's own start() applies the final seated/bed facing before requesting
+-- the animation state.
+boundSeatingTurn = function(action)
+    if type(action) ~= "table" or type(action.waitToStart) ~= "function" then
+        return action
+    end
+    local original = action.waitToStart
+    action.waitToStart = function(self)
+        local ok, waiting = pcall(original, self)
+        if not ok then
+            self.scSeatingWaitFailure = tostring(waiting)
+            return false
+        end
+        if waiting ~= true then return false end
+        self.scSeatingWaitStartedAt = tonumber(self.scSeatingWaitStartedAt) or nowMs()
+        local maximum = tonumber(SC.Config.get("furnitureTurnTimeoutMs")) or 1500
+        if nowMs() - self.scSeatingWaitStartedAt >= math.max(250, maximum) then
+            self.scSeatingTurnBounded = true
+            return false
+        end
+        return true
+    end
+    return action
+end
+
+local function startFurnitureRest(actor, object, registry, actionName)
+    local spriteOk, sprite = invoke(object, "getSprite")
+    local gridOk, grid = false, nil
+    if spriteOk and sprite ~= nil then
+        gridOk, grid = invoke(sprite, "getSpriteGrid")
+    end
+    -- Get On Bed uses a sprite grid to position the actor on a mattress.
+    -- A single-tile cot still uses the stock furniture rest pose.
+    local sleepSeat = SC.BedGeometry and SC.BedGeometry.sleepPriority
+        and SC.BedGeometry.sleepPriority(object) == 3
+    local useBedPose = actionName == "rest_bed" and gridOk and grid ~= nil
+        and not sleepSeat
+    if type(ISPathFindAction) ~= "table"
+        or type(ISPathFindAction.pathToSitOnFurniture) ~= "function"
+        or type(ISRestAction) ~= "table" or type(ISRestAction.new) ~= "function"
+        or useBedPose and (type(ISGetOnBedAction) ~= "table"
+            or type(ISGetOnBedAction.new) ~= "function") then
+        return false, "native furniture-rest actions are unavailable"
+    end
+    local queue, queueReason = emptyTimedActionQueue(actor)
+    if not queue then return false, queueReason end
+    local bedEntry
+    if useBedPose then
+        if SC.BedGeometry and type(SC.BedGeometry.entry) == "function" then
+            local normalized, entry, why = SC.BedGeometry.entry(object, actor)
+            if not normalized or not entry then return false, why or "bed_entry_blocked" end
+            object, bedEntry = normalized, entry
+            if type(ISPathFindAction.pathToLocationF) ~= "function" then
+                return false, "native bed entry path is unavailable"
+            end
+        end
+        -- Stock OnBed only renders its settled body for Awake/Asleep. Start
+        -- awake; Downtime switches to the lying pose once real sleep begins.
+        local animationSet = invoke(actor, "setVariable", "OnBedAnim", "Awake")
+        if not animationSet then return false, "native bed animation is unavailable" end
+    end
+    local created, pathAction
+    if bedEntry then
+        created, pathAction = pcall(ISPathFindAction.pathToLocationF,
+            ISPathFindAction, actor, bedEntry.x, bedEntry.y, bedEntry.z)
+    else
+        created, pathAction = pcall(ISPathFindAction.pathToSitOnFurniture,
+            ISPathFindAction, actor, object, true)
+    end
+    if not created or pathAction == nil then
+        return false, created and "furniture path action was not created" or tostring(pathAction)
+    end
+    local actionClass = useBedPose
+        and ISGetOnBedAction or ISRestAction
+    local restCreated, restAction = pcall(actionClass.new, actionClass,
+        actor, object, true)
+    if not restCreated or restAction == nil then
+        return false, restCreated and "furniture-rest action was not created"
+            or tostring(restAction)
+    end
+    if bedEntry and SC.BedGeometry and SC.BedGeometry.configureEntryAction then
+        SC.BedGeometry.configureEntryAction(restAction, bedEntry)
+    end
+    boundSeatingTurn(restAction)
+    if bedEntry then
+        local stockStart = restAction.start
+        restAction.start = function(self)
+            -- LocationF leaves a walking flag at its handoff. OnBed treats
+            -- that flag as a request to get straight back up.
+            actions.stopDirect(actor, { preservePosture = true })
+            if type(stockStart) == "function" then return stockStart(self) end
+        end
+        local stockWait = restAction.waitToStart
+        restAction.waitToStart = function(self)
+            local xOk, x = invoke(actor, "getX")
+            local yOk, y = invoke(actor, "getY")
+            local zOk, z = invoke(actor, "getZ")
+            if not xOk or not yOk or not zOk or math.floor(z) ~= math.floor(bedEntry.z)
+                or math.abs(x-bedEntry.x) > 0.45 or math.abs(y-bedEntry.y) > 0.45 then return true end
+            return type(stockWait) == "function" and stockWait(self) or false
+        end
+    end
+    local record = {
+        timedAction = pathAction,
+        actions = { pathAction, restAction },
+        queuedRest = restAction,
+        object = object,
+        actionName = actionName,
+        pose = useBedPose and "bed" or "furniture",
+        bedEntry = bedEntry,
+        startedAt = nowMs(),
+    }
+    if type(pathAction.setOnComplete) ~= "function"
+        or type(pathAction.setOnFail) ~= "function" then
+        return false, "native furniture path callbacks are unavailable"
+    end
+    pathAction:setOnComplete(furniturePathComplete, actor, pathAction, record)
+    pathAction:setOnFail(furniturePathFailed, actor, record)
+    registry[actor] = record
+    local queued, failure = pcall(ISTimedActionQueue.add, pathAction)
+    if not queued then
+        registry[actor] = nil
+        return false, tostring(failure)
+    end
+    local queuedRest, restFailure = pcall(ISTimedActionQueue.add, restAction)
+    if not queuedRest then
+        cancelSeatingRecord(actor, record, true)
+        registry[actor] = nil
+        return false, tostring(restFailure)
+    end
+    -- SCNativeCompanion starts the next native action after the Lua callback
+    -- unwinds. Vanilla's queue tick can see the prequeued action first and
+    -- mistake that short pending handoff for a lost action. Keep this queue's
+    -- normal tick from discarding our furniture action until the bridge has
+    -- finished its pending start; restore the stock method immediately after.
+    local normalTick = queue.tick
+    queue.tick = function(self)
+        if self.current == pathAction then return normalTick(self) end
+        if self.current == restAction and restAction.action then
+            local pendingOk, pending = invoke(actor,
+                "isCompanionActionStartPending", restAction.action)
+            if pendingOk and pending == true then return end
+        end
+        self.tick = normalTick
+        return normalTick(self)
+    end
+    if not trackedActionIsActive(actor, record) then
+        cancelSeatingRecord(actor, record)
+        registry[actor] = nil
+        return false, "native furniture path action was not retained"
+    end
+    return true, actionName == "rest_bed" and "getting_on_bed" or "taking_seat"
+end
+
+-- Reach the bed through the stock furniture path, then use the player's
+-- Get On Bed pose for sprite-grid beds before SCDowntime starts native sleep.
+local function startBedRest(actor, object)
+    return startFurnitureRest(actor, object, activeBedActions, "rest_bed")
+end
+
+local function refreshShelfVisuals(container)
+    local utility = SC.GameplayUtil
+    if utility and type(utility.refreshContainerVisuals) == "function" then
+        utility.refreshContainerVisuals(container)
+    end
+end
+
+local function moveItemToRoot(actor, item)
+    if item == nil then return true, nil end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+    local containerOk, container = invoke(item, "getContainer")
+    if containerOk and container == inventory then return true, nil end
+    if not containerOk or container == nil then return false, "needs item has no source container" end
+    local removedOk, removed = invoke(container, "Remove", item)
+    if not removedOk or removed == false then return false, "needs item could not leave its container" end
+    local addedOk, added = invoke(inventory, "AddItem", item)
+    local currentOk, current = invoke(item, "getContainer")
+    if not addedOk or added == false or not currentOk or current ~= inventory then
+        invoke(inventory, "Remove", item)
+        invoke(container, "AddItem", item)
+        return false, "needs item could not enter the main inventory"
+    end
+    refreshShelfVisuals(container)
+    return true, container
+end
+
+local function restoreNeedsItem(actor, record)
+    if type(record) ~= "table" or record.item == nil or record.originalContainer == nil then
+        return true, "no_needs_item_restore"
+    end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+    local containerOk, current = invoke(record.item, "getContainer")
+    if not containerOk or current == nil then return true, "needs_item_consumed" end
+    if current ~= inventory then return current == record.originalContainer, "needs_item_already_moved" end
+    local removedOk, removed = invoke(inventory, "Remove", record.item)
+    if not removedOk or removed == false then return false, "needs item could not be restored" end
+    local addedOk, added = invoke(record.originalContainer, "AddItem", record.item)
+    local afterOk, after = invoke(record.item, "getContainer")
+    if not addedOk or added == false or not afterOk or after ~= record.originalContainer then
+        invoke(record.originalContainer, "Remove", record.item)
+        invoke(inventory, "AddItem", record.item)
+        return false, "needs item restoration rolled back"
+    end
+    refreshShelfVisuals(record.originalContainer)
+    return true, "needs_item_restored"
+end
+
+local function queueNeedsAction(actor, kind, timedAction, item, originalContainer)
+    if type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function"
+        or type(ISTimedActionQueue.add) ~= "function" then
+        return false, "native timed-action queue is unavailable"
+    end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= nil or type(queue.queue) ~= "table"
+        or #queue.queue ~= 0 then
+        return false, "actor already has a native timed action"
+    end
+    if timedAction == nil then return false, "needs timed action was not created" end
+    if type(timedAction.isValidStart) == "function" then
+        local ok, valid = pcall(timedAction.isValidStart, timedAction)
+        if not ok or valid ~= true then return false, "needs timed action rejected its start" end
+    end
+    if type(timedAction.isValid) == "function" then
+        local ok, valid = pcall(timedAction.isValid, timedAction)
+        if not ok or valid ~= true then return false, "needs timed action rejected its item or source" end
+    end
+    local queued, failure = pcall(ISTimedActionQueue.add, timedAction)
+    if not queued then return false, tostring(failure) end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local retained = type(queue) == "table" and queue.current == timedAction
+        and type(queue.queue) == "table" and queue.queue[1] == timedAction
+    if not retained then
+        removeRejectedVisual(queue, timedAction)
+        return false, "native needs action did not enter the queue"
+    end
+    activeNeeds[actor] = {
+        kind = kind,
+        timedAction = timedAction,
+        item = item,
+        originalContainer = originalContainer,
+        startedAt = nowMs(),
+    }
+    return true, kind .. "_timed_action_started"
+end
+
+local function startNeedsAction(actor, action, intent, provider)
+    if not provider.directNative then return false, "direct native needs actions are unavailable" end
+    local item = intent.item
+    local originalContainer
+    if item ~= nil then
+        local moved, sourceOrReason = moveItemToRoot(actor, item)
+        if not moved then return false, sourceOrReason end
+        originalContainer = sourceOrReason
+    end
+    local created, timedAction
+    if action == "eat_food" then
+        if type(ISEatFoodAction) ~= "table" or type(ISEatFoodAction.new) ~= "function" then
+            created, timedAction = false, "native eat action is unavailable"
+        else
+            created, timedAction = pcall(ISEatFoodAction.new, ISEatFoodAction,
+                actor, item, tonumber(intent.percentage) or 1)
+        end
+    elseif action == "drink_item" then
+        if type(ISDrinkFromBottle) ~= "table" or type(ISDrinkFromBottle.new) ~= "function" then
+            created, timedAction = false, "native bottle-drink action is unavailable"
+        else
+            created, timedAction = pcall(ISDrinkFromBottle.new, ISDrinkFromBottle,
+                actor, item, math.max(1, math.floor(tonumber(intent.uses) or 1)))
+        end
+    elseif action == "drink_source" then
+        if type(ISTakeWaterAction) ~= "table" or type(ISTakeWaterAction.new) ~= "function"
+            or intent.object == nil then
+            created, timedAction = false, "native water-source action is unavailable"
+        else
+            local taintedOk, tainted = invoke(intent.object, "isTaintedWater")
+            created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+                actor, nil, intent.object, taintedOk and tainted == true)
+        end
+    elseif action == "refill_drinking_water" then
+        if type(ISTakeWaterAction) ~= "table" or type(ISTakeWaterAction.new) ~= "function"
+            or item == nil or intent.object == nil then
+            created, timedAction = false, "native bottle refill action is unavailable"
+        else
+            local taintedOk, tainted = invoke(intent.object, "isTaintedWater")
+            if not taintedOk or tainted ~= false then
+                created, timedAction = false, "refill source is not verified clean"
+            else
+                created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+                    actor, item, intent.object, false)
+            end
+        end
+    end
+    if not created or timedAction == nil then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, created and "needs action was not created" or tostring(timedAction)
+    end
+    local kind = action == "eat_food" and "eat"
+        or action == "refill_drinking_water" and "refill" or "drink"
+    local queued, reason = queueNeedsAction(actor, kind, timedAction, item, originalContainer)
+    if not queued then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, reason
+    end
+    return true, reason
+end
+
+local function workActionIsActive(actor, record)
+    return trackedActionIsActive(actor, record)
+end
+
+local function restoreWorkInventory(actor, record)
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+
+    -- Clear the temporary build equipment before returning surviving items to
+    -- their source container. Consumed plank/nail objects have no container and
+    -- are deliberately ignored.
+    invoke(actor, "setPrimaryHandItem", nil)
+    invoke(actor, "setSecondaryHandItem", nil)
+    local restoredAll = true
+    for index = #(record.moved or {}), 1, -1 do
+        local transfer = record.moved[index]
+        local containerOk, current = invoke(transfer.item, "getContainer")
+        local survives = true
+        if record.verifySurvivingItems then
+            local readable, present = invoke(inventory, "contains", transfer.item)
+            survives = readable and present == true
+            if not readable then restoredAll = false end
+        end
+        local returnAllowed = not record.washActivity or not SC.BandageWash
+            or SC.BandageWash.returnContainerAllowed(actor, record.washActivity, transfer.container)
+        if survives and containerOk and current == inventory and transfer.container ~= nil and not returnAllowed then
+            restoredAll = false
+        elseif survives and containerOk and current == inventory and transfer.container ~= nil then
+            local removedOk, removed = invoke(inventory, "Remove", transfer.item)
+            if removedOk and removed ~= false then
+                local addedOk, added = invoke(transfer.container, "AddItem", transfer.item)
+                local currentOk, after = invoke(transfer.item, "getContainer")
+                if not addedOk or added == false or not currentOk or after ~= transfer.container then
+                    invoke(transfer.container, "Remove", transfer.item)
+                    invoke(inventory, "AddItem", transfer.item)
+                    restoredAll = false
+                else
+                    refreshShelfVisuals(transfer.container)
+                end
+            else
+                restoredAll = false
+            end
+        end
+    end
+
+    local function restoreHand(setter, known, item)
+        if not known then return true end
+        if item == nil then
+            local setOk = invoke(actor, setter, nil)
+            return setOk
+        end
+        local containerOk, container = invoke(item, "getContainer")
+        if not containerOk or container == nil then return true end
+        if record.verifySurvivingItems then
+            local readable, present = invoke(container, "contains", item)
+            if not readable then return false end
+            if present ~= true then return true end
+        end
+        local setOk = invoke(actor, setter, item)
+        if not setOk then return false end
+        local getter = setter == "setPrimaryHandItem" and "getPrimaryHandItem"
+            or "getSecondaryHandItem"
+        local verifyOk, equipped = invoke(actor, getter)
+        return verifyOk and equipped == item
+    end
+    local primary = restoreHand("setPrimaryHandItem", record.oldPrimaryOk, record.oldPrimary)
+    local secondary = restoreHand("setSecondaryHandItem", record.oldSecondaryOk, record.oldSecondary)
+    return restoredAll and primary and secondary,
+        restoredAll and primary and secondary and "work_inventory_restored"
+        or "previous hand equipment could not be restored"
+end
+
+local function workTag(name)
+    local itemTag = type(_G) == "table" and rawget(_G, "ItemTag") or nil
+    local ok, value = pcall(function()
+        if itemTag == nil then return nil end
+        if name == "REMOVE_BARRICADE" then return itemTag.REMOVE_BARRICADE end
+        if name == "SAW" then return itemTag.SAW end
+        if name == "SCREWDRIVER" then return itemTag.SCREWDRIVER end
+        if name == "CHOP_TREE" then return itemTag.CHOP_TREE end
+        if name == "DIG_GRAVE" then return itemTag.DIG_GRAVE end
+        return nil
+    end)
+    return ok and value or nil
+end
+
+local function prepareWorkInventory(actor, items, primary, secondary)
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return nil, "actor inventory is unavailable" end
+    local oldPrimaryOk, oldPrimary = invoke(actor, "getPrimaryHandItem")
+    local oldSecondaryOk, oldSecondary = invoke(actor, "getSecondaryHandItem")
+    local record = {
+        oldPrimaryOk = oldPrimaryOk,
+        oldPrimary = oldPrimary,
+        oldSecondaryOk = oldSecondaryOk,
+        oldSecondary = oldSecondary,
+        moved = {},
+    }
+    for _, item in ipairs(items or {}) do
+        local moved, sourceOrReason = moveItemToRoot(actor, item)
+        if not moved then
+            restoreWorkInventory(actor, record)
+            return nil, sourceOrReason
+        end
+        if sourceOrReason ~= nil then
+            record.moved[#record.moved + 1] = { item = item, container = sourceOrReason }
+        end
+    end
+    if primary ~= nil and not invoke(actor, "setPrimaryHandItem", primary) then
+        restoreWorkInventory(actor, record)
+        return nil, "work tool could not be equipped"
+    end
+    if secondary ~= nil and not invoke(actor, "setSecondaryHandItem", secondary) then
+        restoreWorkInventory(actor, record)
+        return nil, "secondary work tool could not be equipped"
+    end
+    if primary ~= nil then
+        local equippedOk, equipped = invoke(actor, "getPrimaryHandItem")
+        if not equippedOk or equipped ~= primary then
+            restoreWorkInventory(actor, record)
+            return nil, "work tool equipment was not retained"
+        end
+    end
+    return record
+end
+
+local function queueTrackedWork(actor, timedAction, record, kind)
+    if type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function"
+        or type(ISTimedActionQueue.add) ~= "function" then
+        restoreWorkInventory(actor, record)
+        return false, "native timed-action queue is unavailable"
+    end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= nil or type(queue.queue) ~= "table"
+        or #queue.queue ~= 0 then
+        restoreWorkInventory(actor, record)
+        return false, "actor already has a native timed action"
+    end
+    if timedAction == nil then
+        restoreWorkInventory(actor, record)
+        return false, tostring(kind) .. " action was not created"
+    end
+    if type(timedAction.isValid) == "function" then
+        local validOk, valid = pcall(timedAction.isValid, timedAction)
+        if not validOk or valid ~= true then
+            restoreWorkInventory(actor, record)
+            return false, tostring(kind) .. " action rejected its tools or target"
+        end
+    end
+    local queued, failure = pcall(ISTimedActionQueue.add, timedAction)
+    if not queued then
+        restoreWorkInventory(actor, record)
+        return false, tostring(failure)
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local retained = type(queue) == "table" and queue.current == timedAction
+        and type(queue.queue) == "table" and queue.queue[1] == timedAction
+    if not retained then
+        removeRejectedVisual(queue, timedAction)
+        restoreWorkInventory(actor, record)
+        return false, "native " .. tostring(kind) .. " action did not enter the queue"
+    end
+    record.timedAction = timedAction
+    record.kind = kind
+    record.startedAt = nowMs()
+    activeWork[actor] = record
+    return true, tostring(kind) .. "_timed_action_started"
+end
+
+-- Fuel trips use the native actions without borrowing a camp job or changing
+-- global player/queue bindings. Every callback retains its exact mission guard.
+function actions.startExpeditionFuel(actor, intent)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then return false, "fuel_action_stale" end
+    local paths = { pump_can="TimedActions/ISTakeFuel", pump_car="Vehicles/TimedActions/ISRefuelFromGasPump",
+        can_car="Vehicles/TimedActions/ISAddGasolineToVehicle", generator_fuel="TimedActions/ISAddFuel",
+        generator_start="TimedActions/ISActivateGenerator", generator_stop="TimedActions/ISActivateGenerator",
+        generator_connect="TimedActions/ISPlugGenerator", generator_disconnect="TimedActions/ISPlugGenerator",
+        starter="Fluids/ISFluidTransferAction" }
+    if paths[intent.kind] and type(require)=="function" then pcall(require,paths[intent.kind]) end
+    local item, donor = intent.item, intent.donor
+    local record, reason = prepareWorkInventory(actor, donor and {item,donor} or item and {item} or {}, item, donor)
+    if not record then return false,reason end
+    local okay, action
+    if intent.kind=="pump_can" and ISTakeFuel then
+        okay,action=pcall(ISTakeFuel.new,ISTakeFuel,actor,intent.pump,item)
+        if okay and action then
+            -- ISTakeFuel's final remainder currently adds to pump stock. Its
+            -- integer pump API also needs cumulative, rather than per-beat,
+            -- rounding. Only this LF-owned instance uses the corrected path.
+            action.lfDelivered,action.lfCharged=0,0
+            action.updateUse=function(self,delta)
+                if intent.validate()~=true then self:forceStop() return end
+                local fc=item:getFluidContainer()
+                local present=fc:getAmount()
+                local desired=math.min(self.itemTarget,self.itemStart+self.amount*math.max(0,math.min(1,delta)))
+                local stock=intent.pump:getPipedFuelAmount()
+                local infinite=SandboxVars and SandboxVars.FuelStationGasInfinite==true
+                local available=infinite and desired-present or stock+self.lfCharged-self.lfDelivered
+                local amount=math.min(math.max(0,desired-present),math.max(0,available),fc:getFreeCapacity())
+                if amount>0 then
+                    fc:addFluid(Fluid.Petrol,amount)
+                    local actual=math.max(0,fc:getAmount()-present)
+                    self.lfDelivered=self.lfDelivered+actual
+                    local charged=math.ceil(self.lfDelivered-0.00001)
+                    if not infinite and charged>self.lfCharged then
+                        intent.pump:setPipedFuelAmount(math.max(0,stock-(charged-self.lfCharged)))
+                    end
+                    self.lfCharged=charged
+                    item:syncItemFields()
+                    if sendItemStats then sendItemStats(item) end
+                end
+            end
+            action.complete=function(self)
+                self:updateUse(1)
+                return true
+            end
+        end
+    elseif intent.kind=="pump_car" and ISRefuelFromGasPump then
+        okay,action=pcall(ISRefuelFromGasPump.new,ISRefuelFromGasPump,actor,intent.part,intent.pump)
+        if okay and action then
+            -- The checked LF approach uses the same 1.6-tile fuel inlet reach
+            -- as camp refuelling, rather than requiring a tile centre to fit
+            -- inside the vehicle script's narrow area rectangle.
+            action.isValid=function(self) return self.character==actor and intent.validate()==true end
+        end
+    elseif intent.kind=="can_car" and ISAddGasolineToVehicle then
+        okay,action=pcall(ISAddGasolineToVehicle.new,ISAddGasolineToVehicle,actor,intent.part,item)
+    elseif intent.kind=="generator_fuel" and ISAddFuel then
+        okay,action=pcall(ISAddFuel.new,ISAddFuel,actor,intent.generator,item)
+        if okay and action then
+            action.complete=function(self)
+                if intent.validate()~=true then return false end
+                local fc=item:getFluidContainer()
+                local amount=math.min(fc:getAmount(),math.max(0,(intent.targetFuel or 2)-intent.generator:getFuel()),
+                    math.max(0,intent.generator:getMaxFuel()-intent.generator:getFuel()))
+                if amount>0 then
+                    fc:adjustAmount(fc:getAmount()-amount)
+                    item:syncItemFields()
+                    intent.generator:setFuel(intent.generator:getFuel()+amount)
+                    intent.generator:sync()
+                end
+                return true
+            end
+        end
+    elseif (intent.kind=="generator_start" or intent.kind=="generator_stop") and ISActivateGenerator then
+        okay,action=pcall(ISActivateGenerator.new,ISActivateGenerator,actor,intent.generator,intent.kind=="generator_start")
+    elseif (intent.kind=="generator_connect" or intent.kind=="generator_disconnect") and ISPlugGenerator then
+        okay,action=pcall(ISPlugGenerator.new,ISPlugGenerator,actor,intent.generator,intent.kind=="generator_connect")
+    elseif intent.kind=="starter" and ISFluidTransferAction and ISFluidContainer then
+        local source,target=donor:getFluidContainer(),item:getFluidContainer()
+        okay,action=pcall(ISFluidTransferAction.new,ISFluidTransferAction,actor,
+            ISFluidContainer:new(source),source,ISFluidContainer:new(target),target,intent.amount)
+        if okay and action then
+            action.isValid=function(self)
+                return self.character==actor and intent.validate()==true
+                    and self.source:getOwner()==donor and self.target:getOwner()==item
+                    and FluidContainer.CanTransfer(source,target)==true
+            end
+            action.start=function(self)
+                self:setActionAnim("MixFluids")
+                self:setOverrideHandModels(donor:getStaticModel(),item:getStaticModel())
+                self.sound=actor:playSound("TransferLiquid")
+            end
+        end
+    end
+    if not okay or not action then restoreWorkInventory(actor,record) return false,"fuel_native_action_unavailable" end
+    local valid,complete=action.isValid,action.complete
+    action.isValid=function(self)
+        if self.character~=actor or intent.validate()~=true then return false end
+        -- The stock stop validator also rejects an empty/damaged generator.
+        -- Shutting down our exact generator must still work in those states.
+        if intent.kind=="generator_stop" then return intent.generator:isActivated() end
+        return not valid or valid(self)==true
+    end
+    action.complete=function(self)
+        if intent.validate()~=true then return false end
+        local running=intent.generator and intent.generator:isActivated()
+        local connected=intent.generator and intent.generator:isConnected()
+        if intent.kind=="generator_start" or intent.kind=="generator_connect" then
+            if self:isValid()~=true then return false end
+        end
+        local result=complete(self)
+        if result~=false and intent.completed then intent.completed(running,connected) end
+        return result
+    end
+    return queueTrackedWork(actor,action,record,"expedition_fuel")
+end
+
+-- Use the same stock timed action as a player. Its fluid and tank updates are
+-- performed by the game; VehicleRefuel verifies both readings afterwards.
+function actions.startVehicleRefuel(actor, vehicle, part, item, jobId)
+    if actor == nil or vehicle == nil or part == nil or item == nil
+        or type(ISAddGasolineToVehicle) ~= "table"
+        or type(ISAddGasolineToVehicle.new) ~= "function" then
+        return false, "vehicle_refuel_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, item, nil)
+    if not record then return false, reason end
+    local created, timedAction = pcall(ISAddGasolineToVehicle.new,
+        ISAddGasolineToVehicle, actor, part, item)
+    if not created or not timedAction then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_refuel_action_creation_failed"
+    end
+    local nativeValid = timedAction.isValid
+    timedAction.isValid = function(self)
+        if not SC.VehicleRefuel or type(SC.VehicleRefuel.canContinue) ~= "function"
+            or SC.VehicleRefuel.canContinue(actor, vehicle, part, item, jobId) ~= true then
+            return false
+        end
+        return type(nativeValid) ~= "function" or nativeValid(self) == true
+    end
+    return queueTrackedWork(actor, timedAction, record, "vehicle_refuel")
+end
+
+-- The stock generator action owns the fluid transfer. Snapshot its immediate
+-- completion rather than comparing distant tank readings: an activated
+-- generator burns fuel while the companion is pouring.
+function actions.startGeneratorService(actor, generator, operation, jobId)
+    local class = operation == "repair" and ISFixGenerator or ISActivateGenerator
+    if not class or not class.new then return false, "generator_service_action_unavailable" end
+    local items={}
+    if operation=="repair" then
+        local inventory=SC.ControlUtil.inventory(actor)
+        local scrap=SC.ControlUtil.call(inventory,"getFirstTypeRecurse","ElectronicsScrap")
+        if not scrap then return false,"missing_supply:Base.ElectronicsScrap" end
+        items[1]=scrap
+    end
+    local record, reason = prepareWorkInventory(actor, items, nil, nil)
+    if not record then return false, reason end
+    local okay, action = pcall(class.new, class, actor, generator, operation == "start")
+    if not okay or not action then restoreWorkInventory(actor, record) return false, "generator_service_action_creation_failed" end
+    local valid, complete = action.isValid, action.complete
+    -- The base job owns repair continuation, cancellation and retry, rather
+    -- than allowing stock repair to enqueue untracked follow-up actions.
+    if operation == "repair" then action.continueFixing = function() end end
+    action.isValid = function(self)
+        return SC.GeneratorServices.canContinue(actor, generator, jobId) == true and valid(self) == true
+    end
+    action.complete = function(self)
+        if not self:isValid() then return false end
+        return complete(self)
+    end
+    return queueTrackedWork(actor, action, record, "generator_service")
+end
+
+function actions.startGeneratorRefuel(actor, generator, item, jobId)
+    if actor == nil or generator == nil or item == nil
+        or type(ISAddFuel) ~= "table" or type(ISAddFuel.new) ~= "function" then
+        return false, "generator_refuel_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, item, nil)
+    if not record then return false, reason end
+    local created, timedAction = pcall(ISAddFuel.new,
+        ISAddFuel, actor, generator, item)
+    if not created or not timedAction or type(timedAction.complete) ~= "function" then
+        restoreWorkInventory(actor, record)
+        return false, "generator_refuel_action_creation_failed"
+    end
+    local nativeValid, nativeComplete = timedAction.isValid, timedAction.complete
+    timedAction.isValid = function(self)
+        if not SC.GeneratorRefuel
+            or type(SC.GeneratorRefuel.canContinue) ~= "function"
+            or SC.GeneratorRefuel.canContinue(actor, generator, item, jobId) ~= true then
+            return false
+        end
+        return type(nativeValid) ~= "function" or nativeValid(self) == true
+    end
+    timedAction.complete = function(self)
+        local fluidOkay, fluid = invoke(item, "getFluidContainer")
+        local fuelOkay, fuelBefore = invoke(generator, "getFuel")
+        local canOkay, canBefore = false, nil
+        if fluidOkay then canOkay, canBefore = invoke(fluid, "getAmount") end
+        local result = nativeComplete(self)
+        local afterFuelOkay, fuelAfter = invoke(generator, "getFuel")
+        local afterCanOkay, canAfter = invoke(fluid, "getAmount")
+        if fuelOkay and canOkay and afterFuelOkay and afterCanOkay
+            and SC.GeneratorRefuel
+            and type(SC.GeneratorRefuel.recordTransfer) == "function" then
+            SC.GeneratorRefuel.recordTransfer(jobId, generator, item,
+                fuelBefore, canBefore, fuelAfter, canAfter)
+        end
+        return result
+    end
+    return queueTrackedWork(actor, timedAction, record, "generator_refuel")
+end
+
+function actions.startTireInflation(actor, vehicle, part, pump, jobId, targetPsi)
+    if not actor or not part or not pump or not targetPsi
+        or type(ISInflateTire) ~= "table"
+        or type(ISInflateTire.new) ~= "function" then
+        return false, "tire_inflation_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { pump }, pump, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISInflateTire.new, ISInflateTire,
+        actor, part, pump, targetPsi)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "tire_inflation_action_creation_failed"
+    end
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canContinue(actor, vehicle, pump, jobId,
+                part:getArea(), part) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "inflate_tires")
+end
+
+function actions.startVehicleAreaApproach(actor, vehicle, area, jobId)
+    if not actor or not vehicle or not area
+        or type(ISPathFindAction) ~= "table"
+        or type(ISPathFindAction.pathToVehicleArea) ~= "function" then
+        return false, "vehicle_area_path_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISPathFindAction.pathToVehicleArea,
+        ISPathFindAction, actor, vehicle, area)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_area_path_creation_failed"
+    end
+    -- The companion queue treats the player's unlimited (-1) duration as
+    -- immediately complete. The path action still force-completes on arrival.
+    action.maxTime = 5400
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canApproach(actor, vehicle, jobId) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "vehicle_area_approach")
+end
+
+function actions.startVehicleWash(actor, vehicle, areaId, area, item, jobId)
+    if not actor or not vehicle or not item or not areaId or not area
+        or type(ISWashVehicle) ~= "table"
+        or type(ISWashVehicle.new) ~= "function" then
+        return false, "vehicle_wash_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISWashVehicle.new, ISWashVehicle,
+        actor, vehicle, areaId, area)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "vehicle_wash_action_creation_failed"
+    end
+    -- The stock action uses maxTime=-1 for a player. The native companion
+    -- queue completes that duration immediately, before updateWashing runs.
+    -- A bounded segment still uses the stock animation and wash updates;
+    -- VehicleUpkeep reads back progress and queues another segment if needed.
+    local instantOkay, instant = invoke(actor, "isTimedActionInstant")
+    action.maxTime = instantOkay and instant == true and 1 or 1800
+    local nativeValid, nativeRemove = action.isValid, action.removeBlood
+    action.isValid = function(self)
+        return SC.VehicleUpkeep
+            and SC.VehicleUpkeep.canContinue(actor, vehicle, item, jobId, area)
+                == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    -- Vanilla scans every water container in the actor's inventory. The job
+    -- has borrowed one exact container and must never spend personal water.
+    action.useWater = function(_, units)
+        local okay, fluid = invoke(item, "getFluidContainer")
+        if not okay or not fluid then return end
+        local hasAmount, amount = invoke(fluid, "getAmount")
+        if not hasAmount then return end
+        local spent = math.min(tonumber(units) or 0, tonumber(amount) or 0)
+        if spent <= 0 then return end
+        invoke(fluid, "adjustAmount", amount - spent)
+        if type(sendItemStats) == "function" then pcall(sendItemStats, item) end
+    end
+    action.removeBlood = function(self, bloodRemoved, waterUsed)
+        local okay, fluid = invoke(item, "getFluidContainer")
+        local hasAmount, amount = false, nil
+        if okay and fluid then
+            hasAmount, amount = invoke(fluid, "getAmount")
+        end
+        local units = hasAmount and math.min(math.floor(tonumber(amount) or 0),
+            tonumber(waterUsed) or 0) or 0
+        if units < 1 then
+            if type(self.forceStop) == "function" then self:forceStop() end
+            return
+        end
+        return nativeRemove(self, math.min(tonumber(bloodRemoved) or 0,
+            units * ISWashVehicle.BLOOD_PER_WATER), units)
+    end
+    -- The native perform() automatically queues the next car side, which
+    -- escapes the base-job receipt. This job selects and verifies each side.
+    action.perform = function(self)
+        if self.sound then self.character:stopOrTriggerSound(self.sound) end
+        return ISBaseTimedAction.perform(self)
+    end
+    return queueTrackedWork(actor, action, record, "wash_vehicle")
+end
+
+-- Fill the job's borrowed empty vessel from a fixed clean source. The native
+-- take-water action accounts for both the sink and container fluid exactly.
+function actions.startVehicleWashFill(actor, item, source, jobId)
+    if not actor or not item or not source
+        or type(ISTakeWaterAction) ~= "table"
+        or type(ISTakeWaterAction.new) ~= "function" then
+        return false, "wash_sink_action_unavailable"
+    end
+    local record, reason = prepareWorkInventory(actor, { item }, nil, nil)
+    if not record then return false, reason end
+    local created, action = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+        actor, item, source, false)
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "wash_sink_action_creation_failed"
+    end
+    if (tonumber(action.waterUnit) or 0) < 1 then
+        restoreWorkInventory(actor, record)
+        return false, "wash_sink_carry_capacity_low"
+    end
+    local nativeValid = action.isValid
+    action.isValid = function(self)
+        return SC.VehicleUpkeep and SC.VehicleUpkeep.canFill(
+            actor, item, source, jobId) == true
+            and (type(nativeValid) ~= "function" or nativeValid(self) == true)
+    end
+    return queueTrackedWork(actor, action, record, "wash_vehicle_fill")
+end
+
+-- Queue one stock Build 42 farming action while retaining the same exclusive
+-- timed-action ownership and hand/inventory restoration used by production.
+-- The caller selects policy and supplies; this adapter only validates and
+-- starts the native action. Real Farming skill remains the source of yield.
+function actions.startFarmFluidDeposit(actor,item,object,amount,jobId,validate,observe)
+    if not actor or type(validate)~="function" or type(observe)~="function"
+        or validate()~=true or not amount or amount<=0 then return false,"farm_fluid_invalid" end
+    local record,reason=prepareWorkInventory(actor,{item},item,nil)
+    if not record then return false,reason end
+    local _,donor=invoke(item,"getFluidContainer")
+    local _,receiver=invoke(object,"getFluidContainer")
+    local made,action=pcall(ISFluidTransferAction.new,ISFluidTransferAction,actor,
+        ISFluidContainer:new(donor),donor,ISFluidContainer:new(receiver),receiver,amount)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"farm_fluid_unavailable" end
+    action.isValid=function(self)
+        return self.character==actor and self.source:getOwner()==item and self.target:getOwner()==object
+            and validate()==true and FluidContainer.CanTransfer(donor,receiver)==true
+    end
+    local update,complete=action.update,action.complete
+    local function effect(self,fn)
+        if not self:isValid() then self:forceStop() return false end
+        local a,b=donor:getAmount(),receiver:getAmount()
+        local result=fn(self)
+        if observe(a,b)~=true then self:forceStop() return false end
+        return result
+    end
+    action.update=function(self) return effect(self,update) end
+    action.complete=function(self) return effect(self,complete) end
+    record.baseJobId=jobId
+    return queueTrackedWork(actor,action,record,"farm_milk_store")
+end
+
+function actions.startMedicKitTransfer(actor,item,source,destination,kit,validate)
+    if type(validate)~="function" or validate()~=true
+        or not SC.GameplayUtil.inventoryContains(source,item) then return false,"medic_kit_transfer_changed" end
+    local record,reason=prepareWorkInventory(actor,{},nil,nil)
+    if not record then return false,reason end
+    local made,action=pcall(ISInventoryTransferAction.new,ISInventoryTransferAction,
+        actor,item,source,destination,100)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"medic_kit_action_missing" end
+    local original,start=action.isValid,action.start
+    action.canMergeAction=function() return false end
+    action.isValid=function(self)
+        return self.character==actor and validate()==true and SC.GameplayUtil.inventoryContains(source,item)
+            and SC.GameplayUtil.containerHasRoom(destination,actor,item)==true and original(self)==true
+    end
+    action.start=function(self)
+        start(self)
+        self.selectedContainer=nil
+        local model=select(2,invoke(kit,"getStaticModel"))
+        if model then self:setOverrideHandModels(nil,model) end
+    end
+    return queueTrackedWork(actor,action,record,"medic_kit")
+end
+
+function actions.startFarmManure(actor,tool,square,jobId,validate,commit)
+    if not actor or not ISPickupDung or type(validate)~="function" or validate(true)~=true then
+        return false,"animal_manure_changed"
+    end
+    local record,reason=prepareWorkInventory(actor,{tool},tool,nil)
+    if not record then return false,reason end
+    local made,action=pcall(ISPickupDung.new,ISPickupDung,actor,tool,square,1)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"animal_manure_action_missing" end
+    local original=action.complete
+    action.isValid=function(self) return self.character==actor and self.item==tool and validate(false)==true end
+    action.complete=function(self)
+        if not self:isValid() or validate(true)~=true then return false end
+        local result=original(self)
+        if result~=true then return false end
+        return commit()==true
+    end
+    record.baseJobId=jobId
+    return queueTrackedWork(actor,action,record,"farm_animal_manure")
+end
+
+function actions.startAnimal(actor, intent)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then return false, "animal_action_invalid" end
+    local item, object = intent.item, intent.object
+    local record, reason = prepareWorkInventory(actor, intent.items or (item and { item } or {}), item, nil)
+    if not record then return false, reason end
+    local action, created
+    if intent.operation == "animal_water" and ISFluidTransferAction and ISFluidContainer then
+        local _, donor = invoke(item, "getFluidContainer")
+        local _, receiver = invoke(object, "getFluidContainer")
+        if donor and receiver then
+            local amount = math.min(donor:getAmount(), math.max(0, intent.high - receiver:getAmount()))
+            if amount > 0 then
+                created, action = pcall(ISFluidTransferAction.new, ISFluidTransferAction,
+                    actor, ISFluidContainer:new(donor), donor, ISFluidContainer:new(receiver), receiver, amount)
+            end
+        end
+        if created and action then
+            -- The stock UI validator consults getPlayer(). Bind this instance
+            -- to its real companion, item and trough instead.
+            action.isValid = function(self)
+                return self.character == actor and self.source:getOwner() == item
+                    and self.target:getOwner() == object and intent.validate() == true
+                    and FluidContainer.CanTransfer(donor, receiver) == true
+            end
+            action.start = function(self)
+                self:setActionAnim("MixFluids")
+                self:setOverrideHandModels(item:getStaticModel(), nil)
+                self.sound = actor:playSound("AnimalFeederAddWater")
+            end
+        end
+    elseif intent.operation == "animal_feed" and ISInventoryTransferAction then
+        local okay, destination = invoke(object, "getContainer")
+        if okay and destination then
+            created, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
+                actor, item, actor:getInventory(), destination, 100)
+            if created and action then
+                action.canMergeAction = function() return false end
+                local start, update = action.start, action.update
+                action.start = function(self)
+                    start(self)
+                    -- Stock transfer animation selects the local player's loot
+                    -- panel. Companions have no such panel; retain the native
+                    -- transfer and animation without that UI-only binding.
+                    self.selectedContainer = nil
+                end
+                action.update = function(self)
+                    actor:faceThisObject(object)
+                    return update(self)
+                end
+            end
+        end
+    elseif intent.operation=="animal_milk" and ISMilkAnimal
+        and type(intent.milkGuard)=="function" and type(intent.milkCommit)=="function"
+        and type(intent.milkResult)=="table" then
+        created,action=pcall(ISMilkAnimal.new,ISMilkAnimal,actor,object,item,intent.right==true,false)
+        if created and action then
+            local milk=action.milk
+            action.milk=function(self)
+                if self.character~=actor or self.animal~=object or self.bucket~=item
+                    or intent.validate()~=true then
+                    intent.milkResult.reason="animal_milk_interrupted" self:forceStop() return
+                end
+                local allowed,detail=intent.milkGuard()
+                if not allowed then
+                    intent.milkResult.reason=detail self:forceStop() return
+                end
+                local donor=object:getData():getMilkQuantity()
+                local amount=item:getFluidContainer():getAmount()
+                local okay=pcall(milk,self)
+                -- Native milk() retains animation, stress, XP, sync and its
+                -- measured animal transfer. Never replay or compensate it.
+                if not okay or self.bucket~=item or intent.milkCommit(donor,amount)~=true then
+                    intent.milkResult.reason="animal_milk_uncertain" self:forceStop()
+                end
+            end
+        end
+    elseif intent.operation=="animal_shear" and ISShearAnimal and type(intent.shearResult)=="table"
+        and type(intent.shearResult.before)=="function" and type(intent.shearResult.after)=="function"
+        and type(intent.shearOwns)=="function" then
+        created,action=pcall(ISShearAnimal.new,ISShearAnimal,actor,object,item)
+        if created and action then
+            local update=action.update
+            local result=intent.shearResult
+            local function cleanup(self)
+                if self.character~=actor or self.animal~=object then return end
+                pcall(self.stopSound,self)
+                invoke(actor,"setVariable","shearanimal",false)
+                if intent.shearOwns() then
+                    local _,behavior=invoke(object,"getBehavior")
+                    invoke(behavior,"setBlockMovement",false)
+                end
+            end
+            result.cleanup=function() cleanup(action) end
+            for _,method in ipairs({"stop","forceStop","perform","complete"}) do
+                local native=action[method]
+                action[method]=function(self,...)
+                    local okay,value
+                    if intent.shearOwns() then okay,value=pcall(native,self,...)
+                    elseif method=="complete" then okay,value=true,true
+                    else okay,value=pcall(ISBaseTimedAction[method],self,...) end
+                    cleanup(self)
+                    if not okay then result.reason="animal_shear_uncertain" return false end
+                    return value
+                end
+            end
+            action.update=function(self)
+                if self.character~=actor or self.animal~=object or self.shear~=item
+                    or intent.validate()~=true then result.reason="animal_shear_interrupted" self:forceStop() return end
+                local due=math.floor((self.timer+getGameTime():getMultiplier())/self.timePerLiter)>self.lastTimer
+                local proof,why
+                if due then
+                    local checked
+                    checked,proof,why=pcall(result.before)
+                    if not checked or not proof then
+                        result.reason=checked and why or "animal_shear_uncertain"
+                        self:forceStop() return
+                    end
+                end
+                local okay=pcall(update,self)
+                if proof then
+                    local checked,captured,reason=pcall(result.after,proof)
+                    if not checked or not captured then
+                        result.reason="animal_shear_uncertain" okay=false
+                    end
+                end
+                if not okay then result.reason="animal_shear_uncertain" self:forceStop() end
+            end
+        end
+    elseif intent.operation == "animal_soothe" and ISPetAnimal
+        and type(intent.sootheResult) == "table" and type(intent.shearOwns) == "function" then
+        -- Empty real hands before stock forceDropHeavyItems: retain bags/tools
+        -- in their inventory and restore them using the ordinary work record.
+        local a = invoke(actor, "setPrimaryHandItem", nil)
+        local b = invoke(actor, "setSecondaryHandItem", nil)
+        if a and b then created, action = pcall(ISPetAnimal.new, ISPetAnimal, actor, object) end
+        if created and action then
+            local result, nativeComplete = intent.sootheResult, action.complete
+            local attempted = false
+            local function cleanup()
+                if not intent.shearOwns() then return end
+                invoke(actor, "setVariable", "petanimal", false)
+                invoke(object, "clearVariable", "idleAction")
+                local _, behavior = invoke(object, "getBehavior")
+                invoke(behavior, "setBlockMovement", false)
+            end
+            result.cleanup = cleanup
+            local start = action.start
+            action.start = function(self)
+                if intent.validate() ~= true then self:forceStop() return end
+                return start(self)
+            end
+            action.complete = function(self)
+                if attempted then return result.applied == true end
+                if self.character ~= actor or self.animal ~= object or intent.validate() ~= true then return false end
+                attempted = true -- A failed native call is never replayed.
+                local okay, value = pcall(nativeComplete, self)
+                result.applied = okay and value == true
+                if not result.applied then result.reason = "animal_soothe_uncertain" end
+                cleanup()
+                return result.applied
+            end
+            -- Stock petting can commit from both the animation event and
+            -- complete(). Route both through that same once-only native call.
+            action.animEvent = function(self, event)
+                if event == "pettingFinished" then self:complete() self:forceStop() end
+            end
+            for _, method in ipairs({ "stop", "forceStop", "perform" }) do
+                action[method] = function(self, ...)
+                    cleanup()
+                    return ISBaseTimedAction[method](self, ...)
+                end
+            end
+        end
+    elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
+        created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
+        if created and action then
+            action.tree = object -- stock waitToStart otherwise faces an unset field
+            action.maxTime = action.timePerEgg + 5
+        end
+    elseif (intent.operation == "animal_open" or intent.operation == "animal_close")
+        and ISToggleHutchDoor and type(ISToggleHutchDoor.new)=="function" then
+        created, action = pcall(ISToggleHutchDoor.new, ISToggleHutchDoor, actor, object)
+    elseif intent.operation == "animal_hatch_open" and ISToggleHutchEggHatchDoor then
+        created, action = pcall(ISToggleHutchEggHatchDoor.new, ISToggleHutchEggHatchDoor, actor, object)
+    elseif intent.operation == "animal_clean_floor" and ISHutchCleanFloor then
+        created, action = pcall(ISHutchCleanFloor.new, ISHutchCleanFloor,
+            actor, object, intent.water, item, intent.cleaner)
+        if created and action then action.tree = object end
+    elseif intent.operation == "animal_clean_nest" and ISHutchCleanNest then
+        created, action = pcall(ISHutchCleanNest.new, ISHutchCleanNest, actor, object, nil)
+        if created and action then action.tree = object end
+    end
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "animal_native_action_unavailable"
+    end
+    local valid = action.isValid
+    action.isValid = function(self)
+        return self.character == actor and intent.validate() == true
+            and (type(valid) ~= "function" or valid(self) == true)
+    end
+    -- Native actions can change resources during update or perform. Validate
+    -- this instance at every effect boundary, never a global vanilla wrapper.
+    local committed=false
+    for _, method in ipairs({ "update", "perform", "complete" }) do
+        local native = action[method]
+        if type(native) == "function" then
+            action[method] = function(self, ...)
+                if method=="complete" and committed then return true end
+                local milkCleanup=(intent.operation=="animal_milk" or intent.operation=="animal_shear"
+                    or intent.operation=="animal_soothe") and method~="update"
+                if not milkCleanup and not (method=="perform" and committed) and (intent.validate() ~= true
+                    or method=="complete" and intent.beforeCommit and intent.beforeCommit()~=true) then
+                    if intent.operation=="animal_milk" then intent.milkResult.reason="animal_milk_interrupted" end
+                    self:forceStop() return false
+                end
+                local result=native(self, ...)
+                if method=="complete" and result==true then committed=true end
+                return result
+            end
+        end
+    end
+    return queueTrackedWork(actor, action, record, "farm_" .. intent.operation)
+end
+
+-- Water weighs a kilogram per litre, including tainted water. The stock
+-- action uses inventory capacity (often 50), rather than safe carry weight.
+-- Cap its own transfers; never remove fluid or replay a partially filled can.
+function actions.limitWorkWaterFill(actor, action, maximum, validate)
+    local U = SC.GameplayUtil
+    if not U or not U.projectedCarryLoad or not action.item then return false end
+    -- Native hand models still show the bucket. Keep its real weight in the
+    -- root inventory until completion, without a temporary equipped discount.
+    if select(2, invoke(actor, "getPrimaryHandItem")) == action.item then
+        invoke(actor, "setPrimaryHandItem", nil)
+    end
+    if select(2, invoke(actor, "getSecondaryHandItem")) == action.item then
+        invoke(actor, "setSecondaryHandItem", nil)
+    end
+    local function room()
+        local weight, limit = U.projectedCarryLoad(actor, false)
+        return math.max(0, (tonumber(limit) or 0) - (tonumber(weight) or math.huge) - 0.15)
+    end
+    action.waterUnit = math.min(tonumber(action.waterUnit) or 0,
+        tonumber(maximum) or math.huge, room())
+    if action.waterUnit < math.min(tonumber(maximum) or 0.2, 0.2) - 0.0001 then return false end
+    action.endUsedAmount = (tonumber(action.startUsedAmount) or 0) + action.waterUnit
+    action.maxTime = action:getDuration()
+    local transfer, valid = action.transferFluid, action.isValid
+    local item, source = action.item, action.waterObject
+    local function current(self)
+        return self.character == actor and self.item == item and self.waterObject == source
+            and U.inventoryContains(U.inventory(actor), item)
+            and select(2, invoke(actor, "isDead")) ~= true
+            and (not validate or validate() == true)
+    end
+    action.isValid = function(self)
+        return current(self) and valid(self) == true
+    end
+    action.transferFluid = function(self, amount)
+        if not current(self) then return end
+        local _, fluid = invoke(item, "getFluidContainer")
+        local _, present = invoke(fluid, "getAmount")
+        if not present then return end
+        local remaining = math.max(0, self.endUsedAmount - present)
+        amount = math.min(math.max(0, tonumber(amount) or 0), remaining, room())
+        if amount > 0 then return transfer(self, amount) end
+    end
+    return true
+end
+
+function actions.startFarm(actor, intent)
+    if actor == nil or type(intent) ~= "table" then
+        return false, "farm intent is required"
+    end
+    local operation = tostring(intent.operation or "")
+    local item = intent.item
+    local items = item and { item } or {}
+    local primary = item
+    local record, prepareReason = prepareWorkInventory(actor, items, primary, nil)
+    if not record then return false, prepareReason end
+
+    local created, timedAction
+    if operation == "plow" and type(ISPlowAction) == "table"
+        and type(ISPlowAction.new) == "function" and intent.square ~= nil then
+        created, timedAction = pcall(ISPlowAction.new, ISPlowAction,
+            actor, intent.square, item)
+    elseif operation == "sow" and type(ISSeedActionNew) == "table"
+        and type(ISSeedActionNew.new) == "function" and item ~= nil
+        and intent.cropType ~= nil and intent.plant ~= nil then
+        created, timedAction = pcall(ISSeedActionNew.new, ISSeedActionNew,
+            actor, item, intent.cropType, intent.plant)
+    elseif operation == "water" and type(ISWaterPlantAction) == "table"
+        and type(ISWaterPlantAction.new) == "function" and item ~= nil
+        and intent.square ~= nil then
+        local uses = math.max(1, math.floor(tonumber(intent.uses) or 1))
+        created, timedAction = pcall(ISWaterPlantAction.new, ISWaterPlantAction,
+            actor, item, uses, intent.square, 20 + 6 * uses)
+    elseif operation == "harvest" and type(ISHarvestPlantAction) == "table"
+        and type(ISHarvestPlantAction.new) == "function" and intent.plant ~= nil then
+        created, timedAction = pcall(ISHarvestPlantAction.new, ISHarvestPlantAction,
+            actor, intent.plant, 100)
+    elseif operation == "compost" and type(ISFertilizeAction) == "table"
+        and type(ISFertilizeAction.new) == "function" and item ~= nil
+        and intent.plant ~= nil then
+        created, timedAction = pcall(ISFertilizeAction.new, ISFertilizeAction,
+            actor, item, intent.plant, 100)
+    elseif operation == "cure" and type(ISCurePlantAction) == "table"
+        and type(ISCurePlantAction.new) == "function" and item ~= nil
+        and intent.plant ~= nil and intent.cure ~= nil then
+        local uses = math.max(1, math.floor(tonumber(intent.uses) or 1))
+        created, timedAction = pcall(ISCurePlantAction.new, ISCurePlantAction,
+            actor, item, uses, intent.plant, 10 * uses * 10, intent.cure)
+    elseif operation == "fill_water" and type(ISTakeWaterAction) == "table"
+        and type(ISTakeWaterAction.new) == "function" and item ~= nil
+        and intent.object ~= nil then
+        local taintedOk, tainted = invoke(intent.object, "isTaintedWater")
+        created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+            actor, item, intent.object, taintedOk and tainted == true)
+    else
+        restoreWorkInventory(actor, record)
+        return false, "native farm action is unavailable or incomplete: " .. operation
+    end
+    if not created or timedAction == nil then
+        restoreWorkInventory(actor, record)
+        return false, created and "farm action was not created" or tostring(timedAction)
+    end
+    if operation == "fill_water" and not actions.limitWorkWaterFill(
+        actor, timedAction, intent.amount, intent.validate) then
+        restoreWorkInventory(actor, record)
+        return false, "farm_water_carry_capacity_low"
+    end
+    if intent.farmerRole == true and tonumber(timedAction.maxTime) ~= nil
+        and tonumber(timedAction.maxTime) > 1 then
+        local multiplier = tonumber(SC.Config.get("farmFarmerDurationMultiplier")) or 0.60
+        timedAction.maxTime = math.max(1, math.floor(timedAction.maxTime * multiplier))
+        if tonumber(timedAction.maxTimeInit) ~= nil then
+            timedAction.maxTimeInit = timedAction.maxTime
+        end
+    end
+    return queueTrackedWork(actor, timedAction, record, "farm_" .. operation)
+end
+
+-- Stock Build 42 cleaning chooses its own wall/floor scrub pose and commits
+-- the bleach/cleaning-liquid cost and stain removal. Keep its native queue
+-- ownership and restore the companion's previous hand items afterward.
+function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId, fromWorld, proof)
+    amount = tonumber(amount)
+    if not actor or not source or not bucket or not amount or amount ~= amount
+        or amount <= 0 or amount > 2.001 or not SC.BaseWork
+        or SC.BaseWork.canMixCleaning(actor, jobId, source, bucket, fromWorld) ~= true then
+        return false, "cleaning_transfer_invalid"
+    end
+    local items = fromWorld and { bucket } or { source, bucket }
+    local record, reason = prepareWorkInventory(actor, items, bucket, nil)
+    if not record then return false, reason end
+    local action, created
+    if fromWorld then
+        created, action = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+            actor, bucket, source, select(2, invoke(source, "isTaintedWater")) == true)
+        if created and action then
+            if not actions.limitWorkWaterFill(actor, action, amount, function()
+                return SC.BaseWork.canMixCleaning(actor, jobId, source, bucket, true)
+            end) or action.waterUnit + 0.0001 < amount then
+                restoreWorkInventory(actor, record)
+                return false, "cleaning_carry_capacity_low"
+            end
+        end
+    elseif type(ISFluidContainer) == "table" and type(ISFluidTransferAction) == "table" then
+        local _, donor = invoke(source, "getFluidContainer")
+        local _, receiver = invoke(bucket, "getFluidContainer")
+        if donor and receiver then
+            local a, b = ISFluidContainer:new(donor), ISFluidContainer:new(receiver)
+            created, action = pcall(ISFluidTransferAction.new, ISFluidTransferAction,
+                actor, a, donor, b, receiver, amount)
+        end
+    end
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "cleaning_transfer_action_unavailable"
+    end
+    -- ISFluidUtil's UI validator falls back to getPlayer(). This instance is
+    -- owned by the exact LF actor and never changes that global validator.
+    action.isValid = function(self)
+        if self.character ~= actor or not SC.BaseWork or SC.BaseWork.canMixCleaning(
+            actor, jobId, source, bucket, fromWorld) ~= true then return false end
+        if fromWorld then
+            return self.item == bucket and self.waterObject == source
+                and select(2, invoke(source, "hasFluid")) == true
+        end
+        if self.source:getOwner() ~= source or self.target:getOwner() ~= bucket then return false end
+        return FluidContainer.CanTransfer(self.source:getFluidContainer(), self.target:getFluidContainer()) == true
+    end
+    if proof then
+        -- Observe native accounting at each effect boundary, without changing
+        -- its transfer algorithm or replacing fluid lost between callbacks.
+        proof.observed = type(action.update) == "function" and type(action.complete) == "function"
+        for _, method in ipairs({ "update", "complete" }) do
+            local native = action[method]
+            if type(native) == "function" then
+                action[method] = function(self, ...)
+                    if proof.uncertain or proof.inFlight or not self:isValid() then
+                        self:forceStop() return false
+                    end
+                    local before = SC.CleaningSupplies.inspect(bucket)
+                    local donor = not fromWorld and SC.CleaningSupplies.inspect(source) or nil
+                    if not before or not fromWorld and not donor then proof.uncertain = true return false end
+                    proof.inFlight = true
+                    local okay, result = pcall(native, self, ...)
+                    local after = SC.CleaningSupplies.inspect(bucket)
+                    local debit = not fromWorld and SC.CleaningSupplies.inspect(source) or nil
+                    local credit = after and after.amount - before.amount
+                    if not okay or not credit or credit < -0.0001
+                        or credit > amount + 0.001
+                        or not fromWorld and (not debit or math.abs(donor.amount - debit.amount - credit) > 0.001) then
+                        proof.uncertain = true
+                    else proof.observed = true proof.credit = (proof.credit or 0) + credit end
+                    proof.inFlight = nil
+                    if proof.uncertain then self:forceStop() return false end
+                    return result
+                end
+            end
+        end
+    end
+    record.baseJobId = jobId
+    return queueTrackedWork(actor, action, record, fromWorld and "cleaning_fill" or "cleaning_mix")
+end
+
+function actions.startCleanBlood(actor, square, tool, cleaner)
+    if actor == nil or square == nil or tool == nil or cleaner == nil then
+        return false, "cleaning target and supplies are required"
+    end
+    if type(ISCleanBlood) ~= "table" or type(ISCleanBlood.new) ~= "function" then
+        return false, "native cleaning action is unavailable"
+    end
+    local twoHanded, checked = invoke(tool, "isTwoHandWeapon")
+    local secondary = checked and twoHanded == true and tool or cleaner
+    local record, prepareReason = prepareWorkInventory(actor,
+        { tool, cleaner }, tool, secondary)
+    if not record then return false, prepareReason end
+    local created, action = pcall(ISCleanBlood.new, ISCleanBlood,
+        actor, square, cleaner)
+    if not created or action == nil then
+        restoreWorkInventory(actor, record)
+        return false, created and "native cleaning action was not created"
+            or tostring(action)
+    end
+    return queueTrackedWork(actor, action, record, "clean_base")
+end
+
+local function removeBarricadeTool(actor, object)
+    local barricadeOk, barricade = invoke(object, "getBarricadeForCharacter", actor)
+    if not barricadeOk or barricade == nil then
+        return nil, nil, "companion cannot reach the selected barricade side"
+    end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then
+        return nil, nil, "actor inventory is unavailable"
+    end
+    local metalOk, metal = invoke(barricade, "isMetal")
+    local barsOk, metalBars = invoke(barricade, "isMetalBar")
+    local tool
+    if (metalOk and metal == true) or (barsOk and metalBars == true) then
+        local foundOk
+        foundOk, tool = invoke(inventory, "getFirstTypeEvalRecurse", "BlowTorch", function(item)
+            local usesOk, uses = invoke(item, "getCurrentUses")
+            return usesOk and tonumber(uses) and tonumber(uses) >= 1
+        end)
+        if not foundOk or tool == nil then
+            return barricade, nil, "companion needs a fueled blowtorch"
+        end
+    else
+        local removeTag = workTag("REMOVE_BARRICADE")
+        if removeTag == nil then
+            return barricade, nil, "native remove barricade item tag is unavailable"
+        end
+        local foundOk
+        foundOk, tool = invoke(inventory, "getFirstTagEvalRecurse", removeTag, function(item)
+            local brokenOk, broken = invoke(item, "isBroken")
+            return not brokenOk or broken ~= true
+        end)
+        if not foundOk or tool == nil then
+            return barricade, nil, "companion needs a pry or remove-barricade tool"
+        end
+    end
+    return barricade, tool
+end
+actions._removeBarricadeToolForTests = removeBarricadeTool
+
+local function startRemoveBarricade(actor, intent, provider)
+    if intent.object == nil then return false, "remove barricade intent has no object" end
+    local handled, reason = useProvider(provider, "removeBarricade", actor, intent.object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISUnbarricadeAction) ~= "table"
+        or type(ISUnbarricadeAction.new) ~= "function" then
+        return false, "native remove barricade action is unavailable"
+    end
+    local _, tool, toolReason = removeBarricadeTool(actor, intent.object)
+    if tool == nil then return false, toolReason end
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(
+        ISUnbarricadeAction.new, ISUnbarricadeAction, actor, intent.object)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "remove_barricade")
+end
+
+local function startDismantle(actor, intent, provider)
+    if intent.object == nil then return false, "dismantle intent has no object" end
+    local handled, reason = useProvider(provider, "dismantle", actor, intent.object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISDismantleAction) ~= "table" or type(ISDismantleAction.new) ~= "function" then
+        return false, "native dismantle action is unavailable"
+    end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+    local sawTag, screwdriverTag = workTag("SAW"), workTag("SCREWDRIVER")
+    if sawTag == nil or screwdriverTag == nil then
+        return false, "native dismantle item tags are unavailable"
+    end
+    local function notBroken(item)
+        local brokenOk, broken = invoke(item, "isBroken")
+        return not brokenOk or broken ~= true
+    end
+    local sawOk, saw = invoke(inventory, "getFirstTagEvalRecurse", sawTag, notBroken)
+    local driverOk, screwdriver = invoke(
+        inventory, "getFirstTagEvalRecurse", screwdriverTag, notBroken)
+    if not sawOk or saw == nil then return false, "companion needs a saw" end
+    if not driverOk or screwdriver == nil then
+        return false, "companion needs a screwdriver"
+    end
+    local record, prepareReason = prepareWorkInventory(actor, { saw, screwdriver }, nil, nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(
+        ISDismantleAction.new, ISDismantleAction, actor, intent.object)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "dismantle")
+end
+
+local function unbrokenItem(item)
+    if item == nil then return false end
+    local brokenOk, broken = invoke(item, "isBroken")
+    return not brokenOk or broken ~= true
+end
+
+local function taggedWorkTool(actor, supplied, tagName)
+    if supplied ~= nil then return unbrokenItem(supplied) and supplied or nil end
+    local tag = workTag(tagName)
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if tag == nil or not inventoryOk or inventory == nil then return nil end
+    local foundOk, found = invoke(inventory, "getFirstTagEvalRecurse", tag, unbrokenItem)
+    return foundOk and found or nil
+end
+
+function actions.doorBashTool(actor)
+    return taggedWorkTool(actor, nil, "CHOP_TREE")
+end
+
+local function newJavaList(values)
+    local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
+    if type(listClass) ~= "table" and type(listClass) ~= "userdata" then return nil end
+    local created, list = pcall(function() return listClass.new() end)
+    if not created or list == nil then return nil end
+    for _, value in ipairs(values or {}) do
+        local added = invoke(list, "add", value)
+        if not added then return nil end
+    end
+    return list
+end
+
+-- Build 42 resolves handcraft recipes by their script name. Keep the lookup
+-- here so the production layer never touches ScriptManager directly.
+local function craftRecipe(name)
+    local manager = type(_G) == "table" and rawget(_G, "getScriptManager") or nil
+    if type(manager) ~= "function" then return nil end
+    local managerOk, scripts = pcall(manager)
+    if not managerOk or scripts == nil then return nil end
+    for _, candidate in ipairs({ name, string.match(name, "[^%.]+$") }) do
+        local found, recipe = invoke(scripts, "getCraftRecipe", candidate)
+        if found and recipe ~= nil then return recipe end
+    end
+    return nil
+end
+
+-- Pin the exact receipt log and saw as manual inputs. Letting the recipe
+-- choose freely could consume an unrelated or work-owned log.
+local function sawManualInputs(recipe, log, saw)
+    local inputsOk, inputs = invoke(recipe, "getInputs")
+    if not inputsOk or inputs == nil then return nil, "saw recipe inputs are unavailable" end
+    local manual, consumed, kept = {}, 0, 0
+    for index = 0, nativeListSize(inputs) - 1 do
+        local input = nativeListGet(inputs, index)
+        local keepOk, keep = invoke(input, "isKeep")
+        local ioOk, ioIndex = invoke(recipe, "getIndexForIO", input)
+        if not keepOk or not ioOk or tonumber(ioIndex) == nil then
+            return nil, "saw recipe input could not be classified"
+        end
+        local list = newJavaList({ keep == true and saw or log })
+        if list == nil then return nil, "native item list is unavailable" end
+        manual[math.floor(tonumber(ioIndex))] = list
+        if keep == true then kept = kept + 1 else consumed = consumed + 1 end
+    end
+    if kept ~= 1 or consumed ~= 1 then return nil, "saw recipe inputs changed" end
+    return manual
+end
+
+local function startChopTree(actor, intent, provider)
+    local tree = intent.tree
+    if tree == nil then return false, "chop intent has no tree" end
+    local handled, reason = useProvider(provider, "chopTree", actor, tree, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISChopTreeAction) ~= "table" or type(ISChopTreeAction.new) ~= "function" then
+        return false, "native chop tree action is unavailable"
+    end
+    local indexOk, index = invoke(tree, "getObjectIndex")
+    if not indexOk or tonumber(index) == nil or tonumber(index) < 0 then
+        return false, "tree is no longer in the world"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
+    if tool == nil then return false, "companion needs an axe" end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        (twoOk and twoHanded == true) and tool or nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISChopTreeAction.new, ISChopTreeAction, actor, tree)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "chop_tree")
+end
+
+-- The stock axe action sends a real ChopTree animation event for each swing.
+-- IsoDoor implements the same WeaponHit contract as a tree, so it owns door
+-- health, breakage, sound and weapon wear. This is deliberately an explicit
+-- action; route selection decides whether bashing is justified.
+local function startBashDoor(actor, intent, provider)
+    local door = intent.door or intent.object
+    if door == nil or not SC.GameplayUtil.instanceOf(door, "IsoDoor") then
+        return false, "bash target is not a native door"
+    end
+    local handled, reason = useProvider(provider, "bashDoor", actor, door, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local indexOk, index = invoke(door, "getObjectIndex")
+    local healthOk, health = invoke(door, "getHealth")
+    local openOk, open = invoke(door, "IsOpen")
+    local barricadedOk, barricaded = invoke(door, "isBarricaded")
+    local obstructedOk, obstructed = invoke(door, "isObstructed")
+    if not indexOk or tonumber(index) == nil or tonumber(index) < 0
+        or not healthOk or tonumber(health) == nil or tonumber(health) <= 0
+        or openOk and open == true
+        or barricadedOk and barricaded == true
+        or obstructedOk and obstructed == true then
+        return false, "door is no longer a bashable barrier"
+    end
+    local actorSquare = SC.GameplayUtil.squareOf(actor)
+    local ownerSquare = select(2, invoke(door, "getSquare"))
+    local oppositeSquare = select(2, invoke(door, "getOppositeSquare"))
+    if actorSquare == nil or not (SC.GameplayUtil.sameSquare(actorSquare, ownerSquare)
+        or SC.GameplayUtil.sameSquare(actorSquare, oppositeSquare)) then
+        return false, "door_not_adjacent"
+    end
+    local topology = SC.Topology
+    if type(topology) ~= "table"
+        or type(topology.objectLocked) ~= "function"
+        or type(topology.actorCanUnlock) ~= "function"
+        or not topology.objectLocked(door)
+        or topology.actorCanUnlock(actor, door, SC.GameplayUtil.squareOf(actor)) then
+        return false, "door_opens_normally"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
+    if tool == nil then return false, "companion needs an axe" end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        (twoOk and twoHanded == true) and tool or nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISChopTreeAction.new, ISChopTreeAction, actor, door)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "bash_door")
+end
+
+-- Keep vanilla forcing outcomes and exertion on this exact actor. The caller
+-- owns the target/tool claim; no local-player helper or global hook is used.
+function actions.forceOpen(actor, intent, provider)
+    local object, tool = intent.object, intent.tool
+    if not actor or not object or not tool or not ISForceOpen
+        or type(intent.validate) ~= "function" or intent.validate() ~= true then
+        return false, "force_open_changed"
+    end
+    local handled, reason = useProvider(provider, "forceOpen", actor, object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        twoOk and twoHanded == true and tool or nil)
+    if not record then return false, prepareReason end
+    local weight, capacity = SC.GameplayUtil.carryLoad(actor)
+    if not weight or not capacity or weight > capacity then
+        restoreWorkInventory(actor, record)
+        return false, "force_open_carry_limit"
+    end
+    local made, action = pcall(ISForceOpen.new, ISForceOpen, actor, object)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, "force_open_action_unavailable"
+    end
+    local valid, attempt, complete = action.isValid, action.attempt, action.complete
+    action.isValid = function(self)
+        return self.character == actor and self.object == object
+            and unbrokenItem(tool) and intent.validate() == true and valid(self) == true
+    end
+    action.attempt = function(self)
+        local held, primary = invoke(actor, "getPrimaryHandItem")
+        if not held or primary ~= tool or not self:isValid() then return "fail" end
+        return attempt(self)
+    end
+    -- ForceOpenState.onSuccess applies the portal effect only to a local
+    -- player. NPCs retain that flag as false. Apply the same native portal
+    -- method once, only after this exact stock action rolled success.
+    action.complete = function(self)
+        if self.character ~= actor or self.object ~= object or self.outcome ~= "success"
+            or intent.validate() ~= true then return false end
+        local _, localPlayer = invoke(actor, "isLocalPlayer")
+        local _, locked = invoke(object, "isLocked")
+        if localPlayer ~= true and locked == true and record.forceApplied ~= true then
+            record.forceApplied = true
+            invoke(object, "forceOpen", actor)
+            local _, stillLocked = invoke(object, "isLocked")
+            local _, open = invoke(object, "IsOpen")
+            if stillLocked == false and open ~= true then
+                invoke(object, SC.GameplayUtil.instanceOf(object, "IsoWindow") and "ToggleWindow" or "ToggleDoor", actor)
+            end
+            invoke(object, "sync")
+        end
+        return complete(self)
+    end
+    return queueTrackedWork(actor, action, record, "force_open")
+end
+
+function actions.startForceToolTransfer(actor, item, source, destination, validate, commit)
+    if type(validate) ~= "function" or validate() ~= true
+        or not SC.GameplayUtil.inventoryContains(source, item) then
+        return false, "force_tool_transfer_changed"
+    end
+    local record, reason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, reason end
+    local made, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
+        actor, item, source, destination, 100)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, "force_tool_transfer_unavailable"
+    end
+    local valid, start, complete = action.isValid, action.start, action.complete
+    action.canMergeAction = function() return false end
+    action.isValid = function(self)
+        return self.character == actor and validate() == true
+            and SC.GameplayUtil.inventoryContains(source, item)
+            and SC.GameplayUtil.containerHasRoom(destination, actor, item) == true
+            and valid(self) == true
+    end
+    action.start = function(self)
+        start(self)
+        self.selectedContainer = nil
+    end
+    action.complete = function(self)
+        if not self:isValid() then return false end
+        local result = complete(self)
+        if not SC.GameplayUtil.inventoryContains(source, item)
+            and SC.GameplayUtil.inventoryContains(destination, item) and commit then commit() end
+        return result
+    end
+    return queueTrackedWork(actor, action, record, "force_tool_transfer")
+end
+
+-- Keep bulky recipe inputs on the ground. This private floor view contains
+-- references to only this job's
+-- inputs, never a local player's loot panel or inventory.
+local function startLogCraft(actor, intent, unstack)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then
+        return false, "log_yard_inputs_changed"
+    end
+    if type(require) == "function" then pcall(require, "Entity/TimedActions/ISHandcraftAction") end
+    local names = { [2] = "Two", [3] = "Three", [4] = "Four" }
+    local ground, carried, recipeName
+    if unstack then
+        if not names[intent.count] or not intent.bundle then return false, "log_yard_inputs_changed" end
+        ground, carried = { intent.bundle }, {}
+        recipeName = "Base.Unstack" .. names[intent.count] .. "Logs"
+    else
+        if type(intent.logs) ~= "table" or #intent.logs ~= 4
+            or type(intent.ropes) ~= "table" or #intent.ropes ~= 2 then
+            return false, "log_yard_inputs_changed"
+        end
+        ground, carried, recipeName = intent.logs, intent.ropes, "Base.MakeFourLogStack"
+    end
+    local recipe = craftRecipe(recipeName)
+    if not recipe or not ISHandcraftAction or not ItemContainer then
+        return false, "log_yard_native_recipe_unavailable"
+    end
+    local inputsOk, inputs = invoke(recipe, "getInputs")
+    if not inputsOk or nativeListSize(inputs) ~= (unstack and 1 or 2) then
+        return false, "log_yard_native_recipe_changed"
+    end
+    local manual, seen = {}, {}
+    for index = 0, nativeListSize(inputs) - 1 do
+        local input = nativeListGet(inputs, index)
+        local _, count = invoke(input, "getIntAmount")
+        local _, keep = invoke(input, "isKeep")
+        local _, io = invoke(recipe, "getIndexForIO", input)
+        count = tonumber(count)
+        if keep ~= false or (unstack and count ~= 1)
+            or (not unstack and count ~= 4 and count ~= 2) or seen[count]
+            or tonumber(io) == nil then return false, "log_yard_native_recipe_changed" end
+        seen[count] = true
+        manual[io] = newJavaList((unstack or count == 4) and ground or carried)
+        if not manual[io] then return false, "log_yard_native_list_unavailable" end
+    end
+    local made, floor = pcall(ItemContainer.new, "floor", intent.square, nil)
+    if not made or not floor then return false, "log_yard_floor_unavailable" end
+    local _, floorItems = invoke(floor, "getItems")
+    for _, item in ipairs(ground) do
+        if not invoke(floorItems, "add", item) then return false, "log_yard_floor_unavailable" end
+    end
+    local record, why = prepareWorkInventory(actor, carried, nil, nil)
+    if not record then return false, why end
+    local containers = newJavaList({ actor:getInventory(), floor })
+    local madeAction, action = pcall(ISHandcraftAction.new, ISHandcraftAction, actor,
+        recipe, containers, nil, nil, manual, nil, nil, 1, 0)
+    if not madeAction or not action then
+        restoreWorkInventory(actor, record)
+        return false, "log_yard_native_action_unavailable"
+    end
+    record.baseJobId = intent.jobId
+    -- Craft consumption can leave a stale getContainer() reference. Only
+    -- physically surviving rope may return to its bag or previous hand.
+    record.verifySurvivingItems = true
+    local valid, performRecipe = action.isValid, action.performRecipe
+    action.isValid = function(self)
+        return intent.validate() == true and valid(self) == true
+    end
+    -- Vanilla owns animations, sounds, consumption, the output and ropeItems.
+    -- A persisted attempt receipt forbids replay after an ambiguous interruption.
+    action.performRecipe = function(self)
+        if self.lfStackAttempted or intent.validate() ~= true then return end
+        self.lfStackAttempted = true
+        intent.onAttempt()
+        local okay, failure = pcall(performRecipe, self)
+        local output = unstack and {} or nil
+        if self.logic then
+            local created = newJavaList({})
+            if created and invoke(self.logic, "getCreatedOutputItems", created) then
+                if unstack then
+                    for i = 0, nativeListSize(created) - 1 do output[#output + 1] = nativeListGet(created, i) end
+                elseif nativeListSize(created) == 1 then output = nativeListGet(created, 0) end
+            end
+        end
+        intent.onResult(output, okay)
+        if not okay then error(failure) end
+    end
+    return queueTrackedWork(actor, action, record, unstack and "unstack_logs" or "stack_logs")
+end
+
+function actions.startLogStack(actor, intent) return startLogCraft(actor, intent, false) end
+function actions.startLogUnstack(actor, intent) return startLogCraft(actor, intent, true) end
+
+-- Quiet chores use the same per-actor queue ownership as other native work.
+-- Every guard and effect wrapper belongs to this action instance only.
+function actions.startDowntimeAction(actor, activity, validate)
+    local care = SC.NativeCareActions
+    if not care or not care.handles(activity.kind, activity) or type(validate) ~= "function"
+        or validate() ~= true or not care.valid(actor, activity) then return false, "native_care_stale" end
+    if activeWork[actor] then return false, "native_work_already_owned" end
+    local record, reason = prepareWorkInventory(actor, activity.nativeInputs, nil, nil)
+    if not record then return false, reason end
+    record.verifySurvivingItems, record.downtimeActivity = true, activity
+    if activity.kind == "wash_bandage" then record.washActivity = activity end
+    local context = { recipe = craftRecipe, list = newJavaList }
+    local made, action, effect = pcall(care.create, actor, activity, context)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, made and effect or tostring(action)
+    end
+    local originalValid, originalEffect, originalStop = action.isValid, action[effect], action.stop
+    action.stop = function(self)
+        if not activity.nativeCompleted then
+            local _, dark = invoke(actor, "tooDarkToRead")
+            activity.nativeFailure = dark == true and "native_care_too_dark" or "native_care_interrupted"
+        end
+        return originalStop(self)
+    end
+    action.isValid = function(self)
+        return validate() == true and care.valid(actor, activity)
+            and originalValid(self) == true
+    end
+    action[effect] = function(self)
+        if activity.nativeAttempted then return activity.nativeCompleted == true end
+        if self.character ~= actor or not self:isValid() then activity.nativeFailure = "native_care_inputs_changed"; return false end
+        activity.nativeAttempted = true
+        if care.before then
+            local okay, accepted = pcall(care.before, actor, activity, self)
+            if not okay or accepted ~= true then activity.nativeFailure = "native_care_inputs_changed"; return false end
+        end
+        local logic = self.logic
+        if effect == "performRecipe" then
+            if not logic then activity.nativeFailure = "native_care_recipe_unavailable"; return false end
+            -- Observe the stock effect's own native result. Re-running the UI
+            -- preflight here can invalidate prepared recipe input data. This
+            -- proxy exists only inside this synchronous action callback.
+            self.logic = setmetatable({ performCurrentRecipe = function()
+                local result = logic:performCurrentRecipe()
+                activity.nativeRecipeSucceeded = result == true
+                return result
+            end }, { __index = function(_, key)
+                local value = logic[key]
+                if type(value) == "function" then return function(_, ...) return value(logic, ...) end end
+                return value
+            end })
+        end
+        local okay, result = pcall(originalEffect, self)
+        self.logic = logic
+        local afterOkay, verified = false, false
+        if okay and (effect == "performRecipe" and activity.nativeRecipeSucceeded == true
+            or effect ~= "performRecipe" and result == true) then
+            afterOkay, verified = pcall(care.after, actor, activity, self, context)
+        end
+        activity.nativeCompleted = okay and afterOkay and verified == true
+        if not activity.nativeCompleted then activity.nativeFailure = effect == "performRecipe"
+            and activity.nativeRecipeSucceeded ~= true and "native_care_recipe_requirements_changed"
+            or "native_care_effect_unverified" end
+        if activity.kind == "wash_bandage" and activity.nativeOutput
+            and activity.itemContainer and activity.itemContainer ~= actor:getInventory() then
+            record.moved[#record.moved + 1] = { item = activity.nativeOutput, container = activity.itemContainer }
+        end
+        if not okay then error(result) end
+        return result
+    end
+    if activity.kind == "weather_recovery" then
+        care.guardDrying(actor, activity, action, {
+            current = function() return activeWork[actor] == record end, validate = validate,
+            returnReplacement = function(item)
+                if activity.itemContainer and activity.itemContainer ~= actor:getInventory() then
+                    record.moved[#record.moved + 1] = { item = item, container = activity.itemContainer }
+                end
+            end,
+        })
+    end
+    local started, why = queueTrackedWork(actor, action, record, activity.kind)
+    if started then activity.nativeStarted, activity.nativeStartedAt = true, nowMs() end
+    return started, why
+end
+
+function actions.ownsDowntimeAction(actor, activity)
+    local record = actor and activeWork[actor]
+    return record ~= nil and record.downtimeActivity == activity
+end
+
+local function startSawLogs(actor, intent, provider)
+    local log, saw = intent.log, intent.saw
+    if log == nil or saw == nil then return false, "saw intent needs a log and a saw" end
+    local handled, reason = useProvider(provider, "sawLogs", actor, log, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISHandcraftAction) ~= "table" or type(ISHandcraftAction.new) ~= "function" then
+        return false, "native handcraft action is unavailable"
+    end
+    if not unbrokenItem(saw) then return false, "companion needs a saw" end
+    local recipe = craftRecipe("Base.SawLogs")
+    if recipe == nil then return false, "saw logs recipe is unavailable" end
+    local manual, manualReason = sawManualInputs(recipe, log, saw)
+    if not manual then return false, manualReason end
+    local record, prepareReason = prepareWorkInventory(actor, { log, saw }, nil, nil)
+    if not record then return false, prepareReason end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    local containers = inventoryOk and newJavaList({ inventory }) or nil
+    if containers == nil then
+        restoreWorkInventory(actor, record)
+        return false, "native craft container list is unavailable"
+    end
+    local created, timedAction = pcall(ISHandcraftAction.new, ISHandcraftAction, actor,
+        recipe, containers, nil, nil, manual, nil, nil, 1, 0)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "saw_logs")
+end
+
+-- ISEmptyGraves:create() reads the builder from the action, but vanilla
+-- start/perform helpers may still resolve getSpecificPlayer(self.player).
+-- Companions own no local-player slot, so bridge that lookup only while the
+-- grave action runs (the same seam SCBaseWork uses for construction).
+local CompanionGraveAction
+
+local function graveActionClass()
+    if CompanionGraveAction then return CompanionGraveAction end
+    if type(ISBuildAction) ~= "table" or type(ISBuildAction.derive) ~= "function" then
+        return nil
+    end
+    CompanionGraveAction = ISBuildAction:derive("SCCompanionGraveAction")
+    local function withCompanionPlayer(action, callback)
+        local original = getSpecificPlayer
+        local companion = action.character
+        getSpecificPlayer = function(index)
+            local numberOk, number = invoke(companion, "getPlayerNum")
+            if numberOk and tonumber(index) == tonumber(number) then return companion end
+            return original and original(index) or nil
+        end
+        local ok, failure = pcall(callback)
+        getSpecificPlayer = original
+        if not ok then error(failure) end
+    end
+    function CompanionGraveAction:start()
+        withCompanionPlayer(self, function() ISBuildAction.start(self) end)
+    end
+    function CompanionGraveAction:perform()
+        withCompanionPlayer(self, function() ISBuildAction.perform(self) end)
+    end
+    return CompanionGraveAction
+end
+
+local GRAVE_SPRITES = {
+    "location_community_cemetary_01_33", "location_community_cemetary_01_32",
+    "location_community_cemetary_01_34", "location_community_cemetary_01_35",
+}
+
+local function startDigGrave(actor, intent, provider)
+    local square = intent.square
+    if square == nil then return false, "dig intent has no grave square" end
+    local handled, reason = useProvider(provider, "digGrave", actor, square, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISEmptyGraves) ~= "table" or type(ISEmptyGraves.new) ~= "function" then
+        return false, "native grave digging is unavailable"
+    end
+    local class = graveActionClass()
+    if class == nil then return false, "native build action is unavailable" end
+    local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
+    if tool == nil then return false, "companion needs a shovel" end
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
+    if not record then return false, prepareReason end
+    local created, graves = pcall(ISEmptyGraves.new, ISEmptyGraves,
+        GRAVE_SPRITES[1], GRAVE_SPRITES[2], GRAVE_SPRITES[3], GRAVE_SPRITES[4], tool)
+    if not created or type(graves) ~= "table" then
+        restoreWorkInventory(actor, record)
+        return false, created and "grave builder was not created" or tostring(graves)
+    end
+    local numberOk, playerNumber = invoke(actor, "getPlayerNum")
+    graves.player = numberOk and playerNumber or nil
+    graves.character = actor
+    graves.north = intent.north == true
+    local validOk, valid = pcall(graves.isValid, graves, square)
+    if not validOk or valid ~= true then
+        restoreWorkInventory(actor, record)
+        return false, "grave site is not diggable"
+    end
+    local xOk, x = invoke(square, "getX")
+    local yOk, y = invoke(square, "getY")
+    local zOk, z = invoke(square, "getZ")
+    local spriteOk, sprite = invoke(graves, "getSprite")
+    if not xOk or not yOk or not zOk then
+        restoreWorkInventory(actor, record)
+        return false, "grave square position is unavailable"
+    end
+    local normalTicks = tonumber(graves.maxTime) or 150
+    -- A story helper may shorten the real vanilla build action. Never extend it
+    -- or bypass ISEmptyGraves/ISBuildAction's placement and inventory checks.
+    local requestedTicks = tonumber(intent.durationTicks)
+    local actionTicks = requestedTicks and math.min(normalTicks,
+        math.max(30, requestedTicks)) or normalTicks
+    local actionCreated, timedAction = pcall(class.new, class, actor, graves, x, y, z,
+        graves.north, spriteOk and sprite or GRAVE_SPRITES[1], actionTicks)
+    if not actionCreated then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "dig_grave")
+end
+
+local function startBuryBody(actor, intent, provider)
+    if intent.grave == nil or intent.bodySquare == nil then
+        return false, "bury intent needs a grave and a body square"
+    end
+    local handled, reason = useProvider(provider, "buryBody", actor, intent.grave, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISBuryCorpse) ~= "table" or type(ISBuryCorpse.new) ~= "function" then
+        return false, "native burial action is unavailable"
+    end
+    local record, prepareReason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISBuryCorpse.new, ISBuryCorpse, actor,
+        intent.grave, nil, intent.bodySquare)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "bury_body")
+end
+
+local function startFillGrave(actor, intent, provider)
+    if intent.grave == nil then return false, "fill intent has no grave" end
+    local handled, reason = useProvider(provider, "fillGrave", actor, intent.grave, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISFillGrave) ~= "table" or type(ISFillGrave.new) ~= "function" then
+        return false, "native grave filling is unavailable"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
+    if tool == nil then return false, "companion needs a shovel" end
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISFillGrave.new, ISFillGrave, actor, intent.grave, tool)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "fill_grave")
+end
+
+-- Corpse dragging uses the stock grapple: ISGrabCorpseAction writes
+-- lastPlayerGrabbed and calls pickUpCorpse(body, "BwdDrag"). Hands must be
+-- empty while grappling; the previous hand items are remembered per actor
+-- and re-equipped only after the body has been let go.
+local dragSessions = setmetatable({}, { __mode = "k" })
+
+local function dragHandsRecord()
+    -- The grapple owns the hands until the drop, so finishing the grab or
+    -- drop action must not re-equip anything.
+    return { oldPrimaryOk = false, oldSecondaryOk = false, moved = {} }
+end
+
+local function startGrabBody(actor, intent, provider)
+    local body = intent.body
+    if body == nil then return false, "grab intent has no body" end
+    local handled, reason = useProvider(provider, "grabBody", actor, body, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISGrabCorpseAction) ~= "table" or type(ISGrabCorpseAction.new) ~= "function" then
+        return false, "native corpse grab is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk then return false, "native corpse dragging is unavailable" end
+    if dragging == true then return false, "companion is already dragging a body" end
+    local _, primary = invoke(actor, "getPrimaryHandItem")
+    local _, secondary = invoke(actor, "getSecondaryHandItem")
+    if dragSessions[actor] == nil then
+        dragSessions[actor] = { primary = primary, secondary = secondary, startedAt = nowMs() }
+    end
+    invoke(actor, "setPrimaryHandItem", nil)
+    invoke(actor, "setSecondaryHandItem", nil)
+    local created, timedAction = pcall(ISGrabCorpseAction.new, ISGrabCorpseAction, actor, body)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "grab_body")
+end
+
+local function startDropBody(actor, intent, provider)
+    local handled, reason = useProvider(provider, "dropBody", actor, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISDropCorpseAction) ~= "table" or type(ISDropCorpseAction.new) ~= "function" then
+        return false, "native corpse drop is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk or dragging ~= true then return false, "companion is not dragging a body" end
+    local created, timedAction = pcall(ISDropCorpseAction.new, ISDropCorpseAction, actor,
+        intent.targetSquare)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "drop_body")
+end
+
+-- ISThrowCorpseThroughWindow calls throwGrappledTargetOutWindow: the stock
+-- window-climb positioning slides the survivor into the opening and the
+-- grapple lets go on the far side. Only an open or broken, unbarricaded
+-- window passes canClimbThrough.
+local function startThrowBodyWindow(actor, intent, provider)
+    local window = intent.window
+    if window == nil then return false, "throw intent has no window" end
+    local handled, reason = useProvider(provider, "throwBodyWindow", actor, window, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISThrowCorpseThroughWindow) ~= "table"
+        or type(ISThrowCorpseThroughWindow.new) ~= "function" then
+        return false, "native corpse throw is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk or dragging ~= true then return false, "companion is not dragging a body" end
+    local climbOk, climbable = invoke(window, "canClimbThrough", actor)
+    if not climbOk or climbable ~= true then return false, "window cannot be climbed through" end
+    local created, timedAction = pcall(ISThrowCorpseThroughWindow.new,
+        ISThrowCorpseThroughWindow, actor, window)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "throw_body_window")
+end
+
+-- ISBurnCorpseAction requires the lighter in the primary hand and the petrol
+-- container in the secondary hand; its complete() calls burnCorpse(), which
+-- starts a real IsoFireManager fire on the corpse square.
+local function startBurnBody(actor, intent, provider)
+    local body, lighter, petrol = intent.body, intent.lighter, intent.petrol
+    if body == nil or lighter == nil or petrol == nil then
+        return false, "burn intent needs a body, a lighter and petrol"
+    end
+    local handled, reason = useProvider(provider, "burnBody", actor, body, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISBurnCorpseAction) ~= "table" or type(ISBurnCorpseAction.new) ~= "function" then
+        return false, "native corpse burning is unavailable"
+    end
+    local record, prepareReason = prepareWorkInventory(actor, { lighter, petrol }, lighter, petrol)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISBurnCorpseAction.new, ISBurnCorpseAction, actor,
+        body, lighter, petrol)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "burn_body")
+end
+
+-- Build 42.21's ISBarricadeAction:isValid tests hasEquippedTag(ItemType.HAMMER), but
+-- the hammer is ItemTag.HAMMER and ItemType has no such field, so it fails for
+-- everyone. Vanilla players now board through a build recipe, and only vanilla's own
+-- tests still reach this action. Its complete() is intact, so this keeps the same
+-- plank rules with the real tag.
+local function plankBarricadeValid(action, hammerTag)
+    local item, character = action.item, action.character
+    if action.scBaseJobId ~= nil then
+        local data = SC.GameplayUtil.modData(character) or {}
+        if data.SC_Order ~= "work" or data.SC_WorkBaseJobId ~= action.scBaseJobId
+            or data.SC_WorkObjectId ~= action.scObjectId or not SC.BaseLife
+            or type(SC.BaseLife.barricadeJobCurrent) ~= "function"
+            or SC.BaseLife.barricadeJobCurrent(action.scBaseJobId,
+                SC.GameplayUtil.idOf(character), action.scObjectId) ~= true then return false end
+    end
+    local indexOk, index = invoke(item, "getObjectIndex")
+    if not indexOk or index == -1 then return false end
+    local barricadeOk, barricade = invoke(item, "getBarricadeForCharacter", character)
+    if barricadeOk and barricade ~= nil then
+        local roomOk, room = invoke(barricade, "canAddPlank")
+        if not roomOk or room ~= true then return false end
+    end
+    local hammerOk, hammer = invoke(character, "hasEquippedTag", hammerTag)
+    if not hammerOk or hammer ~= true then return false end
+    local plankOk, plank = invoke(character, "hasEquipped", "Plank")
+    if not plankOk or plank ~= true then return false end
+    local inventoryOk, inventory = invoke(character, "getInventory")
+    if not inventoryOk or inventory == nil then return false end
+    local nailsOk, nails = invoke(inventory, "getItemCount", "Base.Nails", true)
+    if not nailsOk or (tonumber(nails) or 0) < 2 then return false end
+    -- The base class also has an isStarted method, so only the boolean set by
+    -- native start means the door has already been closed. Windows may stay
+    -- open under the native plank rules; only a reopened door invalidates work.
+    if action.isStarted == true then
+        local door = SC.GameplayUtil.instanceOf(item, "IsoDoor")
+        if not door and SC.GameplayUtil.instanceOf(item, "IsoThumpable") then
+            local doorOk, isDoor = invoke(item, "isDoor")
+            door = doorOk and isDoor == true
+        end
+        if door then
+            local openOk, open = invoke(item, "IsOpen")
+            if openOk and open == true then return false end
+        end
+    end
+    return true
+end
+
+local function startBarricade(actor, intent, provider)
+    if intent.object == nil then return false, "barricade intent has no object" end
+    local handled, reason = useProvider(provider, "barricade", actor, intent.object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISBarricadeAction) ~= "table" or type(ISBarricadeAction.new) ~= "function"
+        or type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function"
+        or type(ISTimedActionQueue.add) ~= "function" then
+        return false, "native barricade action is unavailable"
+    end
+
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= nil or type(queue.queue) ~= "table"
+        or #queue.queue ~= 0 then
+        return false, "actor already has a native timed action"
+    end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+    local itemTag = type(_G) == "table" and rawget(_G, "ItemTag") or nil
+    local tagOk, hammerTag = pcall(function() return itemTag and itemTag.HAMMER or nil end)
+    if not tagOk then hammerTag = nil end
+    if hammerTag == nil then return false, "native hammer item tag is unavailable" end
+    local function notBroken(item)
+        local ok, broken = invoke(item, "isBroken")
+        return not ok or broken ~= true
+    end
+    local hammerOk, hammer = invoke(inventory, "getFirstTagEvalRecurse", hammerTag, notBroken)
+    local plankOk, plank = invoke(inventory, "getFirstTypeRecurse", "Plank")
+    local nailsOk, nails = invoke(inventory, "getSomeTypeRecurse", "Nails", 2)
+    if not hammerOk or hammer == nil then return false, "companion needs a hammer" end
+    if not plankOk or plank == nil then return false, "companion needs one plank" end
+    if not nailsOk or nativeListSize(nails) < 2 then return false, "companion needs two nails" end
+    if SC.PersonalItems and (SC.PersonalItems.isProtected(hammer, actor, "build_material")
+        or SC.PersonalItems.isProtected(plank, actor, "build_material")
+        or SC.PersonalItems.isProtected(nativeListGet(nails, 0), actor, "build_material")
+        or SC.PersonalItems.isProtected(nativeListGet(nails, 1), actor, "build_material")) then
+        return false, "personal item cannot be consumed as building material"
+    end
+
+    local oldPrimaryOk, oldPrimary = invoke(actor, "getPrimaryHandItem")
+    local oldSecondaryOk, oldSecondary = invoke(actor, "getSecondaryHandItem")
+    local moved = {}
+    local function ensureRoot(item)
+        local containerOk, container = invoke(item, "getContainer")
+        if containerOk and container == inventory then return true end
+        if not containerOk or container == nil then return false end
+        local removed = invoke(container, "Remove", item)
+        if not removed then return false end
+        local added = invoke(inventory, "AddItem", item)
+        local currentOk, current = invoke(item, "getContainer")
+        if not added or not currentOk or current ~= inventory then
+            invoke(inventory, "Remove", item)
+            invoke(container, "AddItem", item)
+            return false
+        end
+        moved[#moved + 1] = { item = item, container = container }
+        refreshShelfVisuals(container)
+        return true
+    end
+    local function rollback()
+        if oldPrimaryOk then invoke(actor, "setPrimaryHandItem", oldPrimary) end
+        if oldSecondaryOk then invoke(actor, "setSecondaryHandItem", oldSecondary) end
+        for index = #moved, 1, -1 do
+            local transfer = moved[index]
+            invoke(inventory, "Remove", transfer.item)
+            invoke(transfer.container, "AddItem", transfer.item)
+        end
+    end
+    if not ensureRoot(hammer) or not ensureRoot(plank) then
+        rollback()
+        return false, "barricade tools could not be moved into the main inventory"
+    end
+    for index = 0, 1 do
+        if not ensureRoot(nativeListGet(nails, index)) then
+            rollback()
+            return false, "barricade nails could not be moved into the main inventory"
+        end
+    end
+    if not invoke(actor, "setPrimaryHandItem", hammer)
+        or not invoke(actor, "setSecondaryHandItem", plank) then
+        rollback()
+        return false, "barricade tools could not be equipped"
+    end
+    local primaryOk, primary = invoke(actor, "getPrimaryHandItem")
+    local secondaryOk, secondary = invoke(actor, "getSecondaryHandItem")
+    if not primaryOk or primary ~= hammer or not secondaryOk or secondary ~= plank then
+        rollback()
+        return false, "barricade equipment state was not retained"
+    end
+
+    local created, timedAction = pcall(
+        ISBarricadeAction.new, ISBarricadeAction, actor, intent.object, false, false)
+    if not created or timedAction == nil then
+        rollback()
+        return false, created and "barricade action was not created" or tostring(timedAction)
+    end
+    timedAction.scBaseJobId, timedAction.scObjectId = intent.baseJobId, intent.objectId
+    timedAction.isValid = function(action) return plankBarricadeValid(action, hammerTag) end
+    local validOk, valid = pcall(timedAction.isValid, timedAction)
+    if not validOk or valid ~= true then
+        rollback()
+        return false, validOk and "barricade action rejected its materials or target" or tostring(valid)
+    end
+    local queued, failure = pcall(ISTimedActionQueue.add, timedAction)
+    if not queued then
+        rollback()
+        return false, tostring(failure)
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local retained = type(queue) == "table" and queue.current == timedAction
+        and type(queue.queue) == "table" and queue.queue[1] == timedAction
+    if not retained then
+        removeRejectedVisual(queue, timedAction)
+        rollback()
+        return false, "native barricade action did not enter the queue"
+    end
+    activeWork[actor] = {
+        kind = "barricade", baseJobId = intent.baseJobId,
+        timedAction = timedAction,
+        oldPrimaryOk = oldPrimaryOk,
+        oldPrimary = oldPrimary,
+        oldSecondaryOk = oldSecondaryOk,
+        oldSecondary = oldSecondary,
+        moved = moved,
+    }
+    return true, "barricade_timed_action_started"
+end
+
+local function equip(actor, intent, provider)
+    if intent.item == nil then
+        return false, "equip intent has no item"
+    end
+    local handled, reason = useProvider(provider, "equip", actor, intent.item, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+    local oldPrimaryOk, oldPrimary = invoke(actor, "getPrimaryHandItem")
+    local oldSecondaryOk, oldSecondary = invoke(actor, "getSecondaryHandItem")
+    local assigned, assignReason = invoke(actor, "setPrimaryHandItem", intent.item)
+    if not assigned then
+        return false, assignReason
+    end
+    local twoHandedOk, twoHanded = invoke(intent.item, "isTwoHandWeapon")
+    if twoHandedOk and twoHanded == true then
+        local secondaryAssigned, secondaryReason = invoke(actor, "setSecondaryHandItem", intent.item)
+        if not secondaryAssigned then
+            if oldPrimaryOk then invoke(actor, "setPrimaryHandItem", oldPrimary) end
+            if oldSecondaryOk then invoke(actor, "setSecondaryHandItem", oldSecondary) end
+            return false, secondaryReason
+        end
+    elseif oldSecondaryOk and oldSecondary == intent.item then
+        invoke(actor, "setSecondaryHandItem", nil)
+    end
+    local verified, equipped = invoke(actor, "getPrimaryHandItem")
+    if not verified or equipped ~= intent.item then
+        if oldPrimaryOk then invoke(actor, "setPrimaryHandItem", oldPrimary) end
+        if oldSecondaryOk then invoke(actor, "setSecondaryHandItem", oldSecondary) end
+        return false, "native equip did not retain the requested item"
+    end
+    if twoHandedOk and twoHanded == true then
+        local secondaryVerified, secondary = invoke(actor, "getSecondaryHandItem")
+        if not secondaryVerified or secondary ~= intent.item then
+            if oldPrimaryOk then invoke(actor, "setPrimaryHandItem", oldPrimary) end
+            if oldSecondaryOk then invoke(actor, "setSecondaryHandItem", oldSecondary) end
+            return false, "native two-handed equip did not retain the secondary hand"
+        end
+    end
+    return true, "equipped"
+end
+
+local function stompClamp(value, minimum, maximum)
+    value = tonumber(value) or minimum
+    return math.max(minimum, math.min(maximum, value))
+end
+
+local function itemType(item)
+    if item == nil then return "none" end
+    local ok, value = invoke(item, "getFullType")
+    if not ok or value == nil then ok, value = invoke(item, "getType") end
+    return ok and tostring(value) or tostring(item)
+end
+
+local function stompFootwear(actor)
+    local footwear
+    -- CombatManager asks the Shoes body slot directly. This is O(1), works for
+    -- modded footwear, and avoids searching every worn item on each cache miss.
+    local locations = type(_G) == "table" and rawget(_G, "ItemBodyLocation") or nil
+    local shoes
+    if locations ~= nil then
+        local ok, value = pcall(function() return locations.SHOES end)
+        if ok then shoes = value end
+    end
+    local directOk, direct = invoke(actor, "getWornItem", shoes or "Shoes")
+    if directOk and direct ~= nil then footwear = direct end
+
+    -- Compatibility fallback for small providers and older adapters that do not
+    -- expose getWornItem but do expose the native worn-items collection.
+    local wornOk, worn = invoke(actor, "getWornItems")
+    if footwear == nil and wornOk and worn ~= nil then
+        local sizeOk, size = invoke(worn, "size")
+        size = sizeOk and math.min(64, math.max(0, tonumber(size) or 0)) or 0
+        for index = 0, size - 1 do
+            local entryOk, entry = invoke(worn, "get", index)
+            local candidateOk, candidate, locationOk, location = false, nil, false, nil
+            if entryOk then
+                candidateOk, candidate = invoke(entry, "getItem")
+                locationOk, location = invoke(entry, "getLocation")
+            end
+            local typeText = candidateOk and string.lower(itemType(candidate)) or ""
+            local locationText = locationOk and string.lower(tostring(location)) or ""
+            if string.find(locationText, "shoe", 1, true)
+                or string.find(locationText, "feet", 1, true)
+                or string.find(typeText, "boot", 1, true)
+                or string.find(typeText, "shoe", 1, true)
+                or string.find(typeText, "trainer", 1, true)
+                or string.find(typeText, "sneaker", 1, true)
+                or string.find(typeText, "slipper", 1, true)
+                or string.find(typeText, "sandal", 1, true)
+                or string.find(typeText, "wellie", 1, true) then
+                footwear = candidate
+                break
+            end
+        end
+    end
+
+    if footwear == nil then
+        -- Vanilla applies a 0.5 barefoot multiplier. Normalize against ordinary
+        -- shoes (2.1) for the decision model; native collision still owns damage.
+        return nil, (directOk or wornOk) and "barefoot" or "unknown",
+            (directOk or wornOk) and (0.5 / 2.1) or 1.0, 0.5, 0
+    end
+    local label = itemType(footwear)
+    local lower = string.lower(label)
+    local powerOk, stompPower = invoke(footwear, "getStompPower")
+    stompPower = powerOk and tonumber(stompPower) or nil
+    if stompPower == nil then
+        -- Name matching is only a compatibility fallback; current Build 42 and
+        -- correctly authored modded shoes expose getStompPower directly.
+        if string.find(lower, "slipper", 1, true)
+            or string.find(lower, "sandal", 1, true)
+            or string.find(lower, "flipflop", 1, true) then stompPower = 0.8
+        elseif string.find(lower, "trainer", 1, true)
+            or string.find(lower, "sneaker", 1, true) then stompPower = 1.8
+        elseif string.find(lower, "boot", 1, true)
+            or string.find(lower, "wellie", 1, true) then stompPower = 2.5
+        else stompPower = 2.1 end
+    end
+    local conditionOk, condition = invoke(footwear, "getCondition")
+    local maximumOk, maximum = invoke(footwear, "getConditionMax")
+    local ratio = conditionOk and maximumOk and tonumber(maximum) and tonumber(maximum) > 0
+        and stompClamp(tonumber(condition) / tonumber(maximum), 0, 1) or 1
+    local factor = stompClamp(stompPower / 2.1, 0.2, 1.25)
+        * (0.82 + ratio * 0.18)
+    return footwear, label, factor, stompPower, ratio
+end
+
+-- Share native footwear power with finisher selection. The caller caches the
+-- lookup; neither helper starts an action or predicts collision damage.
+function actions.stompFootwearProfile(actor)
+    local item, label, factor, stompPower, condition = stompFootwear(actor)
+    local _, footInjured = invoke(actor, "hasFootInjury")
+    return { item = item, type = label, factor = factor, stompPower = stompPower,
+        condition = condition, footInjured = footInjured == true }
+end
+
+function actions.combatCollisionAvailable(actor)
+    if method(actor, "getCompanionAttackCollisionSerial") == nil
+        or method(actor, "getCompanionAttackCollisionHitCount") == nil
+        or method(actor, "getCompanionAttackCollisionTarget") == nil
+        or method(actor, "didCompanionAttackCollisionHitTarget") == nil then
+        return false
+    end
+    if SC.Actor and type(SC.Actor.bridgeStatus) == "function" then
+        local ok, status = pcall(SC.Actor.bridgeStatus, false)
+        if ok and type(status) == "table" and status.combatCollision == false then
+            return false
+        end
+    end
+    return true
+end
+
+function actions.floorAttackAvailable(actor)
+    -- Build 42 selects its own one-hand/knife/two-hand/heavy/spear floor clips
+    -- from the equipped HandWeapon. A missing bridge input lease is not license
+    -- to synthesize either the animation or its damage.
+    if method(actor, "setCompanionFloorAttackInput") == nil
+        or not actions.combatCollisionAvailable(actor) then return false end
+    if SC.Actor and type(SC.Actor.bridgeStatus) == "function" then
+        local ok, status = pcall(SC.Actor.bridgeStatus, false)
+        if ok and type(status) == "table" and status.floorAttack == false then
+            return false
+        end
+    end
+    return true
+end
+
+-- DoAttack/isAttackStarted proves only that the state machine accepted an attack;
+-- it runs before the visible animation. The Java actor increments a serial at the
+-- actual AttackCollisionCheck event and records the exact target outcome. Native
+-- collision is the sole damage owner for melee, shove, weapon finishers and stomp.
+function actions.pollCombatEvents(actor)
+    local record = actor and pendingCombat[actor] or nil
+    if type(record) ~= "table" then return false, "no_pending_combat" end
+    local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
+    local serial = serialOk and tonumber(serialValue) or nil
+
+    -- CB-09. A terminal receipt is published whether the native collision
+    -- completed or threw, so a failure is now reportable instead of surfacing
+    -- as a timeout that invites a retry. A throw that arrived after the call
+    -- began may have left a partially applied hit; that is reported as such and
+    -- never replayed.
+    local receiptCountOk, receiptCountValue = invoke(actor, "getCompanionAttackReceiptSerial")
+    local receiptSerial = receiptCountOk and tonumber(receiptCountValue) or nil
+    local outcomeOk, outcomeValue = invoke(actor, "getCompanionAttackReceiptOutcome")
+    local receiptOutcome = tostring((outcomeOk and outcomeValue) or "none")
+    local receiptsSince = (receiptSerial ~= nil and record.receiptSerial ~= nil)
+        and (receiptSerial - record.receiptSerial) or 0
+    if receiptsSince > 0 and receiptOutcome ~= "completed"
+        and receiptOutcome ~= "none" then
+        pendingCombat[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+        local causeOk, causeValue = invoke(actor, "getCompanionAttackReceiptCause")
+        local cause = tostring((causeOk and causeValue) or "")
+        return false, tostring(record.action) .. "_collision_" .. receiptOutcome, {
+            result = receiptOutcome,
+            action = record.action, target = record.target, weapon = record.weapon,
+            anticipatorySwing = record.anticipatorySwing == true,
+            serial = serial, receiptSerial = receiptSerial, cause = cause,
+            maybePartial = receiptOutcome == "failed_maybe_partial",
+            floorAttack = record.floorAttack == true, source = "native",
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
+    end
+
+    if serial ~= nil and serial ~= record.collisionSerial then
+        pendingCombat[actor] = nil
+        local hitOk, hitTarget = invoke(actor, "didCompanionAttackCollisionHitTarget")
+        local targetOk, collisionTarget = invoke(actor, "getCompanionAttackCollisionTarget")
+        local countOk, hitCount = invoke(actor, "getCompanionAttackCollisionHitCount")
+        local _, dead = invoke(record.target, "isDead")
+        local hpOk, health = invoke(record.target, "getHealth")
+        local exactTarget = targetOk and collisionTarget == record.target
+        local nativeLanded = hitOk and hitTarget == true and exactTarget
+        local grounded = select(2, invoke(record.target, "isOnFloor")) == true
+            or select(2, invoke(record.target, "isProne")) == true
+        local targetX, targetY = position(record.target)
+        local displacement = targetX and record.targetX
+            and math.sqrt((targetX - record.targetX) ^ 2 + (targetY - record.targetY) ^ 2) or 0
+        if record.action == "shove" and not nativeLanded then
+            -- CB-11. A defensive shove deliberately does no health damage, so
+            -- its result cannot be read from the victim's health. It used to be
+            -- inferred from the target being newly grounded or having moved
+            -- 0.2 tiles -- which another actor's hit, or the target simply
+            -- walking, supplies just as well. Attribute it at the native
+            -- collision boundary instead: the collision must have run against
+            -- the exact target this request named, and must have included at
+            -- least one character in its hit list. Displacement stays in the
+            -- result as description, never as evidence of ownership.
+            nativeLanded = exactTarget and (tonumber(hitCount) or 0) > 0
+        end
+        if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
+        -- "Completed with no effect" is a real outcome and stays distinct from
+        -- a failure. Several completed events between two polls cannot be told
+        -- apart from one, so say so rather than silently collapsing them.
+        local result = nativeLanded and "landed" or "no_effect"
+        return true, tostring(record.action) .. "_collision_" .. result, {
+            result = result,
+            anticipatorySwing = record.anticipatorySwing == true,
+            receiptSerial = receiptSerial,
+            overflow = receiptsSince > 1,
+            eventsSincePoll = receiptsSince,
+            action = record.action,
+            target = record.target,
+            weapon = record.weapon,
+            serial = serial,
+            hitCount = countOk and tonumber(hitCount) or nil,
+            collisionTargetMatched = exactTarget,
+            displacement = displacement,
+            healthBefore = record.healthBefore,
+            healthAfter = hpOk and tonumber(health) or nil,
+            source = "native",
+            floorAttack = record.floorAttack == true,
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
+    end
+    if nowMs() - record.startedAt >= 4000 then
+        pendingCombat[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+        local reason = serial == nil and "combat_collision_serial_unavailable"
+            or tostring(record.action) .. "_collision_timeout"
+        return false, reason, {
+            result = "aborted", action = record.action, target = record.target,
+            anticipatorySwing = record.anticipatorySwing == true,
+            weapon = record.weapon, serial = serial,
+            floorAttack = record.floorAttack == true,
+            source = "native",
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
+    end
+    return false, tostring(record.action) .. "_collision_pending"
+end
+function actions.resetCombatEvents(actor)
+    if actor ~= nil then
+        pendingCombat[actor] = nil
+        pendingPurdyShots[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
+    else
+        pendingCombat = setmetatable({}, { __mode = "k" })
+        pendingPurdyShots = setmetatable({}, { __mode = "k" })
+    end
+end
+
+-- A target can die while the non-local player graph is leaving SwipeStatePlayer.
+-- Ordinarily clearHandToHandAttack runs from the native exit event; this adapter
+-- is only used after Combat's dead-target safety lease expires, when retaining
+-- that owner would prevent every later follow movement from being applied.
+function actions.releaseStaleAttack(actor)
+    if actor == nil then return false, "invalid_actor" end
+    pendingCombat[actor] = nil
+    pendingPurdyShots[actor] = nil
+    local bridgeOk, bridgeReleased = invoke(actor, "releaseCompanionStaleAttack")
+    local cleared, failure = invoke(actor, "clearHandToHandAttack")
+    local releaseAttempted = bridgeOk and bridgeReleased == true or cleared == true
+    for _, setter in ipairs({ "setAttackStarted", "setInitiateAttack",
+        "setPerformingAttackAnimation", "setPerformingShoveAnimation",
+        "setPerformingStompAnimation", "setShoveStompAnim" }) do
+        local called = invoke(actor, setter, false)
+        releaseAttempted = releaseAttempted or called == true
+    end
+    invoke(actor, "setCompanionAimTarget", nil)
+    invoke(actor, "setAimAtFloor", false)
+    invoke(actor, "setCompanionFloorTarget", nil)
+    invoke(actor, "setCompanionFloorAttackInput", false, false)
+    invoke(actor, "setDoShove", false)
+    setTacticalMovement(actor, false, 0, 0)
+    invoke(actor, "setIsAiming", false)
+
+    -- A successful method invocation is not proof that Build 42 released every
+    -- attack owner. Any remaining flag makes the bridge reject later movement.
+    for _, probe in ipairs({ "isAttackStarted", "isPerformingAttackAnimation",
+        "isPerformingShoveAnimation", "isPerformingStompAnimation" }) do
+        local ok, active = invoke(actor, probe)
+        if ok and active == true then
+            return false, "native_attack_release_incomplete:" .. tostring(probe)
+        end
+    end
+    local stateOk, stateName = invoke(actor, "getCompanionActionStateName")
+    local state = stateOk and string.lower(tostring(stateName or "")) or ""
+    if string.find(state, "melee", 1, true) or string.find(state, "attack", 1, true)
+        or string.find(state, "shove", 1, true) or string.find(state, "stomp", 1, true) then
+        return false, "native_attack_release_incomplete:action_state"
+    end
+    if not releaseAttempted then
+        return false, failure or "native_attack_release_unavailable"
+    end
+    return true, "stale_native_attack_released"
+end
+
+-- Translation has a different owner from attack/floor/aim state. A combat hold
+-- or native swing may cancel a prior approach without clearing its own pose.
+function actions.holdCombatPosition(actor)
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    local pathStopped = true
+    if behaviorOk and behavior ~= nil then pathStopped = invoke(behavior, "cancel") end
+    local stopped = invoke(actor, "setMoving", false)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    local checked, moving = invoke(actor, "isMoving")
+    return pathStopped and stopped and (not checked or moving ~= true)
+end
+
+-- CanAttack and DoAttack do not include the input controller's recovery gates.
+-- The generic native update already decrements these values in game time.
+function actions.combatReadiness(actor, action)
+    for _, name in ipairs({ "isAttackStarted", "isPerformingAttackAnimation",
+        "isPerformingShoveAnimation", "isPerformingStompAnimation" }) do
+        local ok, active = invoke(actor, name)
+        if ok and active == true then return false, "native_attack_active" end
+    end
+    local stateOk, stateName = invoke(actor, "getCompanionActionStateName")
+    local state = stateOk and string.lower(tostring(stateName or "")) or ""
+    if string.find(state, "melee", 1, true) or string.find(state, "attack", 1, true)
+        or string.find(state, "shove", 1, true) or string.find(state, "stomp", 1, true) then
+        return false, "native_attack_active"
+    end
+    local meleeOk, melee = invoke(actor, "getMeleeDelay")
+    local recoilOk, recoil = invoke(actor, "getRecoilDelay")
+    melee = meleeOk and tonumber(melee) or 0
+    recoil = recoilOk and tonumber(recoil) or 0
+    local delays = { melee = math.max(0, melee or 0), recoil = math.max(0, recoil or 0) }
+    if delays.melee > 0 then return false, "native_melee_recovery", delays end
+    if action ~= "shove" and action ~= "stomp" and delays.recoil > 0 then
+        return false, "native_recoil_recovery", delays
+    end
+    return true, "combat_ready", delays
+end
+
+local function attack(actor, action, intent, provider)
+    local target = intent.target
+    if target == nil then
+        return false, "attack intent has no target"
+    end
+    if SC.StayWithMeAdapter and SC.StayWithMeAdapter.owns(target) then
+        return false, "stay_with_me_target_protected"
+    end
+    if attackTargetDead(target) then
+        return false, "attack target is dead"
+    end
+    if action == "attack_firearm" and SC.Commands and type(SC.Commands.peek) == "function" then
+        local commands = SC.Commands.peek(actor)
+        if type(commands) == "table" and commands.holdFire == true then return false, "hold_fire" end
+    end
+    if SC.BanditsAdapter and SC.BanditsAdapter.owns(target)
+        and SC.BanditsAdapter.relationship(target, actor) ~= "hostile" then
+        return false, "bandits_target_not_hostile"
+    end
+    if SC.ALifeAdapter and SC.ALifeAdapter.owns(target)
+        and SC.ALifeAdapter.relationship(target, actor) ~= "hostile" then
+        return false, "alife_target_not_hostile"
+    end
+    -- Acquire stationary combat ownership before any range/equip/model check.
+    -- A failed or completed swing must never revive a retained approach vector.
+    if not actions.holdCombatPosition(actor) then
+        return false, "native_combat_stop_failed"
+    end
+    local recovered, recoveryReason = actions.combatReadiness(actor, action)
+    if not recovered then return false, recoveryReason end
+    pendingPurdyShots[actor] = nil
+    local inRange, rangeReason = nativeAttackRange(actor, action, intent)
+    if not inRange then return false, rangeReason end
+    if action ~= "attack_firearm" and SC.Topology
+        and type(SC.Topology.strikeBarrier) == "function" then
+        local doctrine = intent.combatDoctrine
+        if doctrine == nil and SC.Commands
+            and type(SC.Commands.peek) == "function" then
+            local order = SC.Commands.peek(actor)
+            doctrine = order and order.combatDoctrine
+        end
+        local blocked, barrier = SC.Topology.strikeBarrier(actor, target,
+            action, intent.weapon or heldWeapon(actor), {
+                allowClosedWindow = action == "attack_melee"
+                    and doctrine == "weapons_free",
+            })
+        if blocked then return false, "attack_path_blocked:" .. tostring(barrier) end
+    end
+    local handled, reason = useProvider(provider, "attack", actor, action, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+
+    local floorAttack = action == "stomp" or intent.floorAttack == true
+    if (action == "stomp" or action == "shove" or action == "attack_melee")
+        and not actions.combatCollisionAvailable(actor) then
+        return false, "native combat collision capability is unavailable"
+    end
+    if floorAttack and not actions.floorAttackAvailable(actor) then
+        return false, "native floor-attack capability is unavailable"
+    end
+    if floorAttack then
+        local _, prone = invoke(target, "isProne")
+        local _, onFloor = invoke(target, "isOnFloor")
+        local _, crawling = invoke(target, "isCrawling")
+        local _, dead = invoke(target, "isDead")
+        if not (prone == true or onFloor == true or crawling == true) or dead == true then
+            return false, "floor attack target is not a live grounded character"
+        end
+    end
+
+    -- CB-11. A pending record used to carry only the completed-hit serial, so
+    -- it could not say which request a later result belonged to, nor notice
+    -- that several results had arrived since. Capture the attempt and receipt
+    -- sequences too; both are published by the bridge on every claimed impact,
+    -- including ones that then failed. Firearms are included: their damage
+    -- implementation is unchanged, but they no longer sit outside the receipt
+    -- contract.
+    local collisionSerial, attemptSerial, receiptSerial
+    if action == "stomp" or action == "shove" or action == "attack_melee"
+        or action == "attack_firearm" then
+        local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
+        collisionSerial = serialOk and tonumber(serialValue) or nil
+        local attemptOk, attemptValue = invoke(actor, "getCompanionAttackAttemptSerial")
+        attemptSerial = attemptOk and tonumber(attemptValue) or nil
+        local receiptOk, receiptValue = invoke(actor, "getCompanionAttackReceiptSerial")
+        receiptSerial = receiptOk and tonumber(receiptValue) or nil
+        if action == "stomp" and collisionSerial == nil then
+            return false, "native attack collision serial is unavailable"
+        end
+    end
+
+    local activeOk, alreadyActive = invoke(actor, "isAttackStarted")
+    if activeOk and alreadyActive == true then
+        return false, "native attack is already active"
+    end
+
+    local vehicleOk, vehicle = invoke(actor, "getVehicle")
+    if vehicleOk and vehicle ~= nil then
+        if action ~= "attack_firearm" then
+            return false, "native melee attacks are disabled inside vehicles"
+        end
+        if intent.vehicleFireChecked ~= true then
+            if not SC.Vehicle or type(SC.Vehicle.canPassengerFire) ~= "function" then
+                return false, "vehicle fire adapter is unavailable"
+            end
+            local ready, vehicleReason = SC.Vehicle.canPassengerFire(
+                actor, target, intent.combatDoctrine)
+            if not ready then return false, vehicleReason end
+        end
+    end
+
+    local tx, ty = position(target)
+    if tx == nil then
+        return false, "attack target position is unavailable"
+    end
+    local faceOk, faced = invoke(actor, "faceLocationF", tx, ty)
+    if not faceOk or faced ~= true then
+        return false, "actor could not face the attack target"
+    end
+    -- faceLocationF only sets the coarse sprite facing. Ask the native actor to
+    -- keep its precise forward direction (which CombatManager's hit arc reads)
+    -- pointed at the target every frame through the swing, like a player's mouse
+    -- aim; the ordinary per-frame update otherwise resets it and the swing misses.
+    invoke(actor, "setCompanionAimTarget", target)
+    -- Structured cleanup for any failure after the aim target is set but before
+    -- the swing actually starts: clear the precise aim / floor-aim / downed-target
+    -- the Java actor would otherwise keep re-facing every frame (which leaves the
+    -- companion locked toward a stale target), and undo any action/authorization
+    -- state we acquired. Once DoAttack has started the swing, the animation owns
+    -- these and fail() is no longer used.
+    local restoreActionState, restoreAuthorization
+    local function fail(reason)
+        pendingPurdyShots[actor] = nil
+        invoke(actor, "setCompanionAimTarget", nil)
+        invoke(actor, "setAimAtFloor", false)
+        invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
+        if restoreAuthorization then restoreAuthorization() end
+        if restoreActionState then restoreActionState() end
+        return false, reason
+    end
+    if intent.weapon ~= nil then
+        local equipped, equipReason = equip(actor, { item = intent.weapon }, provider)
+        if not equipped then
+            return fail(equipReason)
+        end
+    end
+    -- Use the player's explicit floor-attack input contract. CombatManager
+    -- recalculates and overwrites aimAtFloor/doShove during DoAttack; setting
+    -- those output flags alone can silently select a harmless standing shove.
+    local floorInputOk, floorInputSet = invoke(actor,
+        "setCompanionFloorAttackInput", floorAttack, action == "stomp")
+    if floorAttack and (not floorInputOk or floorInputSet ~= true) then
+        return fail("native floor-attack input could not be selected")
+    end
+    invoke(actor, "setAimAtFloor", floorAttack)
+    if floorAttack and intent.target ~= nil then
+        -- Point both stomps and melee floor swings at the downed target. Build
+        -- 42's player collision path builds its floor hit list from
+        -- targetOnGround; the Java bridge then runs that one native collision.
+        invoke(actor, "setCompanionFloorTarget", intent.target)
+    end
+    local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
+    if not shoveStateOk then
+        return fail("native shove action state is unavailable")
+    end
+    local grappleStateOk, previousDoGrapple = invoke(actor, "isDoGrapple")
+    if not grappleStateOk then
+        return fail("native grapple action state is unavailable")
+    end
+    restoreActionState = function()
+        invoke(actor, "setDoShove", previousDoShove == true)
+        invoke(actor, "setDoGrapple", previousDoGrapple == true)
+    end
+    local shoveStateSet = invoke(actor, "setDoShove",
+        action == "shove" or action == "stomp")
+    local grappleStateSet = invoke(actor, "setDoGrapple", false)
+    if not shoveStateSet or not grappleStateSet then
+        return fail("native hand-to-hand action state could not be selected")
+    end
+    if action == "attack_firearm" or action == "attack_melee" then
+        -- Firearms aim; a melee swing must not. Build 42's local player clears
+        -- aiming before a hand-weapon swing, and leaving it set keeps the
+        -- player action graph in the aiming/turning stance instead of entering
+        -- the swipe state, so the swing animation and its hit never run.
+        local aimOk = invoke(actor, "setIsAiming", action == "attack_firearm")
+        if not aimOk then
+            return fail("native weapon-ready state could not be requested")
+        end
+    end
+
+    -- Build 42 does not make DoAttack() perform the normal player preflight.
+    -- CanAttack() initializes useHandWeapon and verifies the freshly equipped
+    -- hand model, current action state, condition and endurance. An equip can
+    -- be visible one frame before that model is attack-ready, so refuse this
+    -- pulse and let Combat retry rather than reporting a phantom swing.
+    local readyOk, ready = invoke(actor, "CanAttack")
+    if not readyOk then
+        return fail("native CanAttack preflight is unavailable")
+    end
+    if ready ~= true then
+        return fail("native weapon is not attack-ready")
+    end
+
+    local meleeAuthOk, previousMeleeAuth = invoke(actor,
+        "isAuthorizedHandToHandAction")
+    if not meleeAuthOk then
+        return fail("native melee-action authorization state is unavailable")
+    end
+    local shoveAuthOk, previousShoveAuth = invoke(actor,
+        "isAuthorizedHandToHand")
+    if not shoveAuthOk then
+        return fail("native shove authorization state is unavailable")
+    end
+    restoreAuthorization = function()
+        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
+        invoke(actor, "setAuthorizedHandToHand", previousShoveAuth == true)
+    end
+    local authorized = invoke(actor, "setAuthorizedHandToHandAction", true)
+    if not authorized then
+        return fail("native melee-action authorization could not be enabled")
+    end
+    -- Authorize the hand-to-hand (shove) path only for an explicitly selected
+    -- shove/stomp. Build 42's CombatManager converts an authorized weapon attack
+    -- into a defensive shove, which moves the target but deals no damage, so a
+    -- companion "swings but never lands" even at a clean range while facing the
+    -- target. A weapon swing must not authorize hand-to-hand.
+    local wantsHandToHand = action == "shove" or action == "stomp"
+    local shoveAuthorized = invoke(actor, "setAuthorizedHandToHand", wantsHandToHand)
+    if not shoveAuthorized then
+        return fail("native shove authorization could not be updated")
+    end
+    local attackType = type(_G) == "table" and rawget(_G, "AttackType") or nil
+    local attackTypeName = action == "attack_firearm" and "SHOT"
+        or action == "attack_melee" and "MELEE_SWING"
+        or action == "shove" and "SHOVE"
+        or action == "stomp" and "STOMP" or nil
+    local selected
+    if attackType ~= nil and attackTypeName ~= nil then
+        local selectedOk, value = pcall(function() return attackType[attackTypeName] end)
+        if selectedOk then selected = value end
+    end
+    if selected == nil then
+        return fail("native AttackType is unavailable for " .. action)
+    end
+    local typeOk = invoke(actor, "setAttackType", selected)
+    if not typeOk then
+        return fail("native attack type could not be selected")
+    end
+    -- Retreat and ordinary path movement own the forward vector until an
+    -- attack starts. faceLocationF above changes the coarse sprite direction,
+    -- but the precise hit arc can still point along the old run vector for the
+    -- first shove frame. Set and verify it before DoAttack enters SwipeState.
+    local actorX, actorY = position(actor)
+    local targetX, targetY = position(target)
+    local dx = actorX and targetX and targetX - actorX or nil
+    local dy = actorY and targetY and targetY - actorY or nil
+    local length = dx and math.sqrt(dx * dx + dy * dy) or 0
+    -- Overlapping actors have no meaningful bearing; keep the game's current
+    -- facing in that case so an otherwise valid close shove is not discarded.
+    if length >= 0.001 then
+        local wantedX, wantedY = dx / length, dy / length
+        if not invoke(actor, "setForwardDirection", wantedX, wantedY) then
+            return fail("native attack facing could not be set")
+        end
+        local xOk, actualX = invoke(actor, "getForwardDirectionX")
+        local yOk, actualY = invoke(actor, "getForwardDirectionY")
+        if not xOk or not yOk or (tonumber(actualX) or 0) * wantedX
+            + (tonumber(actualY) or 0) * wantedY < 0.98 then
+            return fail("native attack facing was not retained")
+        end
+    end
+    if action == "attack_firearm" and intent.purdyWindowShot ~= nil then
+        local _, weapon = invoke(actor, "getPrimaryHandItem")
+        local _, nativeWeapon = invoke(actor, "getUseHandWeapon")
+        if type(intent.purdyWindowShot) ~= "string" or weapon == nil
+            or weapon ~= intent.weapon or weapon ~= nativeWeapon
+            or attemptSerial == nil or receiptSerial == nil then
+            return fail("purdy_window_shot_identity_unavailable")
+        end
+        -- The native collision claims the next attempt before calling Lua.
+        -- Keep the prior receipt as well so a different completed attack
+        -- cannot borrow this authorization.
+        pendingPurdyShots[actor] = { groupId = intent.purdyWindowShot, target = target,
+            weapon = weapon, attempt = attemptSerial + 1, receipt = receiptSerial,
+            expiresAt = nowMs() + 4000 }
+    end
+    local started, result = invoke(actor, "DoAttack", 0)
+    local stateOk, attackStarted = invoke(actor, "isAttackStarted")
+    -- Build 42's IsoPlayer.DoAttack deliberately returns false after handing
+    -- the request to CombatManager.  The authoritative success signal is the
+    -- native attack-started state set by CombatManager.pressedAttack. A swing
+    -- that never started still clears the aim residue through fail().
+    if not started or not stateOk or attackStarted ~= true then
+        return fail("native attack did not start")
+    end
+    -- Started: revert only the temporary authorization (CombatManager copied the
+    -- calculated attack variables back). Keep doShove/aimAtFloor and the aim
+    -- target and actor-local floor input -- the animation state owns them until
+    -- native swing exit, and
+    -- the next requested attack selects its own state before starting.
+    restoreAuthorization()
+    if (action == "stomp" or action == "shove" or action == "attack_melee")
+        and intent.target ~= nil and collisionSerial ~= nil then
+        local hpOk, targetHealth = invoke(intent.target, "getHealth")
+        local targetX, targetY = position(intent.target)
+        local actorX, actorY, actorZ = position(actor)
+        local grounded = select(2, invoke(intent.target, "isOnFloor")) == true
+            or select(2, invoke(intent.target, "isProne")) == true
+        pendingCombat[actor] = {
+            action = action,
+            anticipatorySwing = intent.anticipatorySwing == true,
+            target = intent.target,
+            weapon = intent.weapon,
+            collisionSerial = collisionSerial,
+            attemptSerial = attemptSerial,
+            receiptSerial = receiptSerial,
+            startedAt = nowMs(),
+            healthBefore = hpOk and tonumber(targetHealth) or nil,
+            targetX = targetX,
+            targetY = targetY,
+            actorX = actorX,
+            actorY = actorY,
+            actorZ = actorZ,
+            groundedBefore = grounded,
+            floorAttack = floorAttack,
+        }
+    end
+    return true, "attack_started"
+end
+
+local function reload(actor, intent, provider)
+    local weapon = intent.weapon
+    if weapon == nil then
+        return false, "reload intent has no weapon"
+    end
+    local handled, reason = useProvider(provider, "reload", actor, weapon, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+    if type(ISReloadWeaponAction) ~= "table"
+        or type(ISReloadWeaponAction.BeginAutomaticReload) ~= "function"
+        or type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
+        return false, "native reload action is unavailable"
+    end
+    -- Native reloads cancel on running. End our last kiting pulse before its
+    -- cartridge transfers start; the queue keeps ownership after this handoff.
+    local ready, readyReason = SC.NativeCombatActions.releaseCompletedInput(actor)
+    if not ready then return false, readyReason end
+    if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+    -- A preceding rack can leave its upper-body selectors behind after the
+    -- queue releases it. They select RackShotgunAim over LoadShotgun, even
+    -- though the new action correctly owns isLoading. No active action is
+    -- cleared here; the native reload will own its own selectors from start().
+    for _, variable in ipairs({ "isRacking", "isUnloading", "RackAiming" }) do
+        invoke(actor, "clearVariable", variable)
+    end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local before = queue and queue.queue and #queue.queue or 0
+    local ok, failure = pcall(ISReloadWeaponAction.BeginAutomaticReload, actor, weapon)
+    if not ok then
+        return false, tostring(failure)
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local after = queue and queue.queue and #queue.queue or 0
+    if after <= before or queue.current == nil then
+        return false, "native reload action did not enter the queue"
+    end
+    return true, "reload_started"
+end
+
+-- Clear a jammed firearm by racking it, the same ISRackFirearm timed action the
+-- radial menu queues for the player; ISRackFirearm.rackBullet clears the jam.
+local function unjam(actor, intent, provider)
+    local weapon = intent.weapon
+    if weapon == nil then
+        return false, "unjam intent has no weapon"
+    end
+    local handled, reason = useProvider(provider, "unjam", actor, weapon, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+    if type(ISRackFirearm) ~= "table" or type(ISRackFirearm.new) ~= "function"
+        or type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.add) ~= "function"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
+        return false, "native rack action is unavailable"
+    end
+    if type(ISReloadWeaponAction) == "table"
+        and type(ISReloadWeaponAction.canRack) == "function" then
+        local okRack, canRack = pcall(ISReloadWeaponAction.canRack, weapon)
+        if okRack and canRack ~= true then return false, "weapon cannot be racked" end
+    end
+    local ready, readyReason = SC.NativeCombatActions.releaseCompletedInput(actor)
+    if not ready then return false, readyReason end
+    if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local before = queue and queue.queue and #queue.queue or 0
+    local action = ISRackFirearm:new(actor, weapon)
+    local ok, failure = pcall(ISTimedActionQueue.add, action)
+    if not ok then
+        return false, tostring(failure)
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local after = queue and queue.queue and #queue.queue or 0
+    if after <= before or queue.current == nil then
+        return false, "native rack action did not enter the queue"
+    end
+    return true, "unjam_started"
+end
+
+function actions.stopDirect(actor, options)
+    options = type(options) == "table" and options or {}
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    if behaviorOk and behavior ~= nil then invoke(behavior, "cancel") end
+    invoke(actor, "setMoving", false)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    if options.preservePosture ~= true then invoke(actor, "setSneaking", false) end
+    setTacticalMovement(actor, false, 0, 0)
+    setWeaponReady(actor, false)
+    local ok, moving = invoke(actor, "isMoving")
+    return not ok or moving ~= true
+end
+
+-- A path cancel does not leave Build 42's legacy Climb*State. Use the owned
+-- actor's narrow native adapter and require the real traversal-state postcondition before
+-- navigation is allowed to issue another route.
+function actions.cancelStuckClimb(actor)
+    if actor == nil then return false, "invalid_actor" end
+    local utility = SC.GameplayUtil
+    local blocker = type(utility) == "table"
+        and type(utility.movementStateBlocker) == "function"
+        and utility.movementStateBlocker(actor) or nil
+    if blocker ~= "climbing" then return true, "not_climbing" end
+    local invoked, retained = invoke(actor, "cancelCompanionStuckClimb")
+    if not invoked then return false, retained or "native_climb_cancel_unavailable" end
+    if retained ~= true then return false, "native_climb_cancel_rejected" end
+    local checked, stillClimbing = invoke(actor, "isCompanionTraversalActive")
+    if not checked then checked, stillClimbing = invoke(actor, "isClimbing") end
+    if not checked or stillClimbing == true then
+        return false, "native_climb_state_remains"
+    end
+    return true, "stuck_climb_cancelled"
+end
+
+function actions.isWorkActive(actor)
+    local record = actor and activeWork[actor] or nil
+    return record ~= nil and workActionIsActive(actor, record)
+end
+
+function actions.finishWork(actor)
+    local record = actor and activeWork[actor] or nil
+    if not record then return true, "no_tracked_work" end
+    if workActionIsActive(actor, record) then return false, "work_action_still_active" end
+    local restored, reason = restoreWorkInventory(actor, record)
+    if restored then
+        activeWork[actor] = nil
+        actions.noteResult(actor, record.kind or "work", "completed", { kind = "long" })
+    end
+    return restored, reason
+end
+
+function actions.cancelWork(actor, reason)
+    local record = actor and activeWork[actor] or nil
+    if not record then return true, reason or "no_tracked_work" end
+    if workActionIsActive(actor, record) then
+        -- Cancel only the Living Fellows work action, never the whole queue: a
+        -- broad ISTimedActionQueue.clear(actor) would also drop an unrelated
+        -- third-party action queued on the companion.
+        if type(ISTimedActionQueue) ~= "table"
+            or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
+            return false, "native timed-action cancellation is unavailable"
+        end
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        cancelOwnedTimedAction(queue, record.timedAction)
+        if workActionIsActive(actor, record) then
+            return false, "native work action remained queued after cancellation"
+        end
+    end
+    local restored, restoreReason = restoreWorkInventory(actor, record)
+    if not restored then return false, restoreReason end
+    activeWork[actor] = nil
+    return true, reason or "work_cancelled"
+end
+
+function actions.resetWork(actor)
+    if actor ~= nil then activeWork[actor] = nil
+    else activeWork = setmetatable({}, { __mode = "k" }) end
+end
+
+function actions.workKind(actor)
+    local record = actor and activeWork[actor] or nil
+    return record and record.kind or nil
+end
+
+function actions.workJobId(actor)
+    local record = actor and activeWork[actor] or nil
+    return record and record.baseJobId or nil
+end
+
+function actions.isDraggingCorpse(actor)
+    local ok, dragging = invoke(actor, "isDraggingCorpse")
+    return ok and dragging == true
+end
+
+-- Let go of a dragged body at once (danger or cancellation). The stock
+-- grapple drops it beside the companion; nothing leaves the world.
+function actions.releaseCorpse(actor)
+    if not actions.isDraggingCorpse(actor) then return true, "not_dragging" end
+    local ok = invoke(actor, "setDoGrappleLetGo")
+    if not ok then return false, "corpse_release_unavailable" end
+    return true, "corpse_released"
+end
+
+-- Re-equip the hand items remembered at the grab once the grapple has ended.
+-- Items that left the inventory meanwhile are never recreated.
+function actions.settleDrag(actor)
+    local session = actor and dragSessions[actor] or nil
+    if not session then return true, "no_drag_session" end
+    if actions.isDraggingCorpse(actor) then return false, "still_dragging" end
+    dragSessions[actor] = nil
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    local function held(item)
+        if item == nil or not inventoryOk or inventory == nil then return false end
+        local containsOk, contains = invoke(inventory, "contains", item)
+        return containsOk and contains == true
+    end
+    if held(session.primary) then invoke(actor, "setPrimaryHandItem", session.primary) end
+    if held(session.secondary) then invoke(actor, "setSecondaryHandItem", session.secondary) end
+    return true, "drag_settled"
+end
+
+function actions.dragSessionActive(actor)
+    return actor ~= nil and dragSessions[actor] ~= nil
+end
+
+-- Build 42's server path drives ISChopTreeAction by emulating its ChopTree
+-- animation event every 1500 ms. The production watchdog uses the same seam
+-- only after proving that no native event reached this companion's action;
+-- the vanilla handler still owns the tree hit, strain and endurance.
+function actions.emulateWorkEvent(actor, kind, event)
+    if kind ~= "chop_tree" or event ~= "ChopTree" then
+        return false, "unsupported_work_event"
+    end
+    local record = actor and activeWork[actor] or nil
+    if not record or record.kind ~= kind then return false, "work_kind_mismatch" end
+    if not workActionIsActive(actor, record) then return false, "work_action_inactive" end
+    local timedAction = record.timedAction
+    if type(timedAction) ~= "table" or type(timedAction.animEvent) ~= "function" then
+        return false, "work_event_unavailable"
+    end
+    local ok, failure = pcall(timedAction.animEvent, timedAction, event, nil)
+    if not ok then return false, tostring(failure) end
+    return true, "work_event_emulated"
+end
+
+function actions.visualStatus(actor, expectedAction)
+    local record = actor and activeVisual[actor] or nil
+    if type(record) ~= "table" then return "none" end
+    if expectedAction ~= nil and record.actionName ~= expectedAction then
+        return "different", record.actionName, record.startedAt
+    end
+    if trackedActionIsActive(actor, record) then
+        return "active", record.actionName, record.startedAt
+    end
+    if record.timedAction.scCompleted == true then
+        record.completedAt = record.completedAt or nowMs()
+        return "completed", record.actionName, record.completedAt
+    end
+    if record.timedAction.scStopped == true then
+        return "stopped", record.actionName, record.startedAt
+    end
+    return "interrupted", record.actionName, record.startedAt
+end
+
+-- A job may cancel only the exact timed action it started. Another job can
+-- acquire a fresh loot visual on the same actor after the old job blocks.
+function actions.visualToken(actor, expectedAction)
+    local record = actor and activeVisual[actor] or nil
+    if type(record) ~= "table" or (expectedAction ~= nil
+        and record.actionName ~= expectedAction) then return nil end
+    return record.timedAction
+end
+
+function actions.visualCompleted(actor, token, expectedAction)
+    return type(token) == "table" and token.character == actor
+        and token.actionName == expectedAction and token.scCompleted == true
+        and token.scStopped ~= true and token.scCancelled ~= true
+end
+
+function actions.cancelVisualOwned(actor, token, reason)
+    if token == nil then return false, "visual_token_missing" end
+    local record = actor and activeVisual[actor] or nil
+    if type(record) ~= "table" or record.timedAction ~= token then
+        return true, "visual_no_longer_owned"
+    end
+    return actions.cancelVisual(actor, reason)
+end
+
+-- One public ownership view covers every native activity that can legitimately
+-- own a player animation.  Callers no longer need to guess whether a visual,
+-- needs action, construction action, or an unfamiliar vanilla action is the
+-- reason movement must wait.
+function actions.activityStatus(actor)
+    if actor == nil then return "none" end
+    -- EventClimb requests acquire ownership before the next native update
+    -- enters the animation. Do not let a follow/attack dispatch erase that gap.
+    local traversal = SC.NativeTraversalActions
+    if traversal and type(traversal.activityStatus) == "function" then
+        local phase, owner, name, startedAt, record = traversal.activityStatus(actor)
+        if phase ~= "none" then return phase, owner, name, startedAt, record end
+    end
+    local visualState, visualName, visualAt = actions.visualStatus(actor)
+    if visualState == "active" then
+        return "active", "visual", visualName, visualAt
+    elseif visualState == "completed" then
+        return "result_pending", "visual", visualName, visualAt
+    elseif visualState ~= "none" then
+        -- A stopped/interrupted visual is a DEAD owned action, not a live owner.
+        -- Left in place it kept reporting as an active native activity, so the
+        -- urgent-decision path re-queued forever (SCDecision "urgent_queued") and
+        -- the supervisor's urgent dispatch stayed blocked -- freezing the companion
+        -- in the interrupted kneel/rip pose it never left. Clear it (cancelVisual
+        -- also resets the model pose and reading flag) and fall through to report
+        -- the true current state instead of a phantom owner.
+        actions.cancelVisual(actor, "visual_" .. tostring(visualState))
+    end
+
+    local furniture = activeFurnitureActions[actor]
+    if furniture then
+        local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        if furniture.failed ~= true and trackedActionIsActive(actor, furniture) then
+            return "active", "downtime", "sit", furniture.startedAt, furniture
+        end
+        -- Once the stock rest action has left the queue, sitting is a passive
+        -- posture.  It must not masquerade as an owned "sit" action or it
+        -- rejects the Read/Write visual timed action that vanilla explicitly
+        -- permits while seated.  Keep the record only to clear occupancy when
+        -- a later movement gets the actor up.
+        if not sittingOk or sitting ~= true then activeFurnitureActions[actor] = nil end
+    end
+
+    local bed = activeBedActions[actor]
+    if bed and bed.failed == true then
+        -- Keep ownership through the failure handoff. Dropping this record
+        -- before downtime releases it leaves its native action classified
+        -- as an unowned, indefinitely blocking "unfinished action".
+        leaveSeating(actor)
+        bed = nil
+    end
+    if bed then
+        local onBedOk, onBed = invoke(actor, "isOnBed")
+        local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        local asleepOk, asleep = invoke(actor, "isAsleep")
+        if bed.failed ~= true and trackedActionIsActive(actor, bed) then
+            return "active", "downtime", "rest_bed", bed.startedAt, bed
+        end
+        if not (onBedOk and onBed == true)
+            and not (bed.pose == "furniture" and sittingOk and sitting == true)
+            and not (asleepOk and asleep == true) then
+            leaveSeating(actor)
+        end
+    end
+
+    local needs = activeNeeds[actor]
+    if needs then
+        if trackedActionIsActive(actor, needs) then
+            return "active", "needs", needs.kind, needs.startedAt
+        end
+        return "result_pending", "needs", needs.kind, needs.startedAt
+    end
+    local final = activeFinal[actor]
+    if final and final.outcome == "bleach" and final.timedAction
+        and trackedActionIsActive(actor, final) then
+        return "active", "crisis", "drink_bleach", final.startedAt
+    end
+    local work = activeWork[actor]
+    if work then
+        if workActionIsActive(actor, work) then
+            work.resultPendingAt = nil
+            return "active", "work", work.kind, work.startedAt
+        end
+        local current = nowMs()
+        work.resultPendingAt = tonumber(work.resultPendingAt) or current
+        local claimMs = tonumber(SC.Config.get("workResultClaimMs")) or 5000
+        if current - work.resultPendingAt >= claimMs then
+            local restored = restoreWorkInventory(actor, work)
+            if restored == true then
+                activeWork[actor] = nil
+                actions.noteResult(actor, work.kind or "work", "completed", { kind = "long" })
+                return "none"
+            end
+        end
+        return "result_pending", "work", work.kind, work.startedAt
+    end
+
+    local service = SC.NativeCombatActions and SC.NativeCombatActions.serviceKind(actor)
+    if service then return "active", "native", service end
+
+    local utility = SC.GameplayUtil
+    if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
+        local blocker, object = utility.movementStateBlocker(actor)
+        if blocker == "unfinished_action" or blocker == "action_animation_state" then
+            return "active", "native", blocker, nil, object
+        end
+    end
+    return "none"
+end
+
+local function pacingRange(kind)
+    if kind == "short" then
+        return tonumber(SC.Config.get("actionPacingShortMinMs")) or 350,
+            tonumber(SC.Config.get("actionPacingShortMaxMs")) or 850
+    elseif kind == "long" then
+        return tonumber(SC.Config.get("actionPacingLongMinMs")) or 1000,
+            tonumber(SC.Config.get("actionPacingLongMaxMs")) or 2400
+    end
+    return tonumber(SC.Config.get("actionPacingMinMs")) or 650,
+        tonumber(SC.Config.get("actionPacingMaxMs")) or 1500
+end
+
+function actions.beginPacing(actor, source, options)
+    if actor == nil then return false, "invalid_actor" end
+    options = type(options) == "table" and options or {}
+    if options.skip == true or options.chain == true or options.emergency == true then
+        return false, "pacing_skipped"
+    end
+    local current = nowMs()
+    local minimum, maximum = pacingRange(options.kind)
+    minimum = math.max(0, tonumber(options.minimumMs) or minimum)
+    maximum = math.max(minimum, tonumber(options.maximumMs) or maximum)
+    local previous = resultHistory[actor]
+    if previous and previous.source == source
+        and current - (tonumber(previous.at) or 0)
+            <= (tonumber(SC.Config.get("actionPacingRepeatWindowMs")) or 10000) then
+        maximum = maximum + (tonumber(SC.Config.get("actionPacingRepeatBoostMs")) or 350)
+    end
+    pacingSequence = pacingSequence + 1
+    local seed = stableHash(actorKey(actor) .. ":" .. tostring(source)
+        .. ":" .. tostring(pacingSequence))
+    local duration = minimum
+    if maximum > minimum then duration = minimum + seed % math.floor(maximum - minimum + 1) end
+    local lookChance = tonumber(options.lookChancePercent)
+        or tonumber(SC.Config.get("actionPacingLookChancePercent")) or 42
+    local lookDelay = tonumber(SC.Config.get("actionPacingLookDelayPercent")) or 45
+    local record = {
+        source = tostring(source or "activity"),
+        result = options.result,
+        startedAt = current,
+        untilAt = current + duration,
+        durationMs = duration,
+        commandSerial = tonumber(options.commandSerial) or commandSerial(actor),
+        lookDueAt = current + math.floor(duration * math.max(0, math.min(100, lookDelay)) / 100),
+        shouldLook = seed % 100 < math.max(0, math.min(100, lookChance)),
+        lookDirection = seed % 4,
+        interruptForFollow = options.interruptForFollow ~= false,
+        holdReason = options.holdReason,
+        stopped = false,
+    }
+    pacingStates[actor] = record
+    resultHistory[actor] = { source = record.source, result = options.result, at = current }
+    return true, "pacing_started", record
+end
+
+function actions.noteResult(actor, source, result, options)
+    options = type(options) == "table" and options or {}
+    options.result = result
+    return actions.beginPacing(actor, source, options)
+end
+
+function actions.pacingStatus(actor, current)
+    local record = actor and pacingStates[actor] or nil
+    if not record then return false, nil end
+    current = tonumber(current) or nowMs()
+    if current >= (tonumber(record.untilAt) or 0) then
+        pacingStates[actor] = nil
+        return false, nil
+    end
+    return true, record
+end
+
+function actions.cancelPacing(actor, reason)
+    if actor == nil then return false, "invalid_actor" end
+    local had = pacingStates[actor] ~= nil
+    pacingStates[actor] = nil
+    return had, reason or "pacing_cancelled"
+end
+
+function actions.peekPacing(actor)
+    local active, record = actions.pacingStatus(actor)
+    return active and record or nil
+end
+
+function actions.interruptOwnedActivity(actor, reason)
+    local phase, owner = actions.activityStatus(actor)
+    if phase == "none" then return true, reason or "no_owned_activity" end
+    if owner == "traversal" then return SC.NativeTraversalActions.cancel(actor, reason) end
+    if owner == "visual" then return actions.cancelVisual(actor, reason) end
+    if owner == "needs" then return actions.cancelNeeds(actor, reason) end
+    if owner == "work" then return actions.cancelWork(actor, reason) end
+    if owner == "crisis" then return actions.resetFinal(actor) end
+    if owner == "downtime" then return leaveSeating(actor) end
+    -- Never clear an unknown vanilla or third-party action. We did not acquire
+    -- its resources and cannot safely invent its rollback contract.
+    return false, "unowned_native_action_active"
+end
+
+function actions.clearVisual(actor)
+    if actor ~= nil then activeVisual[actor] = nil
+    else activeVisual = setmetatable({}, { __mode = "k" }) end
+end
+
+function actions.cancelVisual(actor, reason)
+    local record = actor and activeVisual[actor] or nil
+    if not record then return true, reason or "no_tracked_visual" end
+    if trackedActionIsActive(actor, record) then
+        local queue = type(ISTimedActionQueue) == "table"
+            and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+            and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+        removeRejectedVisual(queue, record.timedAction)
+        if trackedActionIsActive(actor, record) then
+            return false, "native visual action remained queued after cancellation"
+        end
+    end
+    if record.timedAction and type(record.timedAction.scCancelClothing) == "function" then
+        record.timedAction:scCancelClothing()
+    end
+    -- forceStop does not reliably run the derived Lua stop callback on every
+    -- Build 42 path. Clear the persistent read/model flags explicitly so the
+    -- next idle/follow state cannot inherit the cancelled pose.
+    if record.timedAction and record.timedAction.reading == true then
+        invoke(actor, "setReading", false)
+    end
+    endActionSounds(record.timedAction, false)
+    endFitnessPose(record.timedAction)
+    invoke(actor, "resetModelNextFrame")
+    record.timedAction.scCancelled = true
+    activeVisual[actor] = nil
+    return true, reason or "visual_action_cancelled"
+end
+
+function actions.needsStatus(actor)
+    local record = actor and activeNeeds[actor] or nil
+    if not record then return false, nil end
+    return trackedActionIsActive(actor, record), record.kind
+end
+
+function actions.finishNeeds(actor)
+    local record = actor and activeNeeds[actor] or nil
+    if not record then return true, "no_tracked_needs_action" end
+    if trackedActionIsActive(actor, record) then return false, "needs_action_still_active" end
+    local restored, reason = restoreNeedsItem(actor, record)
+    if restored then
+        activeNeeds[actor] = nil
+        actions.noteResult(actor, record.kind or "needs", "completed", { kind = "short" })
+    end
+    return restored, reason
+end
+
+function actions.cancelNeeds(actor, reason)
+    local record = actor and activeNeeds[actor] or nil
+    if not record then return true, reason or "no_tracked_needs_action" end
+    if trackedActionIsActive(actor, record) then
+        -- Clearing the actor's whole queue also removes whatever a vanilla or
+        -- third-party action had queued behind this one, and putting our own
+        -- borrowed item back does not give them their place back. Cancel
+        -- exactly the actions this record owns, as cancelWork already does.
+        if type(ISTimedActionQueue) ~= "table"
+            or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
+            return false, "native needs-action cancellation is unavailable"
+        end
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        local owned = type(record.actions) == "table" and record.actions
+            or { record.timedAction }
+        for _, timedAction in ipairs(owned) do
+            if timedAction ~= nil then cancelOwnedTimedAction(queue, timedAction) end
+        end
+        if trackedActionIsActive(actor, record) then
+            return false, "native needs action remained queued after cancellation"
+        end
+    end
+    local restored, restoreReason = restoreNeedsItem(actor, record)
+    if not restored then return false, restoreReason end
+    activeNeeds[actor] = nil
+    return true, reason or "needs_action_cancelled"
+end
+
+-- Install a tracked needs record directly, so a harness can exercise
+-- cancellation without driving a whole native drink or eat.
+function actions._trackNeedsForTests(actor, record)
+    if actor == nil or type(record) ~= "table" then return false end
+    activeNeeds[actor] = record
+    return true
+end
+
+function actions.resetNeeds(actor)
+    if actor ~= nil then activeNeeds[actor] = nil
+    else activeNeeds = setmetatable({}, { __mode = "k" }) end
+end
+
+function actions.resetActivity(actor)
+    if SC.NativeTraversalActions and type(SC.NativeTraversalActions.reset) == "function" then
+        SC.NativeTraversalActions.reset(actor)
+    end
+    if actor ~= nil then
+        pacingStates[actor] = nil
+        resultHistory[actor] = nil
+    else
+        pacingStates = setmetatable({}, { __mode = "k" })
+        resultHistory = setmetatable({}, { __mode = "k" })
+        pacingSequence = 0
+    end
+    return true
+end
+
+-- The crisis state machine is the sole caller.  It has already required a
+-- confirmed outcome, a safety delay and explicit authorization.  The bridge
+-- applies damage through the native BodyDamage model so vanilla owns death,
+-- corpse creation and possible reanimation.
+function actions.findCrisisBleach(actor)
+    local utility = SC.GameplayUtil
+    local bleach = Fluid and Fluid.Bleach or nil
+    if not actor or not utility or not bleach then return nil end
+    local items = utility.inventoryItemsDeep(utility.inventory(actor), 240, 12)
+    for _, item in ipairs(items) do
+        local fluid = select(1, utility.call(item, "getFluidContainer"))
+        local contains = fluid and select(1, utility.call(fluid, "contains", bleach))
+        local amount = fluid and select(1, utility.call(fluid, "getAmount"))
+        if contains == true and tonumber(amount) and tonumber(amount) >= 0.2 then
+            return item
+        end
+    end
+    return nil
+end
+
+function actions.performCrisisBleach(actor, item)
+    if not actor then return false, "crisis_subject_unavailable" end
+    local record = activeFinal[actor]
+    if record and record.outcome == "bleach" then
+        if record.timedAction.scCompleted == true then return true, "bleach_consumed" end
+        if record.timedAction.scStopped == true then
+            restoreNeedsItem(actor, record)
+            activeFinal[actor] = nil
+            return false, "bleach_drink_interrupted"
+        end
+        if trackedActionIsActive(actor, record) then return true, "bleach_drinking" end
+        restoreNeedsItem(actor, record)
+        activeFinal[actor] = nil
+        return false, "bleach_drink_interrupted"
+    end
+    if item == nil or actions.findCrisisBleach(actor) ~= item then
+        return false, "bleach_missing"
+    end
+    local class = crisisDrinkActionClass()
+    if not class or type(class.new) ~= "function" then
+        return false, "native_bleach_drink_unavailable"
+    end
+    local moved, originalContainer = moveItemToRoot(actor, item)
+    if not moved then return false, originalContainer end
+    local created, action = pcall(class.new, class, actor, item, 1)
+    if not created or not action then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    local queue = type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+        and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+    if type(queue) ~= "table" or queue.current ~= nil
+        or type(queue.queue) ~= "table" or #queue.queue > 0 then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "actor_has_native_action"
+    end
+    local valid, accepted = pcall(action.isValid, action)
+    if not valid or accepted ~= true then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    local queued = pcall(ISTimedActionQueue.add, action)
+    if not queued then
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if type(queue) ~= "table" or queue.current ~= action then
+        removeRejectedVisual(queue, action)
+        restoreNeedsItem(actor, { item = item, originalContainer = originalContainer })
+        return false, "native_bleach_drink_unavailable"
+    end
+    activeFinal[actor] = { target = actor, outcome = "bleach", item = item,
+        originalContainer = originalContainer, timedAction = action, startedAt = nowMs() }
+    return true, "bleach_drinking"
+end
+
+function actions.performEndOfLife(actor, outcome, target)
+    if outcome ~= "mercy" and outcome ~= "self_sacrifice" then
+        return false, "unauthorized_final_outcome"
+    end
+    target = target or actor
+    if not SC.Actor or type(SC.Actor.endLife) ~= "function" then
+        return false, "native_end_life_unavailable"
+    end
+    local current = nowMs()
+    local record = activeFinal[actor]
+    if not record or record.target ~= target or record.outcome ~= outcome then
+        local utility = SC.GameplayUtil
+        local weapon
+        if utility then
+            for _, item in ipairs(utility.inventoryItems(utility.inventory(actor), 128)) do
+                local category = select(1, utility.call(item, "getCategory"))
+                local rangeValue = select(1, utility.call(item, "getMaxRange"))
+                local range = tonumber(rangeValue) or 0
+                local ammo, ammoOk = utility.call(item, "getCurrentAmmoCount")
+                local ready = range <= 2 or not ammoOk or (tonumber(ammo) or 0) > 0
+                if tostring(category) == "Weapon" and ready then
+                    if weapon == nil or range > (weapon.range or -1) then
+                        weapon = { item = item, range = range }
+                    end
+                end
+            end
+        end
+        if not weapon then return false, "final_action_requires_weapon" end
+        local action = weapon.range > 2 and "attack_firearm" or "attack_melee"
+        local started, reason = SC.Actor.setMovement(actor, "walk", {
+            action = action, target = target, weapon = weapon.item,
+            crisisAuthorized = true, finalOutcome = outcome,
+        })
+        if started ~= true then return false, reason or "final_attack_rejected" end
+        activeFinal[actor] = { target = target, outcome = outcome, startedAt = current }
+        return true, "native_final_attack_started"
+    end
+    if current - record.startedAt < 450 then return true, "native_final_attack_active" end
+    local accepted, reason = SC.Actor.endLife(target)
+    if accepted then activeFinal[actor] = nil end
+    return accepted == true, accepted == true and "native_final_injury_applied" or reason
+end
+
+function actions.resetFinal(actor)
+    if actor ~= nil then
+        local record = activeFinal[actor]
+        if record and record.outcome == "bleach" and record.timedAction
+            and trackedActionIsActive(actor, record)
+            and type(ISTimedActionQueue) == "table"
+            and type(ISTimedActionQueue.getTimedActionQueue) == "function" then
+            cancelOwnedTimedAction(ISTimedActionQueue.getTimedActionQueue(actor),
+                record.timedAction)
+            if trackedActionIsActive(actor, record) then
+                return false, "crisis_drink_action_remained_queued"
+            end
+        end
+        if record and record.outcome == "bleach" then
+            restoreNeedsItem(actor, record)
+        end
+        activeFinal[actor] = nil
+    else activeFinal = setmetatable({}, { __mode = "k" }) end
+    return true, "final_action_reset"
+end
+
+function actions.isAuthorizedFinalFirearmTarget(actor, target)
+    local final = activeFinal[actor]
+    return final ~= nil and final.target == target and final.outcome ~= "bleach"
+end
+
+-- Consume even a rejected authorization. This callback can only grant the
+-- single native attempt whose weapon, aim target and serials still match.
+function actions.consumePurdyWindowShot(actor, target)
+    local shot = pendingPurdyShots[actor]
+    if not shot then return nil, false end
+    pendingPurdyShots[actor] = nil
+    local _, attempt = invoke(actor, "getCompanionAttackAttemptSerial")
+    local _, receipt = invoke(actor, "getCompanionAttackReceiptSerial")
+    local _, weapon = invoke(actor, "getPrimaryHandItem")
+    local _, nativeWeapon = invoke(actor, "getUseHandWeapon")
+    if target ~= shot.target or weapon ~= shot.weapon or nativeWeapon ~= shot.weapon or nowMs() >= shot.expiresAt
+        or tonumber(attempt) ~= shot.attempt or tonumber(receipt) ~= shot.receipt then
+        return nil, true
+    end
+    return shot, true
+end
+
+function actions.releaseActor(actor)
+    if actor == nil then return false end
+    -- Cancellation gets one chance to restore borrowed inventory/visual state;
+    -- the explicit nil assignments guarantee that Kahlua cannot retain the
+    -- native actor if the timed-action adapter is already gone.
+    pcall(actions.interruptOwnedActivity, actor, "actor_released")
+    activeWork[actor] = nil
+    activeNeeds[actor] = nil
+    activeFinal[actor] = nil
+    activeVisual[actor] = nil
+    activeFurnitureActions[actor] = nil
+    leavingFurniture[actor] = nil
+    activeBedActions[actor] = nil
+    BedExit.pending[actor], BedExit.probes[actor] = nil, nil
+    activeGroundActions[actor] = nil
+    pacingStates[actor] = nil
+    resultHistory[actor] = nil
+    pendingCombat[actor] = nil
+    pendingPurdyShots[actor] = nil
+    if SC.NativeTraversalActions
+        and type(SC.NativeTraversalActions.reset) == "function" then
+        SC.NativeTraversalActions.reset(actor)
+    end
+    return true
+end
+
+SC.NativeCombatActions.configure({
+    attack = attack,
+    reload = reload,
+    unjam = unjam,
+})
+
+SC.NativeWorkActions.configure({
+    barricade = startBarricade,
+    removeBarricade = startRemoveBarricade,
+    dismantle = startDismantle,
+    needs = startNeedsAction,
+    chopTree = startChopTree,
+    bashDoor = startBashDoor,
+    forceOpen = actions.forceOpen,
+    sawLogs = startSawLogs,
+    digGrave = startDigGrave,
+    buryBody = startBuryBody,
+    fillGrave = startFillGrave,
+    grabBody = startGrabBody,
+    dropBody = startDropBody,
+    throwBodyWindow = startThrowBodyWindow,
+    burnBody = startBurnBody,
+})
+
+SC.NativeMovementActions.configure({
+    targetOf = targetOf,
+    vectorFor = vectorFor,
+    useProvider = useProvider,
+    directPath = directPath,
+    directMove = directMove,
+})
+
+function actions.dispatch(actor, mode, intent, provider)
+    if actor == nil or type(intent) ~= "table" or type(provider) ~= "table" then
+        return false, "actor, intent, and provider are required"
+    end
+    local normalized = normalizeMode(mode)
+    if normalized == nil then
+        return false, "unsupported movement mode: " .. tostring(mode)
+    end
+    local action = tostring(intent.action or "move")
+    if #action > SC.Config.get("maxIntentLength") then
+        return false, "intent action is too long"
+    end
+    local urgent = isUrgentAction(action, intent)
+
+    local pacing, pace = actions.pacingStatus(actor)
+    if pacing and intent.pacingObservation ~= true then
+        if urgent then
+            actions.cancelPacing(actor, "survival_priority")
+        else
+            return false, "action_pacing:" .. tostring(pace.source)
+        end
+    end
+
+    local activityPhase, activityOwner, activityName, activityAt = actions.activityStatus(actor)
+    local serviceWalk = activityPhase == "active" and activityOwner == "native"
+        and SC.NativeCombatActions.permitsServiceWalk(actor, normalized, intent)
+    if activityPhase == "result_pending" and activityOwner == "visual"
+        and activityName ~= action and not urgent then
+        local grace = tonumber(SC.Config.get("visualEffectClaimMs")) or 2000
+        if nowMs() - (tonumber(activityAt) or 0) >= grace then
+            actions.clearVisual(actor)
+            activityPhase = "none"
+        end
+    end
+    if (activityPhase == "active" or activityPhase == "result_pending") and not serviceWalk then
+        if activityName == action then
+            return true, "activity_continues:" .. tostring(activityName)
+        end
+        if urgent then
+            local interrupted, interruptReason = actions.interruptOwnedActivity(
+                actor, "survival_priority:" .. action)
+            if not interrupted then return false, interruptReason end
+        else
+            -- A competing decision may observe an activity owned by another
+            -- subsystem. Reject it without mutating the current owner's native
+            -- movement/path state; only that owner (or an authorized urgent
+            -- interrupt above) may stop or cancel the actor.
+            if activityOwner == "visual" then
+                return false, (activityPhase == "active" and "visual_action_active:"
+                    or "visual_effect_pending:") .. tostring(activityName)
+            end
+            if activityOwner == "native" then
+                return false, "actor_state_busy:" .. tostring(activityName)
+            end
+            return false, "activity_" .. tostring(activityPhase) .. ":"
+                .. tostring(activityOwner) .. ":" .. tostring(activityName)
+        end
+    end
+
+    -- A visual timed action owns the actor's pose until vanilla has removed it
+    -- from the native queue.  Without this gate, a follow/movement decision can
+    -- advance the IsoPlayer while Loot/Bandage is still kneeling, producing the
+    -- visible "kneeling moonwalk". Survival-critical actions may interrupt it;
+    -- ordinary movement waits, and completed effects get a short claim window
+    -- so the gameplay subsystem can commit its inventory/body transaction.
+    if visualActionSpecs[action] == nil then
+        local visualState, visualName, visualStartedAt = actions.visualStatus(actor)
+        if visualState == "active" then
+            if not urgent then
+                return false, "visual_action_active:" .. tostring(visualName)
+            end
+            local cancelled, cancelReason = actions.cancelVisual(actor,
+                "visual_interrupted_for_" .. action)
+            if not cancelled then return false, cancelReason end
+        elseif visualState == "completed" then
+            local grace = tonumber(SC.Config.get("visualEffectClaimMs")) or 2000
+            if not urgent and nowMs() - (tonumber(visualStartedAt) or 0) < grace then
+                return false, "visual_effect_pending:" .. tostring(visualName)
+            end
+            actions.clearVisual(actor)
+        elseif visualState ~= "none" then
+            actions.clearVisual(actor)
+        end
+    end
+
+    -- Reading, light repair and crafting may continue while seated. Every
+    -- movement, combat, rescue, construction, window and vehicle action must
+    -- first leave furniture or the engine can retain a seated animation/state.
+    local seatedActivity = action == "read" or action == "repair" or action == "craft_supply"
+        or action == "ext_gesture" or action == "write_diary" or action == "computer_use"
+    if action == "sit_ground" then
+        local standing, standingReason = leaveFurniture(actor)
+        if not standing then return false, standingReason end
+    elseif action == "sit" and groundSeatState(actor) then
+        local requested, standReason = requestGroundSeat(actor, false)
+        if not requested then return false, standReason end
+        return false, "standing_from_ground"
+    elseif action ~= "stand_ground" and not seatedActivity then
+        local standing, standingReason = leaveSeating(actor)
+        if not standing then return false, standingReason end
+    end
+
+    if action == "sit_ground" then
+        return requestGroundSeat(actor, true)
+    elseif action == "stand_ground" then
+        return requestGroundSeat(actor, false)
+    elseif action == "equip_weapon" or action == "equip" then
+        return equip(actor, intent, provider)
+    elseif SC.NativeCombatActions.handles(action) then
+        return SC.NativeCombatActions.dispatch(actor, action, intent, provider)
+    elseif action == "backstep" or action == "lateral_kite" then
+        intent.awayFrom = intent.awayFrom or intent.target
+        intent.lateral = action == "lateral_kite"
+        movementActions[action] = true
+    elseif windowActions[action] then
+        return SC.NativeTraversalActions.window(actor, action, intent, provider)
+    elseif fenceActions[action] then
+        return SC.NativeTraversalActions.fence(actor, action, intent, provider)
+    elseif ropeActions[action] then
+        return SC.NativeTraversalActions.sheetRope(actor, action, intent, provider)
+    elseif action == "board_vehicle" or action == "exit_vehicle" then
+        if SC.Vehicle == nil then
+            return false, "vehicle persistence adapter is unavailable"
+        end
+        local operation = action == "board_vehicle" and SC.Vehicle.board or SC.Vehicle.exit
+        if type(operation) ~= "function" then
+            return false, "vehicle operation is unavailable"
+        end
+        return operation(actor, intent.vehicle, intent.seat, intent)
+    elseif action == "downed" then
+        return SC.NativeTraversalActions.setDowned(actor, true, provider)
+    elseif action == "recover_from_downed" then
+        return SC.NativeTraversalActions.setDowned(actor, false, provider)
+    elseif action == "sit" and intent.object ~= nil then
+        local handled, reason = useProvider(provider, "sit", actor, intent.object, intent)
+        if handled ~= nil then
+            return handled, reason
+        end
+        if not provider.directNative then
+            return false, reason
+        end
+        local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        if sittingOk and sitting == true then return true, "sitting" end
+        local prior = activeFurnitureActions[actor]
+        if prior and prior.failed ~= true and trackedActionIsActive(actor, prior) then
+            return true, "taking_seat"
+        end
+        activeFurnitureActions[actor] = nil
+        return startFurnitureRest(actor, intent.object, activeFurnitureActions, "sit")
+    elseif action == "rest_bed" and intent.object ~= nil then
+        local handled, reason = useProvider(provider, "restBed", actor, intent.object, intent)
+        if handled ~= nil then return handled, reason end
+        if not provider.directNative then return false, reason end
+        local onBedOk, onBed = invoke(actor, "isOnBed")
+        if onBedOk and onBed == true then return true, "resting_on_bed" end
+        local prior = activeBedActions[actor]
+        if prior and trackedActionIsActive(actor, prior) then
+            return true, "getting_on_bed"
+        end
+        activeBedActions[actor] = nil
+        return startBedRest(actor, intent.object)
+    elseif SC.NativeWorkActions.handles(action) then
+        return SC.NativeWorkActions.dispatch(actor, action, intent, provider)
+    elseif action == "hand_signal" then
+        return SC.NativeVisualActions.handSignal(actor, intent, provider)
+    elseif action == "ext_gesture" then
+        return SC.NativeVisualActions.extGesture(actor, intent, provider)
+    elseif action == "ready_weapon" then
+        if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+        setTacticalMovement(actor, false, 0, 0)
+        return setWeaponReady(actor, true,
+            intent.facingTarget or intent.target or intent.targetSquare or intent.targetPosition)
+    elseif action == "lower_weapon" then
+        return setWeaponReady(actor, false)
+    elseif visualActionSpecs[action] then
+        return startVerifiedVisual(actor, action, intent, provider)
+    elseif action == "room_sweep" then
+        return SC.NativeVisualActions.roomSweep(actor, intent, provider)
+    elseif action == "face_alert" then
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "alert_facing_started")
+    elseif action == "rear_scan" then
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "rear_scan_started")
+    elseif action == "rear_guard_watch" then
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "rear_guard_watch_started")
+    elseif action == "face_formation" then
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "formation_facing_restored")
+    elseif action == "face_conversation" then
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "conversation_facing_started")
+    elseif action == "conversation_pose" then
+        return SC.NativeVisualActions.conversationPose(actor, intent, provider)
+    elseif action == "copy_player_posture" then
+        return SC.NativeVisualActions.syncPlayerPosture(actor, intent)
+    end
+
+    if not movementActions[action] and targetOf(intent) == nil
+        and intent.dx == nil and intent.x == nil and intent.awayFrom == nil then
+        return false, "unsupported actor intent: " .. action
+    end
+
+    -- A vanilla or third-party timed action may own the pose without being in
+    -- activeVisual (the playtest exposed ISUnequipAction here). Never translate
+    -- that pose. Navigation retries after the native action/state is clear.
+    local utility = SC.GameplayUtil
+    if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
+        local blocker = utility.movementStateBlocker(actor)
+        if blocker ~= nil and not (serviceWalk
+            and (blocker == "unfinished_action" or blocker == "action_animation_state")) then
+            return false, "actor_state_busy:" .. tostring(blocker)
+        end
+    end
+
+    return SC.NativeMovementActions.dispatch(actor, normalized, intent, provider)
+end
+
+function actions.normalizeMode(mode)
+    return normalizeMode(mode)
+end
+
+function actions.leaveFurniture(actor)
+    return leaveFurniture(actor)
+end
+
+function actions.leaveSeating(actor)
+    return leaveSeating(actor)
+end
+
+local function seatingPoseSettled(actor, record, startedVariable)
+    -- PlayerSitOnFurnitureState sets isSittingOnFurniture on entry, while the
+    -- sit-down clip still moves the actor toward the cushion. Beds likewise
+    -- set isOnBed before GetOnBed finishes. Prefer the stock end event, but
+    -- accept a pose that has stayed still long enough if that event was missed.
+    if record == nil then return true end
+    local current = nowMs()
+    record.poseStartedAt = tonumber(record.poseStartedAt) or current
+    local checked, started = invoke(actor, "getVariableBoolean", startedVariable)
+    if checked and started == true then return true end
+    local xOk, x = invoke(actor, "getX")
+    local yOk, y = invoke(actor, "getY")
+    if not xOk or not yOk or tonumber(x) == nil or tonumber(y) == nil then
+        return false
+    end
+    x, y = tonumber(x), tonumber(y)
+    if record.poseX == nil or math.abs(x - record.poseX) > 0.025
+        or math.abs(y - record.poseY) > 0.025 then
+        record.poseX, record.poseY, record.poseStillAt = x, y, current
+        return false
+    end
+    return current - record.poseStartedAt >= 1500
+        and current - (tonumber(record.poseStillAt) or current) >= 1500
+end
+
+function actions._bedRestForTests(actor) return activeBedActions[actor] end
+function actions.alignSleepingBedModel(actor)
+    local record = activeBedActions[actor]
+    if not record or record.pose ~= "bed" or record.modelAligned
+        or not record.bedEntry or record.bedEntry.pillow then return end
+    record.sleepModelStartedAt = record.sleepModelStartedAt or nowMs()
+    if nowMs() - record.sleepModelStartedAt < 4500 then return end
+    if SCBridge and type(SCBridge.alignSleepingBedModel) == "function" then
+        local called, aligned = pcall(SCBridge.alignSleepingBedModel, actor, record.object)
+        record.modelAligned = called and aligned == true
+        if not record.modelAligned then record.alignmentFailure = SCBridge.getLastFailure() end
+    end
+end
+actions._startBarricadeForTests = startBarricade
+actions._moveItemToRootForTests = moveItemToRoot
+actions._restoreNeedsItemForTests = restoreNeedsItem
+
+function actions.bedStatus(actor)
+    if actor == nil then return "none" end
+    local record = activeBedActions[actor]
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if onBedOk and onBed == true then
+        if record and record.failed == true then return "failed", record.startedAt end
+        local settled = seatingPoseSettled(actor, record, "OnBedStarted")
+        local pillow = record and record.bedEntry and record.bedEntry.pillow
+        if settled and pillow and not record.pillowAligned then
+            local startedOk, started = invoke(actor, "getVariableBoolean", "OnBedStarted")
+            if not startedOk or started ~= true then return "entering", record.poseStartedAt end
+            local _, x = invoke(actor, "getX")
+            local _, y = invoke(actor, "getY")
+            x = tonumber(x) or tonumber(tostring(x))
+            y = tonumber(y) or tonumber(tostring(y))
+            -- Stock bed entry can settle in either pillow lane of this exact
+            -- two-by-two mattress. Keep that valid native choice; forcing the
+            -- approach lane caused alignment failure and abandoned sleep.
+            local other = record.bedEntry.otherPillow
+            if other and type(x) == "number" and math.floor(x) == other.x
+                and other.y == pillow.y and other.z == pillow.z then pillow = other end
+            local shifted = type(x) == "number" and type(y) == "number"
+                and math.floor(x) == pillow.x and math.floor(y) == pillow.y
+            if not shifted and SCBridge and type(SCBridge.shiftOnBedPoseTowardPillow) == "function" then
+                local called, result = pcall(SCBridge.shiftOnBedPoseTowardPillow,
+                    actor, pillow.x, pillow.y, pillow.z)
+                shifted = called and result == true
+            end
+            local called, lifted = pcall(function() return shifted and SCBridge
+                and SCBridge.setOnBedRenderLift(actor, 180) end)
+            if not shifted or not called or lifted ~= true then
+                record.alignmentStartedAt = record.alignmentStartedAt or nowMs()
+                record.alignmentFailure = SCBridge and SCBridge.getLastFailure and SCBridge.getLastFailure() or "bridge unavailable"
+                if nowMs()-record.alignmentStartedAt < 1500 then return "entering",record.poseStartedAt end
+                record.failed, record.failure = true, "bed_mattress_alignment_failed"
+                return "failed", record.poseStartedAt
+            end
+            record.pillowAligned = true
+        end
+        return settled and "entered" or "entering", record and record.poseStartedAt
+    end
+    local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+    if record and record.pose == "furniture" and sittingOk and sitting == true then
+        if record.failed == true then return "failed", record.startedAt end
+        return seatingPoseSettled(actor, record, "SitOnFurnitureStarted")
+            and "entered" or "entering", record.poseStartedAt
+    end
+    if record and record.fallbackGround == true then
+        if groundSeatState(actor) then return "entered", record.startedAt end
+        local ground = activeGroundActions[actor]
+        if ground and ground.leaving ~= true then return "entering", record.startedAt end
+        return "failed", record.startedAt
+    end
+    if record and record.failed ~= true and trackedActionIsActive(actor, record) then
+        local maximum = tonumber(SC.Config.get("furniturePathTimeoutMs")) or 8000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) >= maximum then
+            if fallbackSeatingToGround(actor, record,
+                "furniture_path_timeout", true) then
+                return groundSeatState(actor) and "entered" or "entering", record.startedAt
+            end
+            return "failed", record.startedAt
+        end
+        return "entering", record.startedAt
+    end
+    if record then
+        if SC.Config and SC.Config.get("debugSpawnEnabled") == true then
+            local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+            print("[LivingFellows][furniture] bed_lost failed="
+                .. tostring(record.failed) .. " reason=" .. tostring(record.failure)
+                .. " current=" .. tostring(queue and queue.current)
+                .. " index=" .. tostring(queue and record.timedAction
+                    and queue:indexOf(record.timedAction))
+                .. " onBed=" .. tostring(onBed) .. " sitting=" .. tostring(sitting)
+                .. " rest=" .. tostring(actor:isResting())
+                .. " context=" .. tostring(actor:getCurrentActionContextStateName()))
+        end
+        return "failed", record.startedAt
+    end
+    return "none"
+end
+
+function actions.furnitureStatus(actor)
+    if actor == nil then return "none" end
+    local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+    local record = activeFurnitureActions[actor]
+    if sittingOk and sitting == true then
+        if record and record.failed == true then return "failed", record.startedAt end
+        return seatingPoseSettled(actor, record, "SitOnFurnitureStarted")
+            and "entered" or "entering", record and record.poseStartedAt
+    end
+    if record and record.fallbackGround == true then
+        if groundSeatState(actor) then return "entered", record.startedAt end
+        local ground = activeGroundActions[actor]
+        if ground and ground.leaving ~= true then return "entering", record.startedAt end
+        return "failed", record.startedAt
+    end
+    if record and record.failed ~= true and trackedActionIsActive(actor, record) then
+        local maximum = tonumber(SC.Config.get("furniturePathTimeoutMs")) or 8000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) >= maximum then
+            if fallbackSeatingToGround(actor, record,
+                "furniture_path_timeout", true) then
+                return groundSeatState(actor) and "entered" or "entering", record.startedAt
+            end
+            return "failed", record.startedAt
+        end
+        return "entering", record.startedAt
+    end
+    if record then return "failed", record.startedAt end
+    return "none"
+end
+
+function actions.groundStatus(actor)
+    if actor == nil then return "none" end
+    if groundSeatState(actor) then return "entered" end
+    local record = activeGroundActions[actor]
+    if record and record.leaving ~= true then
+        local maximum = tonumber(SC.Config.get("bedEntryTimeoutMs")) or 12000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) < maximum then
+            return "entering", record.startedAt
+        end
+        activeGroundActions[actor] = nil
+        return "failed", record.startedAt
+    end
+    if record and record.leaving == true then return "leaving", record.startedAt end
+    return "none"
+end
+
+function actions.seatingStatus(actor)
+    if actor == nil then return "standing" end
+    if BedExit.pending[actor] then return "bed" end
+    if leavingFurniture[actor] then return "furniture" end
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if onBedOk and onBed == true then return "bed" end
+    local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+    if sittingOk and sitting == true then return "furniture" end
+    if groundSeatState(actor) then return "ground" end
+    -- A failed seat entry can clear isSittingOnFurniture before the animation
+    -- graph leaves SitOnFurniture. Navigation must still request get-up here;
+    -- otherwise its direct path request waits forever in furniture_state.
+    local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+    context = contextOk and string.lower(tostring(context or "")) or ""
+    if context == "sitonfurniture" or (context == "getup"
+        and (activeFurnitureActions[actor] or activeBedActions[actor])) then
+        return "furniture"
+    end
+    if BedExit.overlap(actor) then return "bed" end
+    return "standing"
+end
+
+return actions

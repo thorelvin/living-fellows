@@ -176,7 +176,7 @@ function Fixture.savedStopScreenshot(H,SC,current,check,result,phase)
                 end
             end
         end
-        local map=getFileWriter("SurvivorCompanionHarness/barricade-grid-tsv.txt",true,false)
+        local map=getFileWriter("LivingFellowsHarness/barricade-grid-tsv.txt",true,false)
         if not map then error("barricade grid writer unavailable") end
         map:writeln("x\ty\tsolid\ttrans\toutside\tsprites")
         for y=8203,8225 do for x=7124,7145 do
@@ -208,7 +208,7 @@ function Fixture.savedStopScreenshot(H,SC,current,check,result,phase)
 end
 local function captureRoute(receipt,route)
     receipt.routeIndex=(receipt.routeIndex or -1)+1
-    local writer=getFileWriter("SurvivorCompanionHarness/junction-expedition-route-tsv.txt",true,receipt.routeIndex>0)
+    local writer=getFileWriter("LivingFellowsHarness/junction-expedition-route-tsv.txt",true,receipt.routeIndex>0)
     if not writer then error("expedition route writer unavailable") end
     if receipt.routeIndex==0 then writer:writeln("route\tx\ty\twidth\tjunction") end
     for _,point in ipairs(route.points) do
@@ -229,7 +229,7 @@ function Fixture.begin(car,driver,route)
     local receipt={body=body(car),health=driver:getBodyDamage():getOverallBodyHealth(),driver=driver,visited={},
         x=car:getX(),y=car:getY(),lastX=car:getX(),lastY=car:getY(),distance=0,corners=0,kills=0}
     captureRoute(receipt,route)
-    local module=SurvivorCompanion.ExpeditionRoute
+    local module=LivingFellows.ExpeditionRoute
     receipt.originalPlanner=module.planAvoidingAll
     receipt.observedPlanner=function(actor,goal,circles,origin)
         local planned,reason,native=receipt.originalPlanner(actor,goal,circles,origin)
@@ -290,7 +290,7 @@ function Fixture.observe(SC,test,current,state,check,result)
         if SC.Vehicle.isNativeSeated(member.actor) then allExited=false break end
     end end
     if allExited or current>=(receipt.nextSample or 0) then
-        local writer=getFileWriter("SurvivorCompanionHarness/junction-expedition-tsv.txt",true,receipt.nextSample~=nil)
+        local writer=getFileWriter("LivingFellowsHarness/junction-expedition-tsv.txt",true,receipt.nextSample~=nil)
         if not writer then error("expedition track writer unavailable") end
         if not receipt.nextSample then writer:writeln("ms\tx\ty\tspeed\tstate\tmode\tcorners\tkills\tbody_condition\tdriver_health\tfx\tfy\troute\tjunctions_passed") receipt.at=current end
         writer:writeln(table.concat({current-receipt.at,car:getX(),car:getY(),car:getCurrentSpeedKmHour(),

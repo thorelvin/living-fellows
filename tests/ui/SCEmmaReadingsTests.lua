@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production readers, parser, shared receipts and replies in the existing UI suite.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local B,M,R=SC.TerminalBrain,SC.EmmaMind,SC.EmmaReadings
 local check=T.check
 local checksBefore=T.checks

@@ -4,7 +4,7 @@
 local P={} SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCLockPhase4Probe=P
 local function snapshot(w)
-    local SC=SurvivorCompanion local before={}
+    local SC=LivingFellows local before={}
     for _,r in ipairs(SC.Registry.records()) do if r.recruited and r.actor and SC.ControlUtil.near(r.actor,w.object,12) then
         local a=r.actor before[#before+1]={actor=a,health=a:getBodyDamage():getOverallBodyHealth(),
             order=SC.Commands.peek(a).order,action=SC.ActionSupervisor.current(a),inventory=a:getInventory():getItems():size()}
@@ -12,7 +12,7 @@ local function snapshot(w)
     return before
 end
 local function unchanged(before)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     for _,v in ipairs(before) do local a=v.actor
         assert(v.health==a:getBodyDamage():getOverallBodyHealth() and v.order==SC.Commands.peek(a).order
             and v.action==SC.ActionSupervisor.current(a) and v.inventory==a:getInventory():getItems():size(),
@@ -25,7 +25,7 @@ local function press(w,n)
     w.storyIsolationChecks=(w.storyIsolationChecks or 0)+#before
 end
 local function open(H,f,kind,seed,saved)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     SC.TerminalDrawers.release(f.pc)
     local os=saved and SC.TerminalSystem.normalize(saved) or SC.TerminalSystem.create(seed,"home",false,false,"phase4-native:"..kind..":"..seed)
@@ -36,14 +36,14 @@ local function open(H,f,kind,seed,saved)
 end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-lock-phase4-"..name..".png") end
 local function finish(H,f,current,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if f.originalResolve then SC.TerminalLockStory.resolve=f.originalResolve end
     for _,actor in ipairs(f.party or {}) do SC.Actor.remove(actor) end
     if SC.Terminal.window then SC.Terminal.window:close() end
     setPhase("finish",current)
 end
 function P.step(H,current,check,result,setPhase)
-    local SC,f=SurvivorCompanion,H.lockProbe local G=SC.TerminalLockStory
+    local SC,f=LivingFellows,H.lockProbe local G=SC.TerminalLockStory
     if H.phase=="lock_probe_phase4_begin" then
         SandboxVars.LivingFellows.LockRealItems=false
         -- Observe the genuine resolver synchronously. Delegate the exact original

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,GRID_TEST
+local SC,T=LivingFellows,GRID_TEST
 local R,U=SC.GridRadio,SC.ControlUtil
 local check,before=T.check,T.checks
 local calls,contacts,hooks={},0,0

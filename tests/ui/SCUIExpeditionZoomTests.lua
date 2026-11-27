@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local Planner = SurvivorCompanion.UIExpeditions
+local Planner = LivingFellows.UIExpeditions
 local fixture = ExpeditionZoomFixture
 assert(Planner ~= nil)
 
@@ -173,7 +173,7 @@ assert(reportSignature ~= "expedition:idle" and counts == 2
     and earlier == 1,
     "the latest debrief and earlier unfinished delivery remain visible once")
 do
-    local ui = SurvivorCompanion.UI
+    local ui = LivingFellows.UI
     local previousText, bycatchArgs = ui.text, nil
     ui.text = function(key, ...)
         if key == "UI_SC_Expedition_FishingBycatch" then bycatchArgs = { ... } end
@@ -210,23 +210,23 @@ fixture.endTrip()
 local id = "sc-1.792185651862E9-2-990140"
 local record = { id = id, actor = { name = "Actor Name" },
     identity = { forename = "  Tess ", surname = "Nolan " } }
-SurvivorCompanion.Registry = { byId = function(value)
+LivingFellows.Registry = { byId = function(value)
     return value == id and record or nil
 end }
-SurvivorCompanion.Commands = { describe = function()
+LivingFellows.Commands = { describe = function()
     return { recruited = true, group = "alpha", alive = true, available = true }
 end }
-SurvivorCompanion.GameplayUtil = { nameOf = function(actor) return actor.name end }
-local originalText = SurvivorCompanion.UI.text
-SurvivorCompanion.UI.text = function(key, ...)
+LivingFellows.GameplayUtil = { nameOf = function(actor) return actor.name end }
+local originalText = LivingFellows.UI.text
+LivingFellows.UI.text = function(key, ...)
     local values = { ... }
     if key == "UI_SC_Expedition_SquadMember" then return "A squad member" end
     for index, value in ipairs(values) do values[index] = tostring(value) end
     return key .. (#values > 0 and (":" .. table.concat(values, "|")) or "")
 end
-SurvivorCompanion.UI.fitText = function(_, value) return value end
+LivingFellows.UI.fitText = function(_, value) return value end
 SCSplitScreenProbe = {}
-local expedition = SurvivorCompanion.ExpeditionPrototype
+local expedition = LivingFellows.ExpeditionPrototype
 local gearReason, gearMember = "fishing_rod_missing", id
 expedition.fishingGearStatus = function() return false, gearReason, gearMember end
 expedition.startAtPlace = function() return false end
@@ -528,7 +528,7 @@ Planner.buildDeparturePreparation(packing, newPanel(400), 0, preparation)
 assert(string.find(table.concat(packing.lines, "\n"), "UI_SC_Expedition_PreparationToolMissing", 1, true),
     "a completed unsuccessful tool search explains missing or broken equipment")
 ;(function()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     fixture.endTrip()
     local site = { id = "saved-site", label = "Selected destination" }
     local missingPlace, missingCar, extraMember, loadChanged
@@ -632,5 +632,5 @@ assert(string.find(table.concat(packing.lines, "\n"), "UI_SC_Expedition_Preparat
         and dispatches == 5, "a change in readiness brings the updated review back before dispatch")
 end)()
 
-SurvivorCompanion.UI.text = originalText
+LivingFellows.UI.text = originalText
 print("SCUI expedition zoom, wood controls and companion-name tests passed")

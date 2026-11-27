@@ -81,6 +81,105 @@ function Assert-AgentFixture($Fixture) {
 }
 
 switch ($Case) {
+'legacy-brand' {
+    $fixture = New-StandaloneFixture ('legacy-brand-' + $Variant)
+    if ($Variant -eq 'pzo') { Set-ScPzoLauncherFixture $fixture | Out-Null }
+    $originalConfigHash = (Get-FileHash -LiteralPath $fixture.config).Hash
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    Set-LegacyBrandFixture $fixture
+    $legacyTarget = Join-Path $fixture.mods 'SurvivorCompanion'
+    $legacyJar = Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar'
+    $nativeManifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+    $profilePath = Join-Path $fixture.mods 'default.txt'
+    $save = Join-Path $fixture.root 'Saves\Sandbox\Test World'
+    New-Item -ItemType Directory -Path $save | Out-Null
+    $saveMods = Join-Path $save 'mods.txt'
+    $profile = "VERSION = 1,`r`nmods`r`n{`r`n    mod = OtherFirst,`r`n" +
+        "    mod = \SurvivorCompanion,`r`n    mod = OtherSecond,`r`n    mod = LivingFellows,`r`n" +
+        "}`r`nmaps`r`n{`r`n    map = ForeignMap,`r`n}`r`n"
+    [IO.File]::WriteAllText($profilePath, $profile)
+    [IO.File]::WriteAllText($saveMods, $profile)
+    $saveHash = (Get-FileHash -LiteralPath $saveMods).Hash
+    $before = Get-StandaloneFixtureSnapshot $fixture
+    if ($Variant -eq 'conflict') {
+        New-Item -ItemType Directory -Path $fixture.target | Out-Null
+        $before = Get-StandaloneFixtureSnapshot $fixture
+        foreach ($operation in @(
+            { Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar },
+            { & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods -InstallDataRoot $fixture.data }
+        )) {
+            $refusal = ''
+            try { & $operation | Out-Null } catch { $refusal = $_.Exception.Message }
+            if ($refusal -notmatch 'Both the current and previous Living Fellows mod directories' -or
+                (Get-StandaloneFixtureSnapshot $fixture) -cne $before) {
+                throw "Duplicate legacy/current paths were not refused safely: $refusal"
+            }
+        }
+        Move-Item -LiteralPath $fixture.target -Destination (Join-Path $fixture.root 'inactive-new-dir')
+        Move-Item -LiteralPath (Join-Path $legacyTarget '.sc-install-manifest.json') `
+            -Destination (Join-Path $fixture.root 'inactive-legacy-manifest.json')
+        $before = Get-StandaloneFixtureSnapshot $fixture
+        $refusal = ''
+        try { Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar }
+        catch { $refusal = $_.Exception.Message }
+        if ($refusal -notmatch 'Refusing to overwrite unmanaged mod directory' -or
+            (Get-StandaloneFixtureSnapshot $fixture) -cne $before) {
+            throw "Unmanaged previous path was not refused safely: $refusal"
+        }
+    } else {
+        if ($Variant -eq 'wrapper') {
+            foreach ($fault in @('native-jar-replace', 'new-mod-move', 'profile-migration')) {
+                $failure = ''
+                try { Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar $fault }
+                catch { $failure = $_.Exception.Message }
+                if ($failure -notmatch "failure after $fault" -or
+                    (Get-StandaloneFixtureSnapshot $fixture) -cne $before) {
+                    throw "Legacy upgrade rollback failed at $($fault): $failure"
+                }
+            }
+        }
+        if ($Variant -ne 'uninstall-old') {
+            Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+            $manifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+            $localManifest = Get-Content -LiteralPath (Join-Path $fixture.target '.sc-install-manifest.json') `
+                -Raw -Encoding utf8 | ConvertFrom-Json
+            $backupInfo = Get-Content -LiteralPath (Join-Path $localManifest.backupPath 'mod.info') -Raw -Encoding utf8
+            $expectedProfile = $profile.Replace('mod = \SurvivorCompanion,','mod = \LivingFellows,').
+                Replace("    mod = LivingFellows,`r`n",'')
+            if ($manifest.owner -cne 'LivingFellows.NativeBridge' -or
+                $manifest.wrapperMainClass -cne 'livingfellows/bridge/SCLauncher' -or
+                $manifest.bridgeProtocol -cne '42.22-isocompanion-38' -or
+                (Test-Path -LiteralPath $legacyTarget) -or (Test-Path -LiteralPath $legacyJar) -or
+                $localManifest.modId -cne 'LivingFellows' -or $localManifest.backupModId -cne 'SurvivorCompanion' -or
+                $backupInfo -notmatch '(?m)^id=SurvivorCompanion\r?$' -or
+                [IO.File]::ReadAllText($profilePath) -cne $expectedProfile) {
+                throw 'Legacy upgrade did not publish exactly one current mod identity and preserve its previous generation.'
+            }
+            if ($Variant -eq 'pzo') { Assert-AgentFixture $fixture }
+            if ($Variant -eq 'wrapper') {
+                $before = Get-StandaloneFixtureSnapshot $fixture
+                $failure = ''
+                try {
+                    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+                        -InstallDataRoot $fixture.data -FailAfter 'standalone-generation-remove' | Out-Null
+                } catch { $failure = $_.Exception.Message }
+                if ($failure -notmatch 'failure after standalone-generation-remove' -or
+                    (Get-StandaloneFixtureSnapshot $fixture) -cne $before) {
+                    throw "Cross-generation uninstall rollback failed: $failure"
+                }
+            }
+        }
+        & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+            -InstallDataRoot $fixture.data | Out-Null
+        if ((Test-Path -LiteralPath $fixture.target) -or (Test-Path -LiteralPath $legacyTarget) -or
+            (Test-Path -LiteralPath $nativeManifestPath) -or
+            (Get-FileHash -LiteralPath $fixture.config).Hash -cne $originalConfigHash -or
+            [IO.File]::ReadAllText($profilePath) -match '(?im)^\s*mod\s*=\s*\\?(LivingFellows|SurvivorCompanion),' -or
+            (Get-FileHash -LiteralPath $saveMods).Hash -cne $saveHash) {
+            throw 'Uninstall did not fully retire the managed generations and restore the original launcher.'
+        }
+    }
+}
 
 'pzo-legacy-agent-upgrade' {
     $fixture = New-StandaloneFixture 'pzo-legacy-agent-upgrade'
@@ -266,7 +365,7 @@ switch ($Case) {
             'duplicate-agent' { $config.vmArgs += '-javaagent:LivingFellowsBridge.jar' }
             'nonexact-agent' { $config.vmArgs += '-javaagent:./LivingFellowsBridge.jar' }
             'missing-classpath' { $config.classpath = @($config.classpath | Where-Object { $_ -ne 'LivingFellowsBridge.jar' }) }
-            'duplicate-classpath' { $config.classpath += (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/') }
+            'duplicate-classpath' { $config.classpath += (Join-Path $fixture.bridge 'LivingFellowsBridge.jar').Replace('\', '/') }
         }
         $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
         $before = Get-InstallFixtureSnapshot $fixture
@@ -385,7 +484,7 @@ switch ($Case) {
         -PrebuiltBridgeJar $PrebuiltJar | Out-Null
     $manifestPath = Join-Path $fixture.bridge 'install-manifest.json'
     $gameJar = Join-Path $fixture.game 'LivingFellowsBridge.jar'
-    $legacyJar = (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    $legacyJar = (Join-Path $fixture.bridge 'LivingFellowsBridge.jar').Replace('\', '/')
     $config = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
     $config.classpath = @($config.classpath | ForEach-Object {
         if ($_ -eq 'LivingFellowsBridge.jar') { $legacyJar } else { $_ }
@@ -411,7 +510,7 @@ switch ($Case) {
         $updated.classpath -contains $legacyJar -or
         $updatedManifest.schemaVersion -ne 4 -or
         $updatedManifest.launchMode -ne 'wrapper' -or
-        $updatedManifest.installedMainClass -ne 'survivorcompanion/bridge/SCLauncher' -or
+        $updatedManifest.installedMainClass -ne 'livingfellows/bridge/SCLauncher' -or
         [string]$updatedManifest.launcherAgentArgument -ne '' -or
         (Get-FileHash -LiteralPath $gameJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
             [string]$updatedManifest.launcherJarSha256) {
@@ -525,7 +624,7 @@ switch ($Case) {
     & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
         -InstallDataRoot $fixture.data | Out-Null
     $restored = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
-    $ownedJar = (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    $ownedJar = (Join-Path $fixture.bridge 'LivingFellowsBridge.jar').Replace('\', '/')
     if ($restored.mainClass -ne 'zombie/gameStates/MainScreenState' -or
         @($restored.classpath | Where-Object { ([string]$_).Replace('\', '/') -eq $ownedJar }).Count -ne 0 -or
         $restored.classpath -notcontains 'pzopt/aot/pzopt.jar' -or
@@ -617,8 +716,8 @@ switch ($Case) {
 'manifestless-wrapper' {
     $manifestless = New-Fixture 'manifestless-wrapper'
     $brokenConfig = Get-Content -LiteralPath $manifestless.config -Raw -Encoding utf8 | ConvertFrom-Json
-    $brokenConfig.mainClass = 'survivorcompanion/bridge/SCLauncher'
-    $brokenConfig.classpath += (Join-Path $manifestless.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/')
+    $brokenConfig.mainClass = 'livingfellows/bridge/SCLauncher'
+    $brokenConfig.classpath += (Join-Path $manifestless.bridge 'LivingFellowsBridge.jar').Replace('\', '/')
     $brokenConfig | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestless.config -Encoding utf8
     $before = Get-InstallFixtureSnapshot $manifestless
     $refused = $false
@@ -726,7 +825,7 @@ switch ($Case) {
         $stream = $replacement.Open()
         $writer = New-Object System.IO.StreamWriter($stream, (New-Object System.Text.UTF8Encoding($false)))
         try {
-            $writer.Write("Manifest-Version: 1.0`r`nMain-Class: survivorcompanion.bridge.SCLauncher`r`nSC-Bridge-Protocol: stale`r`nSC-Supported-Game-Version: 42.20`r`nSC-Compiled-Game-Version: 42.20.4`r`n`r`n")
+            $writer.Write("Manifest-Version: 1.0`r`nMain-Class: livingfellows.bridge.SCLauncher`r`nSC-Bridge-Protocol: stale`r`nSC-Supported-Game-Version: 42.20`r`nSC-Compiled-Game-Version: 42.20.4`r`n`r`n")
         } finally { $writer.Dispose(); $stream.Dispose() }
     } finally { $archive.Dispose() }
     $before = Get-InstallFixtureSnapshot $staleFixture
@@ -795,7 +894,7 @@ switch ($Case) {
     $profilePath = Join-Path $fixture.mods 'default.txt'
     $profileBefore = "VERSION = 1,`r`n`r`nmods`r`n{`r`n    mod = KeepThisMod,`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
     $existingProfile = if ($Variant -eq 'steam-check') {
-        $profileBefore.Replace('    mod = KeepThisMod,', "    mod = \SurvivorCompanion,`r`n    mod = KeepThisMod,")
+        $profileBefore.Replace('    mod = KeepThisMod,', "    mod = \LivingFellows,`r`n    mod = KeepThisMod,")
     } else { $profileBefore }
     [System.IO.File]::WriteAllText($profilePath, $existingProfile,
         (New-Object System.Text.UTF8Encoding($false)))
@@ -809,7 +908,7 @@ switch ($Case) {
     $bridgeManifest = Join-Path $fixture.bridge 'install-manifest.json'
     $profileAfterInstall = Get-Content -LiteralPath $profilePath -Raw -Encoding utf8
     if (-not (Test-Path -LiteralPath $gameJar -PathType Leaf) -or
-        $profileAfterInstall -notmatch '(?m)^\s*mod = \\?SurvivorCompanion,') {
+        $profileAfterInstall -notmatch '(?m)^\s*mod = \\?LivingFellows,') {
         throw 'Repair fixture install did not place the bridge and enable the mod.'
     }
     if ($Variant -eq 'steam-check' -and $profileAfterInstall -cne $existingProfile) {
@@ -893,7 +992,7 @@ switch ($Case) {
         configBackups = (Join-Path $data 'config-backups')
     }
     $fixture.config = Join-Path $fixture.game 'ProjectZomboid64.json'
-    $fixture.target = Join-Path $fixture.mods 'SurvivorCompanion'
+    $fixture.target = Join-Path $fixture.mods 'LivingFellows'
     New-Item -ItemType Directory -Path $fixture.mods, $fixture.game, $fixture.backups,
         $fixture.configBackups -Force | Out-Null
     Set-Content -LiteralPath $fixture.config -Value $originalConfig -Encoding utf8
@@ -920,12 +1019,12 @@ switch ($Case) {
         throw 'Installer warned about another copy when there was none.'
     }
     $workshopItem = Join-Path $steamapps 'workshop\content\108600\3805760339'
-    $stagingCopy = Join-Path $zomboid 'Workshop\LivingFellowsCompanion\Contents\mods\SurvivorCompanion'
-    New-Item -ItemType Directory -Path (Join-Path $workshopItem 'mods\SurvivorCompanion'),
+    $stagingCopy = Join-Path $zomboid 'Workshop\LivingFellowsCompanion\Contents\mods\LivingFellows'
+    New-Item -ItemType Directory -Path (Join-Path $workshopItem 'mods\LivingFellows'),
         $stagingCopy -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $workshopItem 'mods\SurvivorCompanion\mod.info') `
-        -Value 'id=SurvivorCompanion' -Encoding utf8
-    Set-Content -LiteralPath (Join-Path $stagingCopy 'mod.info') -Value 'id=SurvivorCompanion' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $workshopItem 'mods\LivingFellows\mod.info') `
+        -Value 'id=LivingFellows' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $stagingCopy 'mod.info') -Value 'id=LivingFellows' -Encoding utf8
     # Steam's record no longer lists the item: a leftover folder the game does
     # not load. The upload staging copy does load first, so it is named.
     $record = Join-Path $steamapps 'workshop\appworkshop_108600.acf'
@@ -967,9 +1066,9 @@ switch ($Case) {
     $pending = $listed.Replace('WorkshopItemsInstalled', 'WorkshopItemDetails')
     [IO.File]::WriteAllText($otherRecord, $pending)
     Assert-WorkshopRefusal $otherItem
-    New-Item -ItemType Directory -Path (Join-Path $otherItem 'mods\SurvivorCompanion') -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $otherItem 'mods\SurvivorCompanion\mod.info') `
-        -Value 'id=SurvivorCompanion' -Encoding utf8
+    New-Item -ItemType Directory -Path (Join-Path $otherItem 'mods\LivingFellows') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $otherItem 'mods\LivingFellows\mod.info') `
+        -Value 'id=LivingFellows' -Encoding utf8
     [IO.File]::WriteAllText($otherRecord, $listed)
     Assert-WorkshopRefusal $otherItem
     $otherBefore = Get-TreeSnapshot @{ workshop = $otherItem; record = $otherRecord }

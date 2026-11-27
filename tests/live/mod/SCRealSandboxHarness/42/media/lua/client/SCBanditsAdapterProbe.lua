@@ -240,7 +240,7 @@ function Probe.step(H, current, check, result, setPhase)
         SCRealSandboxHarnessProbes.SCBanditsCombatAcceptance.step(H, current, check, result, setPhase)
         return
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.config.bandits_lf_role == "reload" then
         if current - H.startedAt < 10000 or not SC.State.active then return end
         local id = H.config.bandits_expected_lf_id

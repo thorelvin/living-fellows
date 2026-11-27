@@ -4,7 +4,7 @@ SCRealSandboxHarnessProbes = SCRealSandboxHarnessProbes or {}
 local Probe = {}
 SCRealSandboxHarnessProbes.SCGuardFollowProbe = Probe
 
-local function SC() return SurvivorCompanion end
+local function SC() return LivingFellows end
 local function call(object, method, ...)
     local value = SC().GameplayUtil.call(object, method, ...)
     return value

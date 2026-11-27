@@ -98,7 +98,7 @@ if SCHomeTripUITestFixture == nil then
         if current ~= "" then lines[#lines + 1] = current end
         return lines
     end
-    SurvivorCompanion = { UI = { text = tr, wrapText = wrap,
+    LivingFellows = { UI = { text = tr, wrapText = wrap,
         layoutMetrics = function() return { fontHeight = 16, infoLineHeight = 21, buttonHeight = 28 } end,
         fitText = function(_, value, width)
             if #value * 8 <= width then return value end
@@ -160,7 +160,7 @@ if SCHomeTripUITestFixture == nil then
     function f.detail(count)
         f.records = {}
         local detail = panel(234, 493)
-        detail.tab, detail.metrics = "groups", SurvivorCompanion.UI.layoutMetrics()
+        detail.tab, detail.metrics = "groups", LivingFellows.UI.layoutMetrics()
         detail.root = { detail = detail, roster = { items = {} } }
         for index = 1, count do
             local record = { id = "member-" .. index, name = "Crew " .. index,
@@ -184,7 +184,7 @@ if SCHomeTripUITestFixture == nil then
         end
         return detail
     end
-    SurvivorCompanion.HomeTrip = {
+    LivingFellows.HomeTrip = {
         roster = function(selection)
             local result = { records = {}, exclusions = {} }
             local selectedCar = selection.vehicle
@@ -207,7 +207,7 @@ if SCHomeTripUITestFixture == nil then
             return result
         end,
         eligibility = function(selection)
-            local result = SurvivorCompanion.HomeTrip.roster(selection)
+            local result = LivingFellows.HomeTrip.roster(selection)
             result.blocker = f.blocker or selection.travelMode == "drive" and f.carBlocker
                 or #result.records > 4 and "squad_too_large"
                 or #result.records == 0 and "roster_empty" or nil
@@ -221,12 +221,12 @@ if SCHomeTripUITestFixture == nil then
         end,
         draft = function(selection)
             f.plans = f.plans + 1
-            local result = SurvivorCompanion.HomeTrip.eligibility(selection)
+            local result = LivingFellows.HomeTrip.eligibility(selection)
             result.distance, result.estimatedHours = 200, 1
             result.requestedTravelMode = selection.travelMode or "road"
             result.routeFallback = f.fallback == true and result.requestedTravelMode == "road"
             result.travelMode = result.routeFallback and "straight" or result.requestedTravelMode
-            result.reviewKey = SurvivorCompanion.HomeTrip.reviewKey(selection)
+            result.reviewKey = LivingFellows.HomeTrip.reviewKey(selection)
             if selection.travelMode == "drive" then
                 result.car, result.homeStop = f.carReview, f.homeStop
             end
@@ -236,11 +236,11 @@ if SCHomeTripUITestFixture == nil then
             f.starts, f.startedIds, f.startedActors = f.starts + 1, {}, {}
             f.startedVehicle, f.startedReview = selection.vehicle, reviewedDraft
             if f.startReject then return false, f.startReject end
-            if reviewedDraft and reviewedDraft.reviewKey ~= SurvivorCompanion.HomeTrip.reviewKey(selection) then
+            if reviewedDraft and reviewedDraft.reviewKey ~= LivingFellows.HomeTrip.reviewKey(selection) then
                 return false, "home_review_changed"
             end
             f.startedTravelMode = reviewedDraft and reviewedDraft.travelMode
-            for _, record in ipairs(SurvivorCompanion.HomeTrip.roster(selection).records) do
+            for _, record in ipairs(LivingFellows.HomeTrip.roster(selection).records) do
                 f.startedIds[#f.startedIds + 1] = record.id
                 f.startedActors[#f.startedActors + 1] = record.actor
             end
@@ -255,7 +255,7 @@ if SCHomeTripUITestFixture == nil then
     return
 end
 
-local f, HomeUI = SCHomeTripUITestFixture, SurvivorCompanion.UIHomeTrip
+local f, HomeUI = SCHomeTripUITestFixture, LivingFellows.UIHomeTrip
 local function control(panel, field, value)
     for _, child in ipairs(panel.childrenInOrder) do
         if child[field] == value then return child end
@@ -464,15 +464,15 @@ do
     local starts = f.starts
     HomeUI.onButton(detail, footer(detail, "send"))
     local departed = f.records["member-2"].actor
-    local oldCommands = SurvivorCompanion.Commands
-    SurvivorCompanion.Commands = { peekExisting = function(actor)
+    local oldCommands = LivingFellows.Commands
+    LivingFellows.Commands = { peekExisting = function(actor)
         return { recruited = true, group = actor == departed and "bravo" or "alpha" }
     end }
     HomeUI.update(detail)
     assert(f.starts == starts and not detail.homeTripSheet.sendPending
         and #detail.homeTripSheet.selection.records == 1,
         "a fresh command group change cancels queued departure even before roster rows refresh")
-    SurvivorCompanion.Commands = oldCommands
+    LivingFellows.Commands = oldCommands
 end
 
 detail = f.detail(1)
@@ -739,7 +739,7 @@ f.view = { debrief = { names = { "Crew 1" }, at = 15.25, endReason = "home" } }
 panel = f.panel(234, 440)
 HomeUI.buildCard(detail, panel, 7)
 assert(string.find(joinedText(panel), "15:15: Crew 1", 1, true) and control(panel, "scHomeAction", "dismiss"))
-SurvivorCompanion.ExpeditionIntegration = { summary = function(report) return report end }
+LivingFellows.ExpeditionIntegration = { summary = function(report) return report end }
 f.view.debrief.integration = { complete = false, members = { { id = "member-1",
     cleanupDone = false, dutyDone = false, restocked = { water = 2 }, shortages = {} } } }
 panel = f.panel(234, 440)
@@ -858,7 +858,7 @@ assert(string.find(joinedText(panel), "Home at 08:00", 1, true),
 getGameTime, f.view = previousGameTime, nil
 
 do
-    local home = SurvivorCompanion.HomeTrip
+    local home = LivingFellows.HomeTrip
     local oldState, oldRequest, oldReason = home.radioState, home.requestRadio, home.reasonText
     local calls, primary, queuedId = {}, f.player, 0
     local reasons = {

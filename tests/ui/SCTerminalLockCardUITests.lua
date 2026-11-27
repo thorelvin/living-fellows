@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real terminal submit/mouse/context paths, including narrow and unequal fonts.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local C,L,S,UI=SC.TerminalLockCard,SC.TerminalLocks,SC.TerminalSystem,SC.TerminalLockCardUI
 local check,before=T.check,T.checks
 local old={core=getCore,manager=getTextManager,specific=getSpecificPlayer,cell=getCell,sandbox=SandboxVars,

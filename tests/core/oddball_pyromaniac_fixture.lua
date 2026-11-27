@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, Factions = {},
+LivingFellows = { GameplayUtil = {}, Registry = {}, Factions = {},
     Diagnostics = {}, FactionRecruitment = {} }
-local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+local SC, U = LivingFellows, LivingFellows.GameplayUtil
 PyroFixture = { now = 1000, squares = {}, worldItems = {}, lines = {},
     fires = 0, stopCalls = 0, recruitment = 0, diagnostics = {} }
 local F = PyroFixture

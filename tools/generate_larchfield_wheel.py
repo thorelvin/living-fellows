@@ -6,7 +6,7 @@ import math
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "SurvivorCompanion/42/media/lua/client/SCTerminalLockWheelData.lua"
+SOURCE = ROOT / "LivingFellows/42/media/lua/client/SCTerminalLockWheelData.lua"
 
 
 def mapping():

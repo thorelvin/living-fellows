@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local G,UI=SC.GridControl,SC.TerminalGridUI
 local check,before=T.check,T.checks
 local bucket,shut={},26

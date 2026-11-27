@@ -48,7 +48,7 @@ occupant, furniture = actor, {}
 expect(not Probe.clearFor(SC, square, actor), "furniture still prevents placement")
 furniture, staticFree = nil, false
 expect(not Probe.clearFor(SC, square, actor), "a static obstruction still prevents placement")
-SurvivorCompanion = { Call = { resolve = function(object, key)
+LivingFellows = { Call = { resolve = function(object, key)
     local method = object and object[key]
     return type(method) == "function", method
 end } }

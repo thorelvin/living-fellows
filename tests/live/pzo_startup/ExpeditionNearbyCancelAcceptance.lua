@@ -3,7 +3,7 @@
 -- parking and destination descriptor stands in for the reported itinerary.
 require "ISUI/ISContextMenu"
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", notes = {}, modals = {} }
 
 local function write(name, value)

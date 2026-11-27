@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, F = SurvivorCompanion, FarmLifecycleFixture
+local SC, F = LivingFellows, FarmLifecycleFixture
 local A, U = SC.AnimalWork, SC.GameplayUtil
 local checks = 0
 local function check(okay, message)

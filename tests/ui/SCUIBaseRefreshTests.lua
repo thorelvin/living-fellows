@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, UI = SurvivorCompanion, SurvivorCompanion.UI
+local SC, UI = LivingFellows, LivingFellows.UI
 local savedCrisis = SC.InfectionCrisis
 local crises = { rows = {}, history = {} }
 SC.InfectionCrisis = { summary = function() return crises end }

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run with the installed ISContextMenu and the existing medical fixture.
 -- These checks inspect the native option tree and dispatch real callbacks.
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local Menu, Context = SC.ContextMenu, SC.UIContext
 local nativeGet, nativeGetNew, nativeRender = ISContextMenu.get, ISContextMenu.getNew, ISContextMenu.render
 assert(Menu and Context, "context helper and world menu must be loaded")

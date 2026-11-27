@@ -11,7 +11,7 @@ local parts = { size = function() return 1 end, get = function()
     return { getHealth = function() return health end }
 end }
 victim.getBodyDamage = function() return { getBodyParts = function() return parts end } end
-SurvivorCompanion = {
+LivingFellows = {
     Call = { resolve = function(value, key)
         local callback = value and value[key]
         return type(callback) == "function", callback

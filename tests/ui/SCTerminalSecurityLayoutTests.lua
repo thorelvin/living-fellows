@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Deliberately proportional font metrics must still paint a fixed ASCII grid.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local oldCore,oldManager=getCore,getTextManager
 local before=T.checks
 local function width(g) return g:match("%p") and 5 or g==" " and 4 or g=="W" and 13 or 8 end

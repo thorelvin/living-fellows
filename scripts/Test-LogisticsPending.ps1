@@ -8,8 +8,8 @@ $ProjectRoot=Split-Path -Parent $PSScriptRoot
 $Core=Join-Path $ProjectRoot 'tests\core'
 $Gameplay=Join-Path $ProjectRoot 'tests\gameplay'
 $Essential=Join-Path $ProjectRoot 'tests\essential'
-$Shared=Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client=Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared=Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client=Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 . (Join-Path $Essential 'Gameplay.ps1')
 $logs=Join-Path $ProjectRoot ('build\test-results\logistics-pending-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $logs -Force | Out-Null

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Terminal, Access, Actions = SC.Terminal, SC.EmmaAccess, SC.TerminalActions
 local square = T.square(100, 100, 0, true)
 local player = T.player(100.5, 100.5, 0)

@@ -43,17 +43,17 @@ function lootPage:getIsVisible() return self.visible end
 function lootPage:bringToTop() end
 getPlayerLoot = function() return lootPage end
 
-SurvivorCompanion = SurvivorCompanion or {}
-SurvivorCompanion.Actor = {
+LivingFellows = LivingFellows or {}
+LivingFellows.Actor = {
     isCompanion = function(actor) return actor == companion end,
 }
-SurvivorCompanion.Registry = {
+LivingFellows.Registry = {
     snapshot = function()
         return { { id = "transfer-companion", actor = companion, recruited = true } }
     end,
 }
-SurvivorCompanion.GameplayUtil = { inventoryContains = contains }
-SurvivorCompanion.InventoryIndex = {
+LivingFellows.GameplayUtil = { inventoryContains = contains }
+LivingFellows.InventoryIndex = {
     touch = function(actor) actor.indexTouched = true end,
 }
 
@@ -79,7 +79,7 @@ function ISTransferAction:transferItem(character, item, source, destination)
 end
 
 local original = ISTransferAction.transferItem
-local bridge = SurvivorCompanion.UIBridge
+local bridge = LivingFellows.UIBridge
 local opened, reason = bridge.openInventory(companion, player)
 assert(opened == true, tostring(reason))
 
@@ -150,14 +150,14 @@ assert(foreignCalls == 2 and companion.primary == nil,
 
 local gifts = {}
 local spokenTopics = {}
-SurvivorCompanion.Dialogue = {
+LivingFellows.Dialogue = {
     say = function(actor, topic)
         assert(actor == companion)
         spokenTopics[#spokenTopics + 1] = topic
         return true
     end,
 }
-SurvivorCompanion.Logistics = {
+LivingFellows.Logistics = {
     noteGift = function(actor, item)
         assert(actor == companion)
         gifts[#gifts + 1] = item
@@ -171,7 +171,7 @@ SurvivorCompanion.Logistics = {
         return true, item
     end,
 }
-SurvivorCompanion.Combat = {
+LivingFellows.Combat = {
     equipExactWeapon = function(actor, item)
         assert(actor == companion)
         return true, item
@@ -254,7 +254,7 @@ assert(#variantMenu.options == 1
 -- An arrival handover freezes only its exact crew, including nested bags and
 -- stale queued drags. Travelling without an arrival lease stays unchanged.
 local frozen = true
-SurvivorCompanion.HomeTrip = {
+LivingFellows.HomeTrip = {
     inventoryFrozen = function(actor) return frozen and actor == companion end,
     inventoryContainerFrozen = function(container)
         for _ = 1, 12 do

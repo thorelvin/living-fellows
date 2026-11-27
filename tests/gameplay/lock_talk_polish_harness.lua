@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Runs the central reader and the real lock input handlers; native effects are
 -- replaced at their existing boundaries, not by a second parser in the test.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local L,S=SC.TerminalLocks,SC.TerminalSystem
 local P,R,W,G,E,C=SC.TerminalLockPhone,SC.TerminalLockRadio,SC.TerminalLockWheel,
     SC.TerminalLockStory,SC.TerminalLockEmma,SC.TerminalLockCase

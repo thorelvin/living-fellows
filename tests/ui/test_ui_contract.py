@@ -7,7 +7,7 @@ import re
 import unittest
 
 PROJECT = Path(__file__).resolve().parents[2]
-PAYLOAD = PROJECT / "SurvivorCompanion"
+PAYLOAD = PROJECT / "LivingFellows"
 TRANSLATE = PAYLOAD / "42/media/lua/shared/Translate"
 
 

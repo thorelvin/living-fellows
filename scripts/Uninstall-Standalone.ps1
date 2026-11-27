@@ -226,7 +226,10 @@ $ModsRoot = Normalize-StandalonePath $ModsRoot
 $InstallDataRoot = Normalize-StandalonePath $InstallDataRoot
 $BridgeRoot = Normalize-StandalonePath (Join-Path $InstallDataRoot 'bridge')
 $BackupRoot = Normalize-StandalonePath (Join-Path $InstallDataRoot 'mod-backups')
-$Target = Normalize-StandalonePath (Join-Path $ModsRoot 'SurvivorCompanion')
+$Target = Normalize-StandalonePath (Get-LivingFellowsInstalledTarget $ModsRoot)
+$knownTargets = @($LivingFellowsModIds | ForEach-Object {
+    Normalize-StandalonePath (Join-Path $ModsRoot $_)
+})
 $modManifest = Join-Path $Target '.sc-install-manifest.json'
 $bridgeManifest = Join-Path $BridgeRoot 'install-manifest.json'
 $modsPrefix = $ModsRoot + '\'
@@ -250,7 +253,7 @@ if (-not (Test-Path -LiteralPath $modManifest -PathType Leaf) -and
     -not (Test-Path -LiteralPath $bridgeManifest -PathType Leaf)) {
     throw 'No owned Living Fellows standalone installation was found.'
 }
-if ((Test-Path -LiteralPath $Target -PathType Container) -and
+if ((Test-Path -LiteralPath $Target) -and
     -not (Test-Path -LiteralPath $modManifest -PathType Leaf)) {
     throw "Standalone target is present without an ownership manifest: $Target"
 }
@@ -261,6 +264,7 @@ $chain = New-Object System.Collections.Generic.List[object]
 $seen = [System.Collections.Generic.HashSet[string]]::new(
     [System.StringComparer]::OrdinalIgnoreCase)
 $generationPath = if (Test-Path -LiteralPath $modManifest -PathType Leaf) { $Target } else { '' }
+$expectedGenerationId = Split-Path -Leaf $Target
 while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
     $generationPath = Normalize-StandalonePath $generationPath
     if (-not $seen.Add($generationPath)) {
@@ -275,8 +279,13 @@ while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
     $generationManifestPath = Join-Path $generationPath '.sc-install-manifest.json'
     $manifest = Read-OwnedStandaloneManifest $generationPath
     Assert-StandaloneGeneration $generationPath $manifest $BridgeRoot -AllowChanges:$Force
+    $generationId = Get-LivingFellowsGenerationId $generationPath $manifest
+    if ($expectedGenerationId -and $generationId -cne $expectedGenerationId) {
+        throw "Managed standalone generation differs from its recorded identity: $generationPath"
+    }
     $chain.Add([ordered]@{
         path = $generationPath
+        id = $generationId
         manifest = $manifest
         manifestHash = Get-StandaloneHash $generationManifestPath
     })
@@ -289,11 +298,11 @@ while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
     $nextLeaf = Split-Path -Leaf $next
     if (-not (Test-StandalonePathWithin $next $BackupRoot) -or
         -not (Test-StandaloneSamePath (Split-Path -Parent $next) $BackupRoot) -or
-        -not $nextLeaf.StartsWith('SurvivorCompanion-managed-backup-',
-            [System.StringComparison]::OrdinalIgnoreCase)) {
+        -not (Test-LivingFellowsBackupName $nextLeaf)) {
         throw "Managed standalone generation has an unsafe backup path: $next"
     }
     $generationPath = $next
+    $expectedGenerationId = [string]$manifest.backupModId
 }
 
 $nativeState = $null
@@ -335,11 +344,13 @@ $committed = $false
 $removedVersions = 0
 try {
     New-Item -ItemType Directory -Path $snapshotRoot -Force | Out-Null
-    $targetSnapshot = New-StandaloneDirectorySnapshot 'target' $Target $snapshotRoot
+    $targetSnapshots = @($knownTargets | ForEach-Object {
+        New-StandaloneDirectorySnapshot (Split-Path -Leaf $_) $_ $snapshotRoot
+    })
     $backupSnapshot = New-StandaloneDirectorySnapshot 'mod-backups' $BackupRoot $snapshotRoot
     $bridgeSnapshot = New-StandaloneDirectorySnapshot 'bridge' $BridgeRoot $snapshotRoot
     $configPath = Normalize-StandalonePath ([string]$nativeState.gameConfig)
-    if ((Test-StandalonePathWithin $configPath $Target) -or
+    if (@($knownTargets | Where-Object { Test-StandalonePathWithin $configPath $_ }).Count -gt 0 -or
         (Test-StandalonePathWithin $configPath $BackupRoot) -or
         (Test-StandalonePathWithin $configPath $BridgeRoot)) {
         throw "Native launcher configuration overlaps an owned directory: $configPath"
@@ -381,12 +392,12 @@ try {
             Out-Null
         $removedVersions++
         if ($index + 1 -lt $chain.Count) {
-            $currentManifest = Join-Path $Target '.sc-install-manifest.json'
+            $currentManifest = Join-Path (Join-Path $ModsRoot $chain[$index + 1].id) '.sc-install-manifest.json'
             if ((Get-StandaloneHash $currentManifest) -ne
                 [string]$chain[$index + 1].manifestHash) {
                 throw "Standalone generation transition verification failed after index $index."
             }
-        } elseif (Test-Path -LiteralPath $Target) {
+        } elseif (@($knownTargets | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0) {
             throw 'Final standalone generation remained after its owned removal.'
         }
         Invoke-StandaloneFault 'standalone-generation-remove'
@@ -398,8 +409,9 @@ try {
     }
     Invoke-StandaloneFault 'standalone-native-rollback'
 
-    if (Test-Path -LiteralPath $Target) {
-        throw "Standalone uninstall stopped at a live target: $Target"
+    $remainingTargets = @($knownTargets | Where-Object { Test-Path -LiteralPath $_ })
+    if ($remainingTargets.Count -gt 0) {
+        throw "Standalone uninstall stopped at a live target: $($remainingTargets[0])"
     }
     foreach ($generation in $chain) {
         $path = Normalize-StandalonePath ([string]$generation.path)
@@ -430,8 +442,10 @@ catch {
     $trigger = $_
     $rollbackFailures = @()
     if ($mutationStarted -and $snapshotReady) {
-        try { Restore-StandaloneDirectorySnapshot $targetSnapshot }
-        catch { $rollbackFailures += "mod target restore: $($_.Exception.Message)" }
+        foreach ($targetSnapshot in $targetSnapshots) {
+            try { Restore-StandaloneDirectorySnapshot $targetSnapshot }
+            catch { $rollbackFailures += "mod target restore: $($_.Exception.Message)" }
+        }
         try { Restore-StandaloneDirectorySnapshot $backupSnapshot }
         catch { $rollbackFailures += "backup chain restore: $($_.Exception.Message)" }
         try { Restore-StandaloneDirectorySnapshot $bridgeSnapshot }
@@ -459,7 +473,7 @@ catch {
         }
         try {
             Get-ChildItem -LiteralPath $ModsRoot -Force -Directory -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -like '.SurvivorCompanion.uninstall.*' } |
+                Where-Object { $_.Name -like '.LivingFellows.uninstall.*' } |
                 ForEach-Object {
                     if (-not $_.FullName.StartsWith($modsPrefix,
                             [System.StringComparison]::OrdinalIgnoreCase)) {

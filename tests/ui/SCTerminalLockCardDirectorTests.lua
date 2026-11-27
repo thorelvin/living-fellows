@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Observable world-ledger, tour and old-save behavior with the tenth lock.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local L=SC.TerminalLocks
 local check,before=T.check,T.checks
 local oldMod,oldRecruitable=ModData,SC.TerminalLockRival.hasRecruitable

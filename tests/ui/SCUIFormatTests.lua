@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local Format = SurvivorCompanion and SurvivorCompanion.UIFormat
+local Format = LivingFellows and LivingFellows.UIFormat
 assert(Format, "SCUIFormat must be loaded before this test")
 
 local roster = {

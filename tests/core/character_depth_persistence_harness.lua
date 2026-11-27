@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 
 local function makeFluid(initial)
     local fluid = { values = {} }

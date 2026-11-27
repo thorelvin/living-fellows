@@ -62,7 +62,7 @@ local actor = { getBodyDamage = function() return { getBodyParts = function()
     return { size = function() return 1 end, get = function() return bodyPart end }
 end } end }
 local shooter = {}
-SurvivorCompanion = { Call = { resolve = function(value, key)
+LivingFellows = { Call = { resolve = function(value, key)
     local method = value and value[key]
     return type(method) == "function", method
 end }, BanditsAdapter = { status = function() return { bulletHits = 0 } end } }

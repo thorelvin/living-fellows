@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local E, W, F = SC.ExpeditionPrototype, SC.ExpeditionWood, SC.ExpeditionForests
 local metadataPreview = F.preview
 local metadataNearCar = F.nearCar

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Service = SC.TaxiService
 local function check(value, message)
     if not value then error("taxi service: " .. message) end

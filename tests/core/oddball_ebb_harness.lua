@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local hour, visible, hiddenCalls = 5 * 24 + 19, true, 0
 local function inventory() return { items = {} } end
 local merchant = { id = "ebb", x = 0, y = 0, z = 0, inv = inventory() }

@@ -14,8 +14,8 @@ $Core = Join-Path $ProjectRoot 'tests\core'
 $Gameplay = Join-Path $ProjectRoot 'tests\gameplay'
 $UI = Join-Path $ProjectRoot 'tests\ui'
 $Essential = Join-Path $ProjectRoot 'tests\essential'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 # Use exactly the production terminal load order exercised by Interface.
 $InterfaceGroups = @(. (Join-Path $Essential 'Interface.ps1'))
 $Sources = @($interfaceTerminalFiles)

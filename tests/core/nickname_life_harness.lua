@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run after SCNames.lua and SCNicknameLife.lua in the game's Kahlua VM.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local hour = 500
 local millis = 1000
 local records, actors, spoken = {}, {}, {}

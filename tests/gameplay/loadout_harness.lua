@@ -1,12 +1,12 @@
 -- SPDX-License-Identifier: MIT
 -- Subject scenarios use the same native-shaped fixture as the essential checks.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject
 local makeSquare, squares, movementLog = f.makeSquare, f.squares, f.movementLog
-function SurvivorCompanion.__testManualFilterMasks()
-    local sc = SurvivorCompanion
+function LivingFellows.__testManualFilterMasks()
+    local sc = LivingFellows
     local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }
     local originalNative = sc.NativeActions
     local tagCalls, residents = 0, {}
@@ -150,11 +150,11 @@ function SurvivorCompanion.__testManualFilterMasks()
     end
     sc.NativeActions = originalNative
 end
-SurvivorCompanion.__testManualFilterMasks()
-SurvivorCompanion.__testManualFilterMasks = nil
+LivingFellows.__testManualFilterMasks()
+LivingFellows.__testManualFilterMasks = nil
 
 local function testSparePadFit()
-    local sc = SurvivorCompanion
+    local sc = LivingFellows
     local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }
     local previousNative, previousManager = sc.NativeActions, getScriptManager
     local previousModuleType, previousInstance, previousCopy = moduleDotType, instanceItem, copyClothingItem
@@ -279,7 +279,7 @@ end
 testSparePadFit()
 
 local function testClothingTraceGuard()
-    local sc = SurvivorCompanion
+    local sc = LivingFellows
     local oldTrace = rawget(sc.Config.values, "logisticsClothingTrace")
     local oldDiagnostics, score = sc.Diagnostics, sc.Logistics.clothingScore
     for _, mode in ipairs({ "off", "on", "reporter_unavailable" }) do
@@ -332,8 +332,8 @@ local function testClothingTraceGuard()
 end
 testClothingTraceGuard()
 
-function SurvivorCompanion.__testPreparationPacking()
-    local sc, originalClock = SurvivorCompanion, f.clock
+function LivingFellows.__testPreparationPacking()
+    local sc, originalClock = LivingFellows, f.clock
     local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }
     local residents = {}
     local function resident(label, contents)
@@ -903,7 +903,7 @@ function SurvivorCompanion.__testPreparationPacking()
     end
     f.clock = originalClock
 end
-SurvivorCompanion.__testPreparationPacking()
-SurvivorCompanion.__testPreparationPacking = nil
+LivingFellows.__testPreparationPacking()
+LivingFellows.__testPreparationPacking = nil
 
 print("LOADOUT_PASS checks=" .. tostring(f.checks()))

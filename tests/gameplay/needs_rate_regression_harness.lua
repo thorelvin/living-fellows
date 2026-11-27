@@ -12,8 +12,8 @@ function getGameTime()
     return { getWorldAgeHours = function() return hour end }
 end
 
-SurvivorCompanion = SurvivorCompanion or {}
-SurvivorCompanion.GameplayUtil = {
+LivingFellows = LivingFellows or {}
+LivingFellows.GameplayUtil = {
     actorState = function(_, runtime) return runtime end,
     characterStatValue = function(actor, name) return actor.values[name] end,
     clamp = function(value, low, high) return math.max(low, math.min(high, value)) end,
@@ -37,7 +37,7 @@ local stats = {
 function actor:getStats() return stats end
 function actor:isAsleep() return false end
 
-local needs = SurvivorCompanion.Needs
+local needs = LivingFellows.Needs
 local runtime = {}
 check(needs.updateRates(actor, runtime, now), "first needs sample failed")
 hour = hour + 4

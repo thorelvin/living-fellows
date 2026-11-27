@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local now = 500000
 local player = { id = "player", x = 0, y = 0, z = 0 }
 local forearm = { bittenFlag = false }

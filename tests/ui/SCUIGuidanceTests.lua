@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- What the player sees: the launcher line and the Status card report a nudge
 -- as shown only when they actually draw it.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(value, message) checks = checks + 1; assert(value, message) end
 UIFont = { Small = "small" }

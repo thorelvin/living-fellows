@@ -2,24 +2,24 @@
 -- Private live integration harness. This file is installed only in a disposable
 -- cachedir created by Invoke-LiveSandboxTests.ps1; it is never packaged with the mod.
 
-local CONFIG_FILE = "SurvivorCompanionHarness/config.ini"
-local EVENTS_FILE = "SurvivorCompanionHarness/events.log"
-local SUMMARY_FILE = "SurvivorCompanionHarness/summary.txt"
-local SPLIT_READY_FILE = "SurvivorCompanionHarness/split-screen-ready.txt"
-local SPLIT_CAPTURED_FILE = "SurvivorCompanionHarness/split-screen-captured.txt"
-local SPLIT_RESTORED_READY_FILE = "SurvivorCompanionHarness/split-restored-ready.txt"
-local SPLIT_RESTORED_CAPTURED_FILE = "SurvivorCompanionHarness/split-restored-captured.txt"
-local SPLIT_CRASH_READY_FILE = "SurvivorCompanionHarness/split-crash-ready.txt"
-local FACTION_MAP_READY_FILE = "SurvivorCompanionHarness/faction-map-ready.txt"
-local FACTION_MAP_VISIBLE_FILE = "SurvivorCompanionHarness/faction-map-visible.txt"
-local FACTION_MAP_CAPTURED_FILE = "SurvivorCompanionHarness/faction-map-captured.txt"
-local PERFORMANCE_ACTIVE_FILE = "SurvivorCompanionHarness/performance-sampling-active.txt"
-local PERFORMANCE_FRAMES_FILE = "SurvivorCompanionHarness/performance-frames.txt"
-local PERFORMANCE_NATIVE_FILE = "SurvivorCompanionHarness/performance-native.txt"
-local PERFORMANCE_SUMMARY_FILE = "SurvivorCompanionHarness/performance-summary.txt"
-local PERFORMANCE_LF_FILE = "SurvivorCompanionHarness/performance-lf.txt"
-local VEHICLE_PASSENGER_READY_FILE = "SurvivorCompanionHarness/vehicle-passenger-ready.txt"
-local VEHICLE_PASSENGER_CAPTURED_FILE = "SurvivorCompanionHarness/vehicle-passenger-captured.txt"
+local CONFIG_FILE = "LivingFellowsHarness/config.ini"
+local EVENTS_FILE = "LivingFellowsHarness/events.log"
+local SUMMARY_FILE = "LivingFellowsHarness/summary.txt"
+local SPLIT_READY_FILE = "LivingFellowsHarness/split-screen-ready.txt"
+local SPLIT_CAPTURED_FILE = "LivingFellowsHarness/split-screen-captured.txt"
+local SPLIT_RESTORED_READY_FILE = "LivingFellowsHarness/split-restored-ready.txt"
+local SPLIT_RESTORED_CAPTURED_FILE = "LivingFellowsHarness/split-restored-captured.txt"
+local SPLIT_CRASH_READY_FILE = "LivingFellowsHarness/split-crash-ready.txt"
+local FACTION_MAP_READY_FILE = "LivingFellowsHarness/faction-map-ready.txt"
+local FACTION_MAP_VISIBLE_FILE = "LivingFellowsHarness/faction-map-visible.txt"
+local FACTION_MAP_CAPTURED_FILE = "LivingFellowsHarness/faction-map-captured.txt"
+local PERFORMANCE_ACTIVE_FILE = "LivingFellowsHarness/performance-sampling-active.txt"
+local PERFORMANCE_FRAMES_FILE = "LivingFellowsHarness/performance-frames.txt"
+local PERFORMANCE_NATIVE_FILE = "LivingFellowsHarness/performance-native.txt"
+local PERFORMANCE_SUMMARY_FILE = "LivingFellowsHarness/performance-summary.txt"
+local PERFORMANCE_LF_FILE = "LivingFellowsHarness/performance-lf.txt"
+local VEHICLE_PASSENGER_READY_FILE = "LivingFellowsHarness/vehicle-passenger-ready.txt"
+local VEHICLE_PASSENGER_CAPTURED_FILE = "LivingFellowsHarness/vehicle-passenger-captured.txt"
 
 local Harness = {
     config = {},
@@ -223,7 +223,7 @@ function Harness.performanceFrameTick()
 end
 
 function Harness.beginPerformanceSample(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     auditCompanionOutfits("performance_remote_ready", SC.Registry.records())
     local counters, failure = nativePerformanceCounters()
     if counters == nil then
@@ -308,7 +308,7 @@ function Harness.measurePerformance(current)
         setPhase("finish", current)
         return
     end
-    local root = SurvivorCompanion.UI and SurvivorCompanion.UI.instance
+    local root = LivingFellows.UI and LivingFellows.UI.instance
     local refreshAt = root and tonumber(root.lastScheduledRefreshAt) or nil
     if refreshAt ~= nil and refreshAt ~= sample.uiRefreshLast then
         if sample.uiRefreshLast ~= nil then
@@ -322,7 +322,7 @@ function Harness.measurePerformance(current)
     if sample.encounter then Harness.tickPerformanceEncounter(current) end
     if not sample.remote and current >= sample.nextActionMotionAt then
         sample.nextActionMotionAt = current + 250
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         for _, record in ipairs(SC.Registry.records()) do
             local actor = record.actor
             local nav = actor and SC.Navigation._stateForTests(actor)
@@ -360,12 +360,12 @@ function Harness.measurePerformance(current)
             setPhase("finish", current)
             return
         end
-        local lf = SurvivorCompanion.Performance.snapshot()
+        local lf = LivingFellows.Performance.snapshot()
         sample.nativeRows[#sample.nativeRows + 1] = table.concat({
             tostring(current - sample.startedAt),
             tostring(counters[1]), tostring(counters[2]), tostring(counters[3]),
             tostring(counters[4]), tostring(counters[5]),
-            tostring(#SurvivorCompanion.Registry.records()),
+            tostring(#LivingFellows.Registry.records()),
             tostring(lf.frames), tostring(lf.overBudgetFrames),
         }, ",")
         sample.nativeSamples = sample.nativeSamples + 1
@@ -382,7 +382,7 @@ function Harness.measurePerformance(current)
             "slow_action_approach_observed", table.concat(kinds, ","))
     end
     Events.OnRenderTick.Remove(Harness.performanceFrameTick)
-    local lfEnd = SurvivorCompanion.Performance.snapshot()
+    local lfEnd = LivingFellows.Performance.snapshot()
     local intervals = sample.intervals
     local over50 = 0
     for _, interval in ipairs(intervals) do
@@ -397,8 +397,8 @@ function Harness.measurePerformance(current)
         "duration_ms=" .. tostring(current - sample.startedAt),
         "companion_population_start=" .. tostring(sample.population),
         "companion_living_start=" .. tostring(sample.livingPopulation),
-        "companion_population_end=" .. tostring(#SurvivorCompanion.Registry.records()),
-        "companion_living_end=" .. tostring(#SurvivorCompanion.Registry.living()),
+        "companion_population_end=" .. tostring(#LivingFellows.Registry.records()),
+        "companion_living_end=" .. tostring(#LivingFellows.Registry.living()),
         "render_frames=" .. tostring(#intervals),
         "render_p50_ms=" .. string.format("%.4f", percentile(intervals, 0.50)),
         "render_p95_ms=" .. string.format("%.4f", percentile(intervals, 0.95)),
@@ -417,8 +417,8 @@ function Harness.measurePerformance(current)
             and Harness.performanceRemoteReadyAt - Harness.performanceLeaderQueuedAt),
         "load_pending_coop_peak=" .. tostring(Harness.performancePendingPeak),
         "ui_open_start=" .. tostring(sample.uiOpenStart),
-        "ui_open_end=" .. tostring(SurvivorCompanion.UI
-            and SurvivorCompanion.UI.isOpen()),
+        "ui_open_end=" .. tostring(LivingFellows.UI
+            and LivingFellows.UI.isOpen()),
         "ui_refresh_completions=" .. tostring(sample.uiRefreshCompletions),
         "ui_refresh_minimum_gap_ms=" .. tostring(sample.uiRefreshMinimumGapMs),
         "ui_refresh_maximum_gap_ms=" .. tostring(sample.uiRefreshMaximumGapMs),
@@ -429,7 +429,7 @@ function Harness.measurePerformance(current)
         "clock_error=" .. tostring(sample.clockError or "none"),
     }
     if sample.route then
-        local endX, endY = SurvivorCompanion.GameplayUtil.position(Harness.leader)
+        local endX, endY = LivingFellows.GameplayUtil.position(Harness.leader)
         local map = getWorld():getCell():getChunkMap(1)
         local mapMinX = map and map:getWorldXMinTiles()
         local distance = endX and endY and sample.routeStartX
@@ -471,7 +471,7 @@ function Harness.measurePerformance(current)
     local written = writeSignal(PERFORMANCE_FRAMES_FILE, sample.frameRows)
         and writeSignal(PERFORMANCE_NATIVE_FILE, sample.nativeRows)
         and writeSignal(PERFORMANCE_SUMMARY_FILE, rows)
-    local lfReport = SurvivorCompanion.Performance.summary()
+    local lfReport = LivingFellows.Performance.summary()
     local lfRows = {}
     for line in string.gmatch(lfReport or "", "[^\n]+") do
         lfRows[#lfRows + 1] = line
@@ -484,16 +484,16 @@ function Harness.measurePerformance(current)
         "frames=" .. tostring(#intervals) .. " native=" .. tostring(sample.nativeSamples)
             .. " clock_error=" .. tostring(sample.clockError))
     check("performance_end_population",
-        #SurvivorCompanion.Registry.records() == sample.population,
+        #LivingFellows.Registry.records() == sample.population,
         "start=" .. tostring(sample.population)
-            .. " end=" .. tostring(#SurvivorCompanion.Registry.records()))
+            .. " end=" .. tostring(#LivingFellows.Registry.records()))
     check("performance_end_living_population",
-        #SurvivorCompanion.Registry.living() == sample.livingPopulation,
+        #LivingFellows.Registry.living() == sample.livingPopulation,
         "start=" .. tostring(sample.livingPopulation)
-            .. " end=" .. tostring(#SurvivorCompanion.Registry.living()))
+            .. " end=" .. tostring(#LivingFellows.Registry.living()))
     check("performance_end_slot", (getSpecificPlayer(1) ~= nil) == sample.remote,
         "remote=" .. tostring(sample.remote) .. " slot1=" .. tostring(getSpecificPlayer(1)))
-    if sample.uiOpenStart and SurvivorCompanion.UI.isOpen() then
+    if sample.uiOpenStart and LivingFellows.UI.isOpen() then
         check("performance_ui_refresh_cadence", sample.uiRefreshCompletions >= 30
             and sample.uiRefreshCompletions <= 65
             and sample.uiRefreshMinimumGapMs >= 500
@@ -525,7 +525,7 @@ end
 -- decision scheduler from racing deterministic movement/combat probes. The
 -- action supervisor is the same ownership boundary used by real gameplay.
 local function beginHarnessControl(actor, action, timeoutMs)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local supervisor = SC and SC.ActionSupervisor
     if type(supervisor) ~= "table" or type(supervisor.begin) ~= "function" then
         return nil, "action supervisor unavailable"
@@ -548,7 +548,7 @@ end
 
 local function endHarnessControl(token, reason)
     if type(token) ~= "table" then return end
-    local supervisor = SurvivorCompanion and SurvivorCompanion.ActionSupervisor
+    local supervisor = LivingFellows and LivingFellows.ActionSupervisor
     if type(supervisor) ~= "table" then return end
     local completed = false
     if type(supervisor.complete) == "function" then
@@ -567,7 +567,7 @@ local function getPlayerSafe()
 end
 
 local function position(value)
-    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows and LivingFellows.GameplayUtil
     if utility and type(utility.position) == "function" then
         return utility.position(value)
     end
@@ -575,7 +575,7 @@ local function position(value)
 end
 
 local function distance(a, b)
-    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows and LivingFellows.GameplayUtil
     if utility and type(utility.distance) == "function" then
         return utility.distance(a, b)
     end
@@ -583,7 +583,7 @@ local function distance(a, b)
 end
 
 local function safeSpawnSquare(player)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC and SC.GameplayUtil
     if not utility then return nil end
     local px, py, pz = position(player)
@@ -614,7 +614,7 @@ end
 -- save. Reserve distinct loaded squares so the setup itself cannot create the
 -- overlapping-companion condition that the ordinary AI is meant to avoid.
 local function performanceSpawnSquare()
-    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows and LivingFellows.GameplayUtil
     local px, py, pz = position(Harness.player)
     if utility == nil or px == nil or type(getCell) ~= "function" then return nil end
     local cell = getCell()
@@ -647,7 +647,7 @@ local function performanceSpawnSquare()
 end
 
 function Harness.preparePerformancePopulation(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local target = tonumber(Harness.config.performance_population_target) or 4
     if target <= 4 then return true end
     if Harness.performancePopulationConfigured ~= true then
@@ -722,7 +722,7 @@ function Harness.preparePerformancePopulation(current)
 end
 
 local function beginNativeSpawn(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local square = safeSpawnSquare(Harness.player)
     if square == nil then
         local living = SC.Registry.living()
@@ -761,7 +761,7 @@ local function beginNativeSpawn(current)
 end
 
 local function routeProbe(actor, player)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local square = utility.squareOf(actor)
     local x, y, z = position(square)
@@ -804,13 +804,13 @@ local function routeProbe(actor, player)
 end
 
 local function roomOf(square)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local room, ok = utility.call(square, "getRoom")
     return ok and room or nil
 end
 
 local function isWalkableRoomThreshold(source, destination)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local window, windowOk = utility.call(source, "isWindowTo", destination)
     if windowOk and window == true then return false end
     local hoppable, hopOk = utility.call(source, "isHoppableTo", destination)
@@ -821,7 +821,7 @@ local function isWalkableRoomThreshold(source, destination)
 end
 
 local function findStraightNativePathTarget(actor)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local source = utility.squareOf(actor)
     local sx, sy, sz = position(source)
@@ -859,7 +859,7 @@ end
 -- without losing a step. Find real foliage in the loaded world and make the
 -- engine answer for itself.
 local function findLiveFoliageSquare(actor)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local ax, ay, az = position(actor)
     if ax == nil or type(getCell) ~= "function" then return nil end
     local cell = getCell()
@@ -889,7 +889,7 @@ local function findLiveFoliageSquare(actor)
 end
 
 local function probeFoliageParity()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local actor = Harness.actor
     local openFactor = select(1, utility.call(actor, "getCompanionTerrainSpeedFactor"))
@@ -933,7 +933,7 @@ local function probeFoliageParity()
 end
 
 local function finishNativeLocomotionProbe(current, timedOut)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local actor = Harness.actor
     local ax, ay = position(actor)
     local displacement = ax ~= nil and math.sqrt(
@@ -983,7 +983,7 @@ local function finishNativeLocomotionProbe(current, timedOut)
 end
 
 local function beginNativeLocomotionProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local id = SC.Registry.idOf(Harness.actor)
     if id then pcall(SC.Commands.issue, id, "stay", nil, Harness.player) end
     SC.Navigation.reset(Harness.actor)
@@ -1040,7 +1040,7 @@ local function beginNativeLocomotionProbe(current)
 end
 
 local function probeNativeLocomotion(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local actor = Harness.actor
     local group = select(1, utility.call(actor, "getCompanionActionGroupName"))
@@ -1089,7 +1089,7 @@ local function probeNativeLocomotion(current)
 end
 
 local function findClearManualDirection(actor, clearance)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local x, y, z = position(actor)
     if x == nil then return nil end
     for _, direction in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
@@ -1105,7 +1105,7 @@ end
 -- proof, and all mutations are confined to the disposable cloned save.
 function Harness.spawnPerformanceZombie()
     if type(addZombiesInOutfit) ~= "function" then return false, "native zombie spawn unavailable" end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local px, py, pz = position(Harness.player)
     if px == nil then return false, "player position unavailable" end
     local cell = getCell()
@@ -1222,7 +1222,7 @@ function Harness.cleanupPerformanceEncounter()
 end
 
 function Harness.findCombatArena(player)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local px, py, pz = position(player)
     if not px or type(getCell) ~= "function" then return nil end
     local cell = getCell()
@@ -1260,7 +1260,7 @@ function Harness.findCombatArena(player)
 end
 
 function Harness.placeCombatActor(actor, point)
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     if not actor or not point or SC.Actor.stop(actor) ~= true then return false, "actor stop rejected" end
     local placed, reason = pcall(function()
         actor:setX(point.x); actor:setY(point.y); actor:setZ(point.z)
@@ -1291,18 +1291,18 @@ end
 local function refreshManualProbe(current, input)
     if not input or input.failure or current < input.nextAt then return end
     input.nextAt = current + 100
-    local accepted, reason = SurvivorCompanion.Actor.setMovement(
+    local accepted, reason = LivingFellows.Actor.setMovement(
         Harness.actor, input.mode, input.intent)
     if accepted == true then
         input.refreshes = input.refreshes + 1
     else
         input.failure = tostring(reason or "manual_input_rejected")
-        pcall(SurvivorCompanion.Actor.stop, Harness.actor)
+        pcall(LivingFellows.Actor.stop, Harness.actor)
     end
 end
 
 local function beginBackwardStrafeProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     pcall(SC.Actor.stop, Harness.actor)
     local moveX, moveY = findClearManualDirection(Harness.actor, 3)
     if moveX == nil then
@@ -1359,7 +1359,7 @@ local function beginBackwardStrafeProbe(current)
 end
 
 local function probeBackwardStrafe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local actor = Harness.actor
     if current - Harness.phaseStartedAt < 1400 then
@@ -1411,7 +1411,7 @@ local function probeBackwardStrafe(current)
 end
 
 local function findClearEscapeDirection(actor, threat)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local x, y, z = position(actor)
     local tx, ty = position(threat)
     if x == nil or tx == nil then return nil end
@@ -1429,7 +1429,7 @@ local function findClearEscapeDirection(actor, threat)
 end
 
 local function beginAimedEscapeProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     pcall(SC.Actor.stop, Harness.actor)
     local moveX, moveY = findClearEscapeDirection(Harness.actor, Harness.player)
     if moveX == nil then
@@ -1477,7 +1477,7 @@ local function beginAimedEscapeProbe(current)
 end
 
 local function probeAimedEscape(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     -- A 180-degree aim turn can occupy the first second before the native
     -- forward locomotion clip takes over. Observe the completed turn.
@@ -1524,7 +1524,7 @@ local function probeAimedEscape(current)
 end
 
 local function findRoomEntryPair(player)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local px, py, pz = position(player)
     if px == nil or type(getCell) ~= "function" then return nil, nil end
@@ -1580,7 +1580,7 @@ local function findRoomEntryPair(player)
 end
 
 local function beginRoomProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local source, destination = findRoomEntryPair(Harness.player)
     if source == nil then
         skip("real_room_entry_sweep", "no loaded room threshold within 12 squares")
@@ -1617,7 +1617,7 @@ local function beginRoomProbe(current)
 end
 
 local function runRoomProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local accepted, status = SC.Navigation.request(Harness.actor, Harness.roomDestination, "walk", {
         action = "ordered_move",
         snapshot = Harness.roomSnapshot,
@@ -1680,13 +1680,13 @@ end
 -- actual door plane in both directions. Setup and travel use production
 -- navigation only: a detour reaching the far room cannot satisfy this test.
 function Harness.doorLandingFree(square)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     return square ~= nil and utility.isSquareFree(square)
         and utility.movingBlocker(square, Harness.actor) == nil
 end
 
 function Harness.doorLanding(source, dx, dy)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local sx, sy, sz = position(source)
     -- The local player may occupy the tile directly behind the approach. A
     -- natural side landing is equally valid, provided its two cardinal edges
@@ -1710,7 +1710,7 @@ end
 function Harness.doorTrace(probe, current, status)
     if current < (probe.nextTraceAt or 0) then return end
     probe.nextTraceAt = current + 1000
-    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, utility = LivingFellows, LivingFellows.GameplayUtil
     local function point(value)
         local x, y, z = position(value)
         return x and string.format("%.3f,%.3f,%.1f", x, y, z or 0) or "none"
@@ -1764,7 +1764,7 @@ end
 
 function Harness.doorCrossingCandidate(source, destination)
     if source == nil or destination == nil then return nil end
-    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, utility = LivingFellows, LivingFellows.GameplayUtil
     local door, kind = SC.Topology.barrierBetween(source, destination)
     if door == nil or kind ~= "door" then return nil end
     local opened = utility.call(door, "IsOpen") == true
@@ -1785,7 +1785,7 @@ function Harness.doorCrossingCandidate(source, destination)
 end
 
 function Harness.beginDoorCrossing(current)
-    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, utility = LivingFellows, LivingFellows.GameplayUtil
     local probe = Harness.doorCrossingCandidate(Harness.roomSource, Harness.roomDestination)
     if not probe then
         local ax, ay, az = position(Harness.actor)
@@ -1832,7 +1832,7 @@ function Harness.beginDoorCrossing(current)
 end
 
 function Harness.finishDoorCrossing(status, detail, current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     SC.Navigation.reset(Harness.actor)
     pcall(SC.Actor.stop, Harness.actor)
     endHarnessControl(Harness.doorCrossing and Harness.doorCrossing.token, "door_crossing_" .. status)
@@ -1842,7 +1842,7 @@ function Harness.finishDoorCrossing(status, detail, current)
 end
 
 function Harness.checkDoorState(probe, current)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local function finite(value)
         return type(value) == "number" and value == value and math.abs(value) < math.huge
     end
@@ -1883,7 +1883,7 @@ function Harness.checkDoorState(probe, current)
 end
 
 function Harness.runDoorCrossing(current)
-    local SC, probe = SurvivorCompanion, Harness.doorCrossing
+    local SC, probe = LivingFellows, Harness.doorCrossing
     local healthy, healthReason = Harness.checkDoorState(probe, current)
     if not healthy then
         Harness.finishDoorCrossing("FAIL", "stage=" .. probe.stage .. "; " .. healthReason, current)
@@ -1943,7 +1943,7 @@ end
 -- Change the work target while the native actor is physically between floors:
 -- the crossing must retain its path and reach the upper landing without a snap.
 function Harness.beginStairCrossing(current)
-    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, utility = LivingFellows, LivingFellows.GameplayUtil
     local ax, ay, az = position(Harness.actor)
     if ax == nil then
         result("FAIL", "real_stair_crossing_target_change", "actor position unavailable")
@@ -2017,7 +2017,7 @@ function Harness.beginStairCrossing(current)
 end
 
 function Harness.finishStairCrossing(status, detail, current)
-    local SC, probe = SurvivorCompanion, Harness.stairCrossing
+    local SC, probe = LivingFellows, Harness.stairCrossing
     SC.Navigation.reset(Harness.actor)
     pcall(SC.Actor.stop, Harness.actor)
     endHarnessControl(probe and probe.token, "stair_crossing_" .. status)
@@ -2027,7 +2027,7 @@ function Harness.finishStairCrossing(status, detail, current)
 end
 
 function Harness.runStairCrossing(current)
-    local SC, probe = SurvivorCompanion, Harness.stairCrossing
+    local SC, probe = LivingFellows, Harness.stairCrossing
     local x, y, z = position(Harness.actor)
     if x == nil or z == nil then
         Harness.finishStairCrossing("FAIL", "actor position unavailable", current)
@@ -2104,7 +2104,7 @@ local function playerStillIsolated()
 end
 
 local function runAwareness(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local ax, ay, az = position(Harness.actor)
     if ax == nil then
@@ -2131,7 +2131,7 @@ end
 
 local function restoreAwareness(current)
     if current - Harness.phaseStartedAt < 650 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local ax, ay, az = position(Harness.actor)
     local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
         action = "face_formation",
@@ -2160,16 +2160,16 @@ local function cleanupTestZombiesNear(target, radius)
     if target == nil or type(getCell) ~= "function" then return 0 end
     local ok, cell = pcall(getCell)
     if not ok or cell == nil then return 0 end
-    local list = select(1, SurvivorCompanion.GameplayUtil.call(cell, "getZombieList"))
+    local list = select(1, LivingFellows.GameplayUtil.call(cell, "getZombieList"))
     if list == nil then return 0 end
     -- Kahlua exposes java.util list sizes as boxed Double values; its tonumber
     -- implementation casts non-Lua values to String and throws on that object.
-    local sizeValue = select(1, SurvivorCompanion.GameplayUtil.call(list, "size"))
+    local sizeValue = select(1, LivingFellows.GameplayUtil.call(list, "size"))
     local size = math.floor(tonumber(tostring(sizeValue)) or 0)
     local nearby = {}
     for index = 0, size - 1 do
         local zombie = select(1,
-            SurvivorCompanion.GameplayUtil.call(list, "get", index))
+            LivingFellows.GameplayUtil.call(list, "get", index))
         local preserve = false
         if zombie ~= nil
             and Harness.config.team_corpse_streaming_probe == "true" then
@@ -2201,7 +2201,7 @@ local function classLabel(value)
         local ok, name = pcall(getClassSimpleName, value)
         if ok and name ~= nil and tostring(name) ~= "" then return tostring(name) end
     end
-    return SurvivorCompanion.GameplayUtil.objectLabel(value)
+    return LivingFellows.GameplayUtil.objectLabel(value)
 end
 
 -- Keep a complete transition snapshot when the real IsoPlayer attack graph
@@ -2209,7 +2209,7 @@ end
 -- the pulse; these values identify the precise ActionContext gate which kept
 -- the request from becoming a visible melee animation.
 local function combatDiagnosticSnapshot(actor, target)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local function read(methodName, ...)
         local value, ok = utility.call(actor, methodName, ...)
         if not ok then return "unavailable" end
@@ -2267,7 +2267,7 @@ local function pinTestZombieAtCombatSquare()
 end
 
 function Harness.meleeFixtureDistance(weapon, actor)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local minimum = tonumber((U.call(weapon, "getMinRange")))
     local maximum = tonumber((U.call(weapon, "getMaxRange", actor)))
     local modifier = tonumber((U.call(weapon, "getRangeMod", actor)))
@@ -2301,7 +2301,7 @@ function Harness.onMeleeWeaponHit(attacker, target, weapon, damage)
         end
     end
     if attacker ~= Harness.actor or target ~= Harness.testZombie then return end
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local ax, ay = position(attacker)
     local tx, ty = position(target)
     local distance = ax and tx and math.sqrt((ax - tx)^2 + (ay - ty)^2) or -1
@@ -2319,7 +2319,7 @@ end
 -- The A-Life debug spawner queues a real owned shell. All mutations stay in the
 -- runner's cloned save; no synthetic hit or health assignment counts as damage.
 function Harness.probeALifeDamage(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local alife = type(ProjectALife) == "table" and ProjectALife or nil
     if Harness.phase == "alife_wait" then
         if current - Harness.phaseStartedAt < 2500 then return end
@@ -2543,7 +2543,7 @@ end
 -- After a swing completes, keep swinging at the pinned in-range zombie and poll
 -- its health, passing as soon as a swing damages or kills it.
 local function probeCombatDamage(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     pinTestZombieAtCombatSquare()
     local afterDead = select(1, SC.GameplayUtil.call(Harness.testZombie, "isDead"))
     local afterHealth = select(1, SC.GameplayUtil.call(Harness.testZombie, "getHealth"))
@@ -2603,7 +2603,7 @@ local function probeNativeCombat(current)
     if current - Harness.phaseStartedAt < 300 then return end
     if current < (Harness.combatNextAttemptAt or 0) then return end
     Harness.combatNextAttemptAt = current + 125
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local collisionBefore = select(1, SC.GameplayUtil.call(
         Harness.actor, "getCompanionAttackCollisionSerial"))
     local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
@@ -2671,7 +2671,7 @@ local function probeNativeCombat(current)
 end
 
 local function probeNativeCombatAnimation(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     pinTestZombieAtCombatSquare()
     local performing, performingOk = SC.GameplayUtil.call(
         Harness.actor, "isPerformingAttackAnimation")
@@ -2727,7 +2727,7 @@ local function probeNativeCombatAnimation(current)
 end
 
 local function zombieTargetSquare(actor, player)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local utility = SC.GameplayUtil
     local ax, ay, az = position(actor)
     local px, py = position(player)
@@ -2765,7 +2765,7 @@ local function endRangedProbe(current, zombie)
     -- Cancel any in-flight reload/fire timed action so the next probe can take
     -- ownership instead of hitting native:unfinished_action:active.
     pcall(function() Harness.actor:StopAllActionQueue() end)
-    pcall(SurvivorCompanion.Actor.stop, Harness.actor)
+    pcall(LivingFellows.Actor.stop, Harness.actor)
     if Harness.rangedControl ~= nil then
         endHarnessControl(Harness.rangedControl, "ranged_probe_done")
         Harness.rangedControl = nil
@@ -2804,10 +2804,10 @@ local function endFinishGrounded(current, zombie)
     -- Clear the floor-aim / downed-target residue the stomp leaves behind so the
     -- following standing melee phase starts from a clean, upright attack posture.
     pcall(function() Harness.actor:setAimAtFloor(false) end)
-    SurvivorCompanion.GameplayUtil.call(
+    LivingFellows.GameplayUtil.call(
         Harness.actor, "setCompanionFloorTarget", nil)
     pcall(function() Harness.actor:StopAllActionQueue() end)
-    pcall(SurvivorCompanion.Actor.stop, Harness.actor)
+    pcall(LivingFellows.Actor.stop, Harness.actor)
     if Harness.finishControl ~= nil then
         endHarnessControl(Harness.finishControl, "finish_grounded_done")
         Harness.finishControl = nil
@@ -2816,7 +2816,7 @@ local function endFinishGrounded(current, zombie)
 end
 
 local function probeFinishGrounded(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local function v(o, m, ...) local val, ok = U.call(o, m, ...) return ok and tostring(val) or "na" end
     if type(addZombiesInOutfit) ~= "function" then
@@ -2985,7 +2985,7 @@ end
 -- Diagnostic: break down why SC.Actor.isCompanion(actor) is false (the
 -- "actor is not an active companion" reject), to locate the failing condition.
 local function companionStateBreakdown(actor)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local okId, id = pcall(function()
         return SC.Registry and SC.Registry.idOf and SC.Registry.idOf(actor) or nil
     end)
@@ -3006,7 +3006,7 @@ local function companionStateBreakdown(actor)
 end
 
 local function probeRangedFire(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local function v(obj, m, ...) local val, ok = U.call(obj, m, ...) return ok and tostring(val) or "na" end
     local function num1(obj, m) local val = select(1, U.call(obj, m)) return tonumber(val) end
@@ -3249,8 +3249,8 @@ local function endZombieAttackObserve(current)
     for _, z in ipairs(Harness.zObserveZombies or {}) do cleanupTestZombie(z) end
     Harness.zObserveZombies = nil
     -- Clear any grab/knockdown so later phases start from a standing companion.
-    if SurvivorCompanion.ZombieAttack and type(SurvivorCompanion.ZombieAttack.reset) == "function" then
-        pcall(SurvivorCompanion.ZombieAttack.reset, Harness.actor)
+    if LivingFellows.ZombieAttack and type(LivingFellows.ZombieAttack.reset) == "function" then
+        pcall(LivingFellows.ZombieAttack.reset, Harness.actor)
     end
     pcall(function() Harness.actor:setKnockedDown(false) end)
     pcall(function() Harness.actor:setDeathDragDown(false) end)
@@ -3274,8 +3274,8 @@ local function endZombieAttackObserve(current)
     -- grab and knock the companion down mid-swing (its own dedicated test above
     -- already covers grabs), so silence grab rolls for the remainder of the run.
     pcall(function()
-        if SurvivorCompanion.Config and SurvivorCompanion.Config._overrides then
-            SurvivorCompanion.Config._overrides.zombieGrabChance = 0
+        if LivingFellows.Config and LivingFellows.Config._overrides then
+            LivingFellows.Config._overrides.zombieGrabChance = 0
         end
     end)
     -- Run the grounded finisher first: it is self-contained (spawns and controls its
@@ -3285,7 +3285,7 @@ local function endZombieAttackObserve(current)
 end
 
 local function probeZombieAttackObserve(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local function v(obj, m, ...) local val, ok = U.call(obj, m, ...) return ok and tostring(val) or "na" end
     local function num1(obj, m) local val = select(1, U.call(obj, m)) return tonumber(val) or 0 end
@@ -3490,7 +3490,7 @@ local function probeZombieAttackObserve(current)
 end
 
 local function probeZombieTargeting(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if type(addZombiesInOutfit) ~= "function" then
         result("FAIL", "native_zombie_targets_companion", "addZombiesInOutfit unavailable")
         setPhase("faction_begin", current)
@@ -3628,7 +3628,7 @@ local function probeZombieTargeting(current)
 end
 
 local function beginFactionProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if not Harness.restoreCombatArena() then setPhase("finish", current); return end
     if not Harness.restoreObserverBoundary("before_faction") then
         setPhase("finish", current)
@@ -3707,7 +3707,7 @@ local function requestFactionMapCapture(group, current)
 end
 
 local function probeFactionMapCapture(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mapVisible = ISWorldMap_instance ~= nil
         and type(ISWorldMap_instance.isVisible) == "function"
         and ISWorldMap_instance:isVisible()
@@ -3759,7 +3759,7 @@ end
 local function factionActors(group)
     local rows = {}
     for _, member in ipairs(group and group.members or {}) do
-        local record = member.actorId and SurvivorCompanion.Registry.byId(member.actorId) or nil
+        local record = member.actorId and LivingFellows.Registry.byId(member.actorId) or nil
         if record and record.actor then rows[#rows + 1] = record end
     end
     return rows
@@ -3873,7 +3873,7 @@ local function probeFactionSocialContracts(SC, group)
 end
 
 local function waitForFaction(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local summary = SC.Factions.summary(Harness.factionId)
     if not summary then
         result("FAIL", "persistent_faction_registration", "spawned faction disappeared")
@@ -4078,7 +4078,7 @@ local function waitForFaction(current)
 end
 
 local function probeFactionFortification(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local group = SC.Factions.group(Harness.factionId)
     if not group then
         result("FAIL", "native_faction_barricade_work", "faction disappeared")
@@ -4222,7 +4222,7 @@ local function probeFactionFortification(current)
 end
 
 local function probeFactionHostility(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local engaged = false
     local diagnostics = {}
     for _, record in ipairs(Harness.factionActors or {}) do
@@ -4341,7 +4341,7 @@ end
 
 local TEAM_RADIO_CHANNEL = 90000
 local TEAM_RADIO_PRESET = "Living Fellows Team"
-local LOOT_PROOF_FILE = "SurvivorCompanionHarness/loot-proof.ini"
+local LOOT_PROOF_FILE = "LivingFellowsHarness/loot-proof.ini"
 local function countLootMarkers(inventory, token, itemType)
     if inventory == nil then return 0, nil end
     local count, found = 0, nil
@@ -4354,7 +4354,7 @@ local function countLootMarkers(inventory, token, itemType)
                 and data and data.SC_ExpeditionLootProbe == token then
                 count, found = count + 1, item
             end
-            local nested, nestedOk = SurvivorCompanion.GameplayUtil.call(
+            local nested, nestedOk = LivingFellows.GameplayUtil.call(
                 item, "getInventory")
             if nestedOk and nested ~= nil then
                 local childCount, child = countLootMarkers(nested, token, itemType)
@@ -4392,7 +4392,7 @@ local function countSnapshotStableItems(inventory, stableId)
     return count
 end
 local function teamStableItem(roster, stableId)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local count, found, carrier = 0, nil, nil
     for _, record in ipairs(roster or {}) do
         if record.actor ~= nil then
@@ -4416,7 +4416,7 @@ local function savedStableItemCount(document, roster, stableId)
     return count
 end
 local function sourceStableItemCount(receipt)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local source = receipt and receipt.source
     local square = source and getWorld():getCell():getGridSquare(
         source.x, source.y, source.z)
@@ -4446,7 +4446,7 @@ local function prepareNativeRadioItemForProbe(itemType)
     local square = player and player:getCurrentSquare()
     if inventory == nil or square == nil then error("placed radio source unavailable") end
     local item = inventory:AddItem(itemType)
-    if item == nil or not SurvivorCompanion.GameplayUtil.instanceOf(item, "Radio") then
+    if item == nil or not LivingFellows.GameplayUtil.instanceOf(item, "Radio") then
         error("native placed radio item unavailable: " .. tostring(itemType))
     end
     local data = item:getDeviceData()
@@ -4535,7 +4535,7 @@ local function queueTimedRadioPlacementForProbe(itemType, usedSquares)
 end
 
 local function prepareTeamRadioFixture(roster)
-    local radios = SurvivorCompanion.ExpeditionPrototype.provisionTestRadios(
+    local radios = LivingFellows.ExpeditionPrototype.provisionTestRadios(
         Harness.player, roster)
     if Harness.config.team_radio_placed_probe == "true" then
         radios.placedWalkie = placeNativeRadioForProbe("Base.WalkieTalkie2")
@@ -4568,7 +4568,7 @@ local function beginSplitScreenProbe(current)
     local x, y, z = position(Harness.player)
     local remoteX, remoteY = math.floor(x) + 512, math.floor(y)
     if Harness.config.cold_restart_probe == "true" then
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         local mission = SC.ExpeditionPrototype.current()
         local saved = SC.Persistence.lastDocument()
         local leaderId = mission and mission.leader and mission.leader.id
@@ -4643,7 +4643,7 @@ local function beginSplitScreenProbe(current)
 end
 
 function Harness.probeRestartAudit(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local restored = SC.Persistence.restoreStatus()
     if (not restored or current - Harness.phaseStartedAt < 10000)
         and current - Harness.phaseStartedAt < 25000 then return end
@@ -4775,7 +4775,7 @@ function Harness.probeRestartAudit(current)
 end
 
 local function beginLeaderSlotProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.config.team_performance_probe == "true"
         and Harness.performanceRosterLimitApplied ~= true then
         -- Keep the measured four-member roster fixed without healing actors or
@@ -5366,7 +5366,7 @@ local function livingRemoteZombies()
 end
 
 local function nativeFieldVitals(actor)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if not SC.Vitals then pcall(require, "SCVitals") end
     local Vitals = SC.Vitals
     local read = Vitals and Vitals.characterStat
@@ -5401,13 +5401,13 @@ local function probeLeaderSlot(current)
     end
     check("primary_player_kept", getSpecificPlayer(0) == Harness.player,
         "Riverside player remains in slot 0")
-    local valid, reason = SurvivorCompanion.Actor.validateNative(Harness.leader)
+    local valid, reason = LivingFellows.Actor.validateNative(Harness.leader)
     check("leader_native_actor_valid", valid == true, reason)
     local worn = Harness.leader:getWornItems()
     check("saved_leader_outfit_kept_in_second_view",
         worn ~= nil and worn:size() > 0,
         "original saved companion worn items=" .. tostring(worn and worn:size()))
-    local bridgeReady, bridgeReason = SurvivorCompanion.Actor.checkBridge(true)
+    local bridgeReady, bridgeReason = LivingFellows.Actor.checkBridge(true)
     check("native_bridge_accepts_leader_slot", bridgeReady == true, bridgeReason)
     local bindOk, joypadBind = pcall(function() return Harness.leader:getJoypadBind() end)
     check("leader_has_no_player_input", bindOk and joypadBind == -1,
@@ -5422,7 +5422,7 @@ local function probeLeaderSlot(current)
         if Harness.config.fishing_bank_probe == "true" then
             Harness.leaderRemoteX, Harness.leaderRemoteY,
                 Harness.leaderRemoteZ = 6382, 5208, 0
-            SurvivorCompanion.Scheduler.unregister("decision")
+            LivingFellows.Scheduler.unregister("decision")
         end
         check("leader_remote_initially_unloaded",
             getWorld():getCell():getGridSquare(Harness.leaderRemoteX,
@@ -5445,7 +5445,7 @@ local function probeLeaderSlot(current)
         end
         setPhase("leader_remote_wait", current)
     elseif Harness.config.team_restart_stage_only == "true" then
-        local saved, document = SurvivorCompanion.Runtime.save()
+        local saved, document = LivingFellows.Runtime.save()
         local descriptor = saved and document and document.expedition
         check("restart_stage_mission_descriptor_saved",
             saved == true and type(descriptor) == "table"
@@ -5485,13 +5485,13 @@ local function probeLeaderSlot(current)
         setPhase("team_local_travel_stage", current)
     else
         if Harness.config.split_base_layout_probe == "true" then
-            local baseLife = SurvivorCompanion.BaseLife
+            local baseLife = LivingFellows.BaseLife
             local hasBase = baseLife and baseLife.active()
                 and baseLife.isInside(Harness.player) == true
             check("split_base_layout_player_inside_camp", hasBase,
                 "a marked camp must be visible from primary view")
             if not hasBase then setPhase("finish", current) return end
-            SurvivorCompanion.BaseVisuals.setEnabled(true)
+            LivingFellows.BaseVisuals.setEnabled(true)
         end
         writeSignal(SPLIT_READY_FILE, { "ready=true" })
         setPhase("leader_wait_capture", current)
@@ -5501,7 +5501,7 @@ end
 local function stageTeamWaypoint()
     if Harness.config.team_waypoint_probe ~= "true"
         and Harness.config.team_local_travel_probe ~= "true" then return true end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local cell = getWorld():getCell()
     local source = Harness.leader:getCurrentSquare()
     local x, y, z = position(Harness.leader)
@@ -5597,7 +5597,7 @@ local function probeLeaderRemote(current)
         Harness.performanceRemoteReadyAt = current
     end
     if Harness.team then
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         if Harness.config.team_building_probe == "true" then
             Harness.buildingClearedZombies = cleanupTestZombiesNear(
                 Harness.leader, 80)
@@ -5655,13 +5655,13 @@ local function probeLeaderRemote(current)
     end
     Harness.leaderRemoteStartX, Harness.leaderRemoteStartY = x, y
     if Harness.team then Harness.remoteVitalsBefore = nativeFieldVitals(Harness.leader) end
-    local valid, reason = SurvivorCompanion.Actor.validateNative(Harness.leader)
+    local valid, reason = LivingFellows.Actor.validateNative(Harness.leader)
     check("remote_leader_native_actor_valid", valid == true, reason)
     if Harness.config.fishing_bank_probe == "true" then
         setPhase("fishing_find_bank", current)
         return
     end
-    local ordered, orderReason = SurvivorCompanion.Commands.issue(
+    local ordered, orderReason = LivingFellows.Commands.issue(
         Harness.leaderId, "stay", nil, Harness.player)
     check("ordinary_orders_cannot_control_remote_leader",
         ordered == false and orderReason == "expedition_leader_radio_required",
@@ -5678,7 +5678,7 @@ local function probeLeaderRemote(current)
         if Harness.config.team_waypoint_probe == "true" then
             setPhase("team_waypoint_wait", current)
         else
-            Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
+            Harness.leaderObserveFrames = LivingFellows.Scheduler.getStats().frames or 0
             setPhase("leader_observe", current)
         end
     else
@@ -5696,7 +5696,7 @@ end
 
 local function overlapObjectCount(square, object)
     local count = 0
-    SurvivorCompanion.GameplayUtil.squareObjects(square, function(candidate)
+    LivingFellows.GameplayUtil.squareObjects(square, function(candidate)
         if candidate == object then count = count + 1 end
     end, 64)
     return count
@@ -5705,7 +5705,7 @@ end
 function Harness.probeTeamOverlapStart(current)
     if current - Harness.phaseStartedAt < 5000 then return end
     local cell = getWorld():getCell()
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local source, best = nil, math.huge
     for dx = -20, 20 do
         for dy = -20, 20 do
@@ -5735,13 +5735,13 @@ function Harness.probeTeamOverlapStart(current)
     if source == nil then setPhase("finish", current) return end
     Harness.overlapSource = source
     if Harness.config.team_return_release_probe == "true" then
-        local denied, reason = SurvivorCompanion.ExpeditionPrototype.finishAtPlayer(
+        local denied, reason = LivingFellows.ExpeditionPrototype.finishAtPlayer(
             Harness.player)
         check("distant_team_release_rejected", denied == false
             and reason == "return_member_not_assembled"
             and SCSplitScreenProbe.canReleaseJoinedLeader() == false
             and getSpecificPlayer(1) == Harness.leader
-            and SurvivorCompanion.ExpeditionPrototype.current() ~= nil,
+            and LivingFellows.ExpeditionPrototype.current() ~= nil,
             "reason=" .. tostring(reason))
     end
     local moved, failure = pcall(function()
@@ -5768,7 +5768,7 @@ function Harness.probeTeamOverlapMerge(current)
     local cell = getWorld():getCell()
     local source = Harness.overlapSource
     local square = cell:getGridSquare(source.x, source.y, source.z)
-    local container, ok = SurvivorCompanion.GameplayUtil.call(
+    local container, ok = LivingFellows.GameplayUtil.call(
         source.object, "getContainer")
     local map0, map1 = cell:getChunkMap(0), cell:getChunkMap(1)
     local count = overlapObjectCount(square, source.object)
@@ -5785,7 +5785,7 @@ function Harness.probeTeamOverlapMerge(current)
     check("overlap_actor_ownership_preserved",
         getSpecificPlayer(0) == Harness.player
             and getSpecificPlayer(1) == Harness.leader
-            and SurvivorCompanion.Registry.isActive(Harness.leader,
+            and LivingFellows.Registry.isActive(Harness.leader,
                 Harness.leaderId),
         "primary and original companion retain separate slots")
     if square ~= source.square or count ~= 1 or container ~= source.container then
@@ -5794,7 +5794,7 @@ function Harness.probeTeamOverlapMerge(current)
     if Harness.config.team_return_release_probe == "true" then
         local clock = UIManager and UIManager.getClock()
         Harness.splitClockY = clock and clock:getY() or nil
-        local finished, reason = SurvivorCompanion.ExpeditionPrototype.finishAtPlayer(
+        local finished, reason = LivingFellows.ExpeditionPrototype.finishAtPlayer(
             Harness.player)
         check("joined_team_release_accepted", finished == true
             and reason == "returned",
@@ -5846,7 +5846,7 @@ function Harness.probeTeamOverlapReleased(current)
     local active = true
     for _, record in ipairs(Harness.team or {}) do
         if record.actor ~= nil and not record.actor:isDead() then
-            active = active and SurvivorCompanion.Registry.isActive(
+            active = active and LivingFellows.Registry.isActive(
                 record.actor, record.id)
         end
     end
@@ -5854,7 +5854,7 @@ function Harness.probeTeamOverlapReleased(current)
         getSpecificPlayer(0) == Harness.player
             and getSpecificPlayer(1) == nil
             and SCSplitScreenProbe.isReleased() == true
-            and SurvivorCompanion.ExpeditionPrototype.current() == nil
+            and LivingFellows.ExpeditionPrototype.current() == nil
             and chunkMapCovers(map0, source.x, source.y)
             and square == source.square and count == 1 and active,
         "slot1=" .. tostring(getSpecificPlayer(1))
@@ -5864,13 +5864,13 @@ function Harness.probeTeamOverlapReleased(current)
             .. " same_square=" .. tostring(square == source.square)
             .. " object_count=" .. tostring(count)
             .. " original_actors_active=" .. tostring(active))
-    local denied, reason = SurvivorCompanion.ExpeditionPrototype.finishAtPlayer(
+    local denied, reason = LivingFellows.ExpeditionPrototype.finishAtPlayer(
         Harness.player)
     check("returned_mission_cannot_release_twice", denied == false
         and reason == "no_active_expedition"
         and getSpecificPlayer(1) == nil,
         "reason=" .. tostring(reason))
-    local idle = SurvivorCompanion.ExpeditionPrototype.export()
+    local idle = LivingFellows.ExpeditionPrototype.export()
     check("returned_mission_retains_reusable_slot_identity",
         idle ~= nil and idle.schema == 2 and idle.state == "idle"
             and type(idle.slotSqlId) == "number"
@@ -5881,7 +5881,7 @@ function Harness.probeTeamOverlapReleased(current)
         setPhase("finish", current) return
     end
     if Harness.config.team_return_stage_only == "true" then
-        local saved, document = SurvivorCompanion.Runtime.save()
+        local saved, document = LivingFellows.Runtime.save()
         check("returned_idle_slot_descriptor_saved", saved == true
             and document ~= nil and document.expedition ~= nil
             and document.expedition.schema == 2
@@ -5896,7 +5896,7 @@ function Harness.probeTeamOverlapReleased(current)
     for index = 2, #(Harness.team or {}) do
         local record = Harness.team[index]
         if record.actor ~= nil and not record.actor:isDead()
-            and SurvivorCompanion.Registry.isActive(record.actor, record.id) then
+            and LivingFellows.Registry.isActive(record.actor, record.id) then
             nextRecord = record
             break
         end
@@ -5908,7 +5908,7 @@ function Harness.probeTeamOverlapReleased(current)
     Harness.secondLeader = nextRecord.actor
     Harness.secondLeaderId = nextRecord.id
     local started, accepted, detail = pcall(
-        SurvivorCompanion.ExpeditionPrototype.start, { nextRecord })
+        LivingFellows.ExpeditionPrototype.start, { nextRecord })
     check("second_expedition_reacquires_view_queued", started
         and accepted == true,
         tostring(started and detail or accepted))
@@ -5931,7 +5931,7 @@ function Harness.probeTeamOverlapRestart(current)
         and getSpecificPlayer(0) == Harness.player
         and square == source.square
         and overlapObjectCount(square, source.object) == 1
-        and SurvivorCompanion.Registry.isActive(Harness.secondLeader,
+        and LivingFellows.Registry.isActive(Harness.secondLeader,
             Harness.secondLeaderId)
         and SCSplitScreenProbe.leaderSqlId() == Harness.reuseSlotSqlId,
         "slot1_distinct=" .. tostring(getSpecificPlayer(1) == Harness.secondLeader)
@@ -5943,7 +5943,7 @@ function Harness.probeTeamOverlapRestart(current)
 end
 
 function Harness.probeIdleSlotRestartStart(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local idle = SC.ExpeditionPrototype.export()
     local records = SC.Registry.records()
     local requiredRecords = Harness.config.team_all_dead_idle_restart_probe == "true"
@@ -6004,7 +6004,7 @@ function Harness.probeIdleSlotRestartStart(current)
 end
 
 function Harness.probeIdleSlotRestartWait(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local ready = getSpecificPlayer(1) == Harness.idleRestartLeader
         and SCSplitScreenProbe.isLeader(Harness.idleRestartLeader) == true
@@ -6203,16 +6203,16 @@ local function probeTeamLootSurvey(current)
     -- Wait for the slot-1 map to integrate its surrounding chunks. This is a
     -- read-only source survey for the later exact-loot conservation probe.
     if current - Harness.phaseStartedAt < 10000 then return end
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local cell = getWorld():getCell()
     local loaded, containers, stocked = 0, 0, 0
     local best, bestDistance
     local safeSite, safeScore
-    local logistics = SurvivorCompanion.Logistics
+    local logistics = LivingFellows.Logistics
     local audit = Harness.config.team_loot_probe == "true"
         and logistics.audit(Harness.leader) or nil
     local commands = Harness.config.team_loot_probe == "true"
-        and SurvivorCompanion.Commands.peek(Harness.leader) or nil
+        and LivingFellows.Commands.peek(Harness.leader) or nil
     local usefulContainers = 0
     local zombies = cell:getZombieList()
     local function nearestZombieDistance(x, y)
@@ -6336,7 +6336,7 @@ local function probeTeamLootSurvey(current)
         setPhase("team_loot_relocate_wait", current)
         return
     end
-    Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
+    Harness.leaderObserveFrames = LivingFellows.Scheduler.getStats().frames or 0
     setPhase("leader_observe", current)
 end
 
@@ -6356,19 +6356,19 @@ local function probeTeamLootRelocate(current)
             and getWorld():getCell():getGridSquare(site.x, site.y,
                 Harness.leaderRemoteZ) ~= nil,
         "actor=" .. tostring(x) .. "," .. tostring(y))
-    local staged, reason = SurvivorCompanion.ExpeditionPrototype.stageTestSearch(
+    local staged, reason = LivingFellows.ExpeditionPrototype.stageTestSearch(
         Harness.leader)
     check("remote_native_search_staged", staged == true,
         tostring(reason))
     if not staged then setPhase("finish", current) return end
-    local prior = SurvivorCompanion.Encounter.status(Harness.leader)
+    local prior = LivingFellows.Encounter.status(Harness.leader)
     Harness.lootPriorTime = prior and prior.lastLoot and prior.lastLoot.time or 0
     writeSignal(SPLIT_READY_FILE, { "ready=true" })
     setPhase("team_loot_watch", current)
 end
 
 local function probeTeamLootWatch(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local actor = Harness.leader
     local state = SC.Encounter.peek(actor)
@@ -6473,7 +6473,7 @@ end
 
 local function scanReloadedLootArea()
     local cell = getWorld():getCell()
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local loaded, containers, markers, originalIds = 0, 0, 0, 0
     local token = Harness.config.team_loot_verify_token
     local itemType = Harness.config.team_loot_verify_item_type
@@ -6551,7 +6551,7 @@ local function probeTeamLootVerifyRemote(current)
 end
 
 local function probeTeamLootVerifyVisit(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local x, y = position(Harness.player)
     local record = SC.Registry.byId(Harness.lootReloadActorId)
     local actor = record and record.actor
@@ -6792,7 +6792,7 @@ local function probeTeamRadioWait(current)
             tostring(placedError))
     end
     if sent and Harness.config.team_radio_command_probe == "true" then
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         local beforeMode = SC.Commands.effective(Harness.leader).moveMode
         local targetMode = beforeMode == "walk" and "sneak" or "walk"
         local rejectedMode = targetMode == "walk" and "sneak" or "walk"
@@ -6894,7 +6894,7 @@ local function probeTeamRadioWait(current)
     if Harness.config.team_waypoint_probe == "true" then
         setPhase("team_waypoint_wait", current)
     else
-        Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
+        Harness.leaderObserveFrames = LivingFellows.Scheduler.getStats().frames or 0
         setPhase("leader_observe", current)
     end
 end
@@ -6914,7 +6914,7 @@ local function probeTeamWaypointWait(current)
     if Harness.config.team_extended_route_probe == "true" then
         local _, zombies = livingRemoteZombies()
         local weight, capacity, ratio =
-            SurvivorCompanion.GameplayUtil.inventoryLoad(Harness.leader)
+            LivingFellows.GameplayUtil.inventoryLoad(Harness.leader)
         result("PASS", "extended_route_start_conditions",
             "natural_zombies_25=" .. tostring(zombies)
                 .. " leader_health=" .. tostring(Harness.leader:getBodyDamage()
@@ -6974,7 +6974,7 @@ local function probeTeamWaypointWait(current)
             Harness.corpseStreamCargo = cargo
             Harness.corpseStreamX, Harness.corpseStreamY,
                 Harness.corpseStreamZ = vx, vy, vz
-            local ended, reason = SurvivorCompanion.Actor.endLife(victim)
+            local ended, reason = LivingFellows.Actor.endLife(victim)
             check("corpse_stream_native_death_requested", ended == true,
                 tostring(reason))
             if not ended then setPhase("finish", current) return end
@@ -6989,7 +6989,7 @@ local function probeTeamWaypointWait(current)
         setPhase("team_local_travel_out", current)
         return
     end
-    Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
+    Harness.leaderObserveFrames = LivingFellows.Scheduler.getStats().frames or 0
     setPhase("leader_observe", current)
 end
 
@@ -7028,7 +7028,7 @@ function Harness.probeCorpseStreamDeathWait(current)
 end
 
 function Harness.probeTeamStragglerStage(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     Harness.stragglerClearedZombies = (Harness.stragglerClearedZombies or 0)
         + cleanupTestZombiesNear(Harness.leader, 60)
     local cell = getWorld():getCell()
@@ -7106,7 +7106,7 @@ function Harness.probeTeamStragglerHold(current)
             + cleanupTestZombiesNear(Harness.leader, 60)
         Harness.stragglerNextThreatClear = current + 1000
     end
-    local mission = SurvivorCompanion.ExpeditionPrototype.current()
+    local mission = LivingFellows.ExpeditionPrototype.current()
     local leader = Harness.leader
     local follower = Harness.stragglerFollower
     local lx, ly = position(leader)
@@ -7165,7 +7165,7 @@ function Harness.probeTeamStragglerRejoin(current)
             + cleanupTestZombiesNear(Harness.leader, 60)
         Harness.stragglerNextThreatClear = current + 1000
     end
-    local mission = SurvivorCompanion.ExpeditionPrototype.current()
+    local mission = LivingFellows.ExpeditionPrototype.current()
     local follower = Harness.stragglerFollower
     local lx, ly = position(Harness.leader)
     local fx, fy = position(follower)
@@ -7198,7 +7198,7 @@ end
 -- Joined W03/W05/W10 pilot: find a stocked native container reachable by
 -- walking from the saved Riverside party. No actor or item is relocated.
 function Harness.stageLocalLootWaypoint()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local cell = getWorld():getCell()
     local start = Harness.leader:getCurrentSquare()
@@ -7357,7 +7357,7 @@ local function observeLocalTravelStep()
 end
 
 function Harness.stageLocalReturn(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local cell = getWorld():getCell()
     local actorSquare = Harness.leader:getCurrentSquare()
     local best, bestPath = nil, nil
@@ -7395,7 +7395,7 @@ end
 
 function Harness.probeTeamLocalTravelOut(current)
     local x, y = observeLocalTravelStep()
-    local mission = SurvivorCompanion.ExpeditionPrototype.current()
+    local mission = LivingFellows.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     local target = Harness.teamWaypoint
     if arrival == nil or mission.testWaypointArrived ~= true then
@@ -7403,8 +7403,8 @@ function Harness.probeTeamLocalTravelOut(current)
             and 120000 or 60000
         if current - Harness.phaseStartedAt < limit
             and Harness.leader:isDead() ~= true then return end
-        local decision = SurvivorCompanion.Decision.peek(Harness.leader) or {}
-        local nav = SurvivorCompanion.Navigation.status(Harness.leader) or {}
+        local decision = LivingFellows.Decision.peek(Harness.leader) or {}
+        local nav = LivingFellows.Navigation.status(Harness.leader) or {}
         local hold = mission and mission.cohesionHold
         result("FAIL", "local_trip_outbound_arrival",
             "actor=" .. tostring(x) .. "," .. tostring(y)
@@ -7458,7 +7458,7 @@ function Harness.probeTeamLocalTravelOut(current)
 end
 
 function Harness.probeLocalLootSearch(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local actor = Harness.leader
     if not Harness.localLootSearchStarted then
@@ -7546,7 +7546,7 @@ end
 
 function Harness.probeTeamLocalTravelReturn(current)
     observeLocalTravelStep()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     if arrival ~= nil and mission.testWaypointArrived == true then
@@ -7628,7 +7628,7 @@ function Harness.spawnPursuerFixture(current, cell, map, lx, ly)
             math.floor(ly) + offset[2]
         local square = cell:getGridSquare(sx, sy, z)
         local clear = square ~= nil
-            and SurvivorCompanion.GameplayUtil.isSquareFree(square)
+            and LivingFellows.GameplayUtil.isSquareFree(square)
         for _, record in ipairs(Harness.team or {}) do
             if clear and distance(record.actor, square) < 5 then
                 clear = false
@@ -7800,7 +7800,7 @@ function Harness.observeExtendedFootprint()
 end
 
 function Harness.probeSharedSearch(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
@@ -7989,7 +7989,7 @@ function Harness.probeSharedSearch(current)
 end
 
 function Harness.stageMultifloorSearchTarget(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local actor = Harness.leader
     local siteId = Harness.unvisitedSearchBuildingId
@@ -8080,7 +8080,7 @@ function Harness.stageMultifloorSearchTarget(current)
 end
 
 function Harness.stageMultifloorGroundStart(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local siteId = Harness.unvisitedSearchBuildingId
     local chosen = {}
@@ -8124,7 +8124,7 @@ function Harness.probeAutonomousSearch(current)
     if Harness.config.team_shared_search_probe == "true" then
         return Harness.probeSharedSearch(current)
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local mission = SC.ExpeditionPrototype.current()
     local unvisited = Harness.config.team_unvisited_interior_search_probe
@@ -8898,7 +8898,7 @@ function Harness.probeAutonomousSearch(current)
 end
 
 function Harness.probeAutonomousSearchResumeStart(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local document = SC.Persistence.lastDocument()
     local mission = SC.ExpeditionPrototype.current()
     if (document == nil or mission == nil or mission.restoring == true
@@ -8964,7 +8964,7 @@ function Harness.probeAutonomousSearchResumeStart(current)
 end
 
 function Harness.probeAutonomousSearchResume(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local mission = SC.ExpeditionPrototype.current()
     local x, y = position(Harness.leader)
@@ -9054,7 +9054,7 @@ local function probeRoadHordeDetour(current, mission, progress)
         or current < (Harness.nextHordeProbeAt or 0)
         or progress < 20 or progress > 105
         or mission.cohesionHold ~= nil then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local scout = mission.scout
     local route = scout and scout.roadRoute
     if scout == nil or scout.phase ~= "outbound"
@@ -9230,7 +9230,7 @@ local function probeRoadHordeDetour(current, mission, progress)
 end
 
 function Harness.probeAutonomousScout(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local x, y = position(Harness.leader)
     if x == nil or y == nil then
@@ -9487,7 +9487,7 @@ function Harness.probeAutonomousScout(current)
         end
         if visibleZombie ~= nil then
             Harness.scoutZombieScreenshotRequested = true
-            writeSignal("SurvivorCompanionHarness/zombie-visibility-ready.txt",
+            writeSignal("LivingFellowsHarness/zombie-visibility-ready.txt",
                 { "ready=true" })
             local zx, zy = position(visibleZombie)
             result("PASS", "autonomous_scout_zombie_screenshot_requested",
@@ -9498,7 +9498,7 @@ function Harness.probeAutonomousScout(current)
     end
     if Harness.scoutZombieScreenshotRequested
         and not Harness.scoutZombieScreenshotCaptured
-        and fileExists("SurvivorCompanionHarness/zombie-visibility-captured.txt") then
+        and fileExists("LivingFellowsHarness/zombie-visibility-captured.txt") then
         Harness.scoutZombieScreenshotCaptured = true
         if Harness.visibilityFixtureZombie ~= nil then
             cleanupTestZombie(Harness.visibilityFixtureZombie)
@@ -9636,7 +9636,7 @@ function Harness.probeAutonomousScout(current)
 end
 
 function Harness.probeRoadRestartResumeStart(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local document = SC.Persistence.lastDocument()
     local mission = SC.ExpeditionPrototype.current()
     local ready = document and mission and mission.restoring ~= true
@@ -9670,7 +9670,7 @@ function Harness.probeRoadRestartResumeStart(current)
 end
 
 function Harness.probeRoadRestartResume(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local x, y = position(Harness.leader)
     local step = x and Harness.roadResumeLastX and math.sqrt(
@@ -9746,7 +9746,7 @@ function Harness.probeExtendedRouteStage(current)
     if Harness.extendedRouteSurvey == nil and Harness.extendedLastPlanAt ~= nil
         and current - Harness.extendedLastPlanAt < 1000 then return end
     Harness.extendedLastPlanAt = current
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local cell = getWorld():getCell()
     local source = Harness.leader:getCurrentSquare()
     local x, y, z = position(Harness.leader)
@@ -9866,7 +9866,7 @@ function Harness.probeExtendedRouteWalk(current)
     local x, y = observeLocalTravelStep()
     Harness.observeExtendedFootprint()
     if Harness.pursuerVerified then setPhase("finish", current) return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     local target = Harness.extendedRouteTarget
@@ -10109,7 +10109,7 @@ end
 
 function Harness.probeExtendedReturnResumeStart(current)
     if current - Harness.phaseStartedAt < 5000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local leaderRecord = mission and mission.leader
     local leader = leaderRecord and leaderRecord.actor
@@ -10204,7 +10204,7 @@ function Harness.probeExtendedReturnStage(current)
     if Harness.extendedReturnLastPlanAt
         and current - Harness.extendedReturnLastPlanAt < 1000 then return end
     Harness.extendedReturnLastPlanAt = current
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local cell = getWorld():getCell()
     local source = Harness.leader:getCurrentSquare()
     local selected, nodes
@@ -10263,7 +10263,7 @@ function Harness.probeExtendedReturnStage(current)
 end
 
 function Harness.extendedReturnNavigationDetail(current)
-    local state = SurvivorCompanion.Navigation.peek(Harness.leader) or {}
+    local state = LivingFellows.Navigation.peek(Harness.leader) or {}
     local path = state.path
     local index = tonumber(state.pathIndex) or 0
     local nextX, nextY
@@ -10285,7 +10285,7 @@ end
 
 function Harness.probeExtendedReturnWalk(current)
     local x, y = observeLocalTravelStep()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     local target = Harness.extendedReturnTarget
@@ -10629,7 +10629,7 @@ function Harness.maintainBuildingQuietFixture(current)
 end
 
 function Harness.startDoorBashNative(current, door)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if SC.Topology.objectOpen(door) then
         SC.GameplayUtil.call(door, "ToggleDoor", Harness.leader)
     end
@@ -10661,7 +10661,7 @@ function Harness.startDoorBashNative(current, door)
 end
 
 function Harness.findDoorBashInteriorGoal(outside, inside)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local ix, iy, z = position(inside)
     local ox, oy = position(outside)
     local cell = getWorld():getCell()
@@ -10697,7 +10697,7 @@ end
 -- genuine last-resort route. Every alternate boundary is inspected, and the
 -- ordinary full-world path search still has to fail after the fixture.
 function Harness.barricadeAlternateRoomExits(entrySquare, retainedDoor)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local room = entrySquare and entrySquare:getRoom()
     if room == nil then return false, 0, "missing_room" end
     local cell = getWorld():getCell()
@@ -10768,7 +10768,7 @@ function Harness.probeBuildingWait(current)
         < ((Harness.buildingAttempts or 0) > 0 and 1000 or 10000) then
         return
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local cell = getWorld():getCell()
     local source = Harness.leader:getCurrentSquare()
     local x, y, z = position(Harness.leader)
@@ -11063,7 +11063,7 @@ end
 function Harness.probeBuildingApproach(current)
     Harness.maintainBuildingQuietFixture(current)
     local x, y = observeLocalTravelStep()
-    local mission = SurvivorCompanion.ExpeditionPrototype.current()
+    local mission = LivingFellows.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     local target = Harness.buildingApproachTarget
     if arrival == nil or mission.testWaypointArrived ~= true then
@@ -11075,13 +11075,13 @@ function Harness.probeBuildingApproach(current)
                 Harness.buildingLastProgressY = y
                 Harness.buildingLastProgressAt = current
             end
-            local nav = SurvivorCompanion.Navigation.status(Harness.leader) or {}
+            local nav = LivingFellows.Navigation.status(Harness.leader) or {}
             local stalled = current - Harness.phaseStartedAt >= 20000
                 and current - Harness.buildingLastProgressAt >= 15000
                 and nav.phase ~= "planning"
                 and mission ~= nil and mission.cohesionHold == nil
             if stalled and (Harness.buildingAttempts or 0) < 3 then
-                local cleared, reason = SurvivorCompanion.ExpeditionPrototype.clearTestWaypoint(
+                local cleared, reason = LivingFellows.ExpeditionPrototype.clearTestWaypoint(
                     Harness.leader)
                 check("building_exterior_route_replanned_"
                     .. tostring(Harness.buildingAttempts), cleared == true,
@@ -11104,8 +11104,8 @@ function Harness.probeBuildingApproach(current)
         end
         if current - Harness.phaseStartedAt < 80000
             and not Harness.leader:isDead() then return end
-        local nav = SurvivorCompanion.Navigation.status(Harness.leader) or {}
-        local decision = SurvivorCompanion.Decision.peek(Harness.leader) or {}
+        local nav = LivingFellows.Navigation.status(Harness.leader) or {}
+        local decision = LivingFellows.Decision.peek(Harness.leader) or {}
         result("FAIL", "building_exterior_approach_arrived",
             "leader=" .. tostring(x) .. "," .. tostring(y)
                 .. " target=" .. tostring(target.x) .. ","
@@ -11134,7 +11134,7 @@ function Harness.probeBuildingApproach(current)
             .. " room=" .. tostring(square and square:getRoom())
             .. " max_step=" .. tostring(Harness.localTravelMaxStep))
     if not outside then setPhase("finish", current) return end
-    local staged, reason = SurvivorCompanion.ExpeditionPrototype.stageTestWaypoint(
+    local staged, reason = LivingFellows.ExpeditionPrototype.stageTestWaypoint(
         Harness.leader, Harness.buildingTarget.x,
         Harness.buildingTarget.y, Harness.buildingTarget.z)
     check("building_interior_entry_staged", staged == true,
@@ -11152,7 +11152,7 @@ function Harness.probeBuildingWalk(current)
     if square and square:getRoom() == Harness.buildingTarget.room then
         Harness.buildingInsideSeen = true
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     if arrival == nil and x ~= nil and y ~= nil then
@@ -11316,15 +11316,15 @@ end
 
 function Harness.probeBuildingExit(current)
     Harness.maintainBuildingQuietFixture(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local x, y = observeLocalTravelStep()
     local square = Harness.leader:getCurrentSquare()
-    local mission = SurvivorCompanion.ExpeditionPrototype.current()
+    local mission = LivingFellows.ExpeditionPrototype.current()
     local arrival = mission and mission.testWaypointArrival
     if arrival == nil or mission.testWaypointArrived ~= true then
         if current - Harness.phaseStartedAt < 70000
             and not Harness.leader:isDead() then return end
-        local nav = SurvivorCompanion.Navigation.status(Harness.leader) or {}
+        local nav = LivingFellows.Navigation.status(Harness.leader) or {}
         result("FAIL", "building_native_exit",
             "leader=" .. tostring(x) .. "," .. tostring(y)
                 .. " target=" .. tostring(Harness.buildingExitTarget.x)
@@ -11370,10 +11370,10 @@ function Harness.probeBuildingExit(current)
         local door = Harness.buildingDoor
         check("building_inside_door_unlocked_native",
             exited and door ~= nil
-                and not SurvivorCompanion.Topology.objectLocked(door),
+                and not LivingFellows.Topology.objectLocked(door),
             "door=" .. tostring(door)
-                .. " locked=" .. tostring(door and SurvivorCompanion.Topology.objectLocked(door))
-                .. " open=" .. tostring(door and SurvivorCompanion.Topology.objectOpen(door)))
+                .. " locked=" .. tostring(door and LivingFellows.Topology.objectLocked(door))
+                .. " open=" .. tostring(door and LivingFellows.Topology.objectOpen(door)))
     end
     if exited and Harness.config.team_door_bash_probe == "true" then
         Harness.startDoorBashNative(current, Harness.buildingDoor)
@@ -11384,7 +11384,7 @@ end
 
 function Harness.probeDoorBash(current)
     Harness.maintainBuildingQuietFixture(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local door = Harness.buildingDoor
     local health = select(1, SC.GameplayUtil.call(door, "getHealth"))
     local index = select(1, SC.GameplayUtil.call(door, "getObjectIndex"))
@@ -11487,7 +11487,7 @@ end
 
 function Harness.probeDoorBashEntry(current)
     Harness.maintainBuildingQuietFixture(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local square = Harness.leader:getCurrentSquare()
     local inside = Harness.bashDoorInsideSquare
@@ -11515,7 +11515,7 @@ end
 
 function Harness.probeDoorBashAuto(current)
     Harness.maintainBuildingQuietFixture(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local door = Harness.buildingDoor
     if not Harness.bashDoorAutoMemoryChecked
         and current - Harness.phaseStartedAt > 5000 then
@@ -11620,14 +11620,14 @@ end
 local function probeLeaderCapture(current)
     if fileExists(SPLIT_CAPTURED_FILE) then
         if Harness.config.split_base_layout_probe == "true" then
-            local status = SurvivorCompanion.BaseVisuals.status()
+            local status = LivingFellows.BaseVisuals.status()
             check("split_base_layout_primary_overlay_drawn",
                 status.enabled == true and status.visibleZones > 0,
                 "zones=" .. tostring(status.visibleZones)
                     .. " storages=" .. tostring(status.visibleStorages))
         end
         result("PASS", "leader_split_screen_capture", "existing companion visible in split view")
-        Harness.leaderObserveFrames = SurvivorCompanion.Scheduler.getStats().frames or 0
+        Harness.leaderObserveFrames = LivingFellows.Scheduler.getStats().frames or 0
         setPhase("leader_observe", current)
     elseif current - Harness.phaseStartedAt > 15000 then
         result("FAIL", "leader_split_screen_capture", "runner did not capture the viewport")
@@ -11660,7 +11660,7 @@ local function probeLeaderSurvival(current)
     end
     if current - Harness.phaseStartedAt
         < (tonumber(Harness.config.leader_watch_ms) or 8000) then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local valid, reason = SC.Actor.validateNative(Harness.leader)
     check("leader_still_native_after_eight_seconds", valid == true,
         "reason=" .. tostring(reason))
@@ -12095,7 +12095,7 @@ local function probeLeaderSurvival(current)
 end
 
 local function probeTeamHandoff(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     if mission == nil and SC.ExpeditionPrototype.lastOutcome() == "all_dead" then
         local allDead = true
@@ -12229,7 +12229,7 @@ local function probeTeamAllDeadCapture(current)
     if fileExists(SPLIT_CAPTURED_FILE) then
         result("PASS", "all_dead_primary_view_captured",
             "single local viewport captured after team death")
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         local idle = SC.ExpeditionPrototype.export()
         check("all_dead_retains_reusable_slot_identity",
             idle ~= nil and idle.schema == 2 and idle.state == "idle"
@@ -12303,7 +12303,7 @@ local function probeTeamAllDeadReuse(current)
     check("all_dead_follow_on_view_reuses_slot_identity",
         slotActor == reserve.actor
             and getSpecificPlayer(0) == Harness.player
-            and SurvivorCompanion.Registry.isActive(reserve.actor, reserve.id)
+            and LivingFellows.Registry.isActive(reserve.actor, reserve.id)
             and SCSplitScreenProbe.leaderSqlId() == Harness.reuseSlotSqlId,
         "slot1=" .. tostring(slotActor == reserve.actor)
             .. " sqlId=" .. tostring(SCSplitScreenProbe.leaderSqlId())
@@ -12317,7 +12317,7 @@ local function probeTeamRadioKitCapture(current)
             "Riverside save remains local with all five radios equipped")
         if Harness.config.team_expedition_ui_probe == "true" then
             local detail = Harness.expeditionUiDetail
-            local SC = SurvivorCompanion
+            local SC = LivingFellows
             if not check("expedition_ui_review_visible",
                 detail ~= nil and detail.expeditionDraft.review == true
                     and detail.displayedTab == "expeditions",
@@ -12452,7 +12452,7 @@ local function probeTeamRadioKitCapture(current)
 end
 
 function Harness.probeTeamExpeditionUiRadioWait(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     if mission == nil or getSpecificPlayer(1) ~= mission.leader.actor then
         if current - Harness.phaseStartedAt < 10000 then return end
@@ -12657,7 +12657,7 @@ function Harness.probeTeamRadioKitPlaceWait(current)
         local objects = square:getObjects()
         for index = 0, objects:size() - 1 do
             local candidate = objects:get(index)
-            if candidate and SurvivorCompanion.GameplayUtil.instanceOf(
+            if candidate and LivingFellows.GameplayUtil.instanceOf(
                 candidate, "IsoRadio")
                 and tonumber(candidate:getModData().RadioItemID)
                     == prepared.item:getID() then
@@ -12719,7 +12719,7 @@ local function probeTeamRadioKitPickupWait(current)
     local objects = square:getObjects()
     for index = 0, objects:size() - 1 do
         local candidate = objects:get(index)
-        if candidate and SurvivorCompanion.GameplayUtil.instanceOf(
+        if candidate and LivingFellows.GameplayUtil.instanceOf(
             candidate, "IsoRadio")
             and tonumber(candidate:getModData().RadioItemID) == expectedId then
             proxyCount = proxyCount + 1
@@ -12728,7 +12728,7 @@ local function probeTeamRadioKitPickupWait(current)
     local devices = ZomboidRadio.getInstance():getDevices()
     for index = 0, devices:size() - 1 do
         local candidate = devices:get(index)
-        if candidate and SurvivorCompanion.GameplayUtil.instanceOf(
+        if candidate and LivingFellows.GameplayUtil.instanceOf(
             candidate, "IsoRadio")
             and tonumber(candidate:getModData().RadioItemID) == expectedId then
             registered = registered + 1
@@ -12790,7 +12790,7 @@ local function inspectPlacedRadioKitWorld(restored)
             local objects = square:getObjects()
             for index = 0, objects:size() - 1 do
                 local candidate = objects:get(index)
-                if candidate and SurvivorCompanion.GameplayUtil.instanceOf(
+                if candidate and LivingFellows.GameplayUtil.instanceOf(
                     candidate, "IsoRadio")
                     and tonumber(candidate:getModData().RadioItemID) == expectedId then
                     proxyCount = proxyCount + 1
@@ -12879,7 +12879,7 @@ local function probeTeamRadioKitWait(current)
     local radios = Harness.radioKit
     local recipients = Harness.radioKitRecipients
     local restoredDocument = Harness.config.team_radio_kit_verify_only == "true"
-        and SurvivorCompanion.Persistence.lastDocument() or nil
+        and LivingFellows.Persistence.lastDocument() or nil
     local function radioReady(radio)
         if radio == nil or radio:getFullType() ~= "Base.WalkieTalkie2" then
             return false
@@ -12976,7 +12976,7 @@ local function probeTeamRadioKitWait(current)
         end
     end
     if Harness.config.team_radio_kit_only == "true" then
-        local saved, reason = SurvivorCompanion.Runtime.save()
+        local saved, reason = LivingFellows.Runtime.save()
         check("radio_kit_companion_snapshot_saved", saved == true,
             "companions=" .. tostring(saved and reason
                 and reason.companions and recipients
@@ -13004,7 +13004,7 @@ local function probeTeamRadioKitWait(current)
         end
     end
     if Harness.config.team_expedition_ui_probe == "true" then
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         for index = 1, 3 do
             local accepted, reason = SC.Commands.issue(recipients[index].id,
                 "set_group", { group = "alpha" }, Harness.player)
@@ -13083,7 +13083,7 @@ end
 
 local function probeTeamHandoffObserve(current)
     if current - Harness.phaseStartedAt < 5000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local successor = Harness.successor
     local valid, reason = SC.Actor.validateNative(successor.actor)
     check("successor_ai_survives_five_seconds", valid == true
@@ -13145,7 +13145,7 @@ local function probeTeamHandoffObserve(current)
 end
 
 local function probeTeamSecondHandoff(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local third = Harness.team[3]
     if mission and mission.leader.actor == third.actor
@@ -13225,7 +13225,7 @@ local function probeSplitScreenLoaded(current)
                 .. " getPlayer=" .. tostring(eventPlayer == Harness.player)
                 .. " tickSingleton=" .. tostring(Harness.splitTickSingleton))
     end
-    local bridgeReady, bridgeReason = SurvivorCompanion.Actor.checkBridge(true)
+    local bridgeReady, bridgeReason = LivingFellows.Actor.checkBridge(true)
     if cold then
         check("cold_companion_bridge_available", bridgeReady == true,
             "bridge=" .. tostring(bridgeReady) .. " reason=" .. tostring(bridgeReason))
@@ -13245,7 +13245,7 @@ local function probeSplitScreenLoaded(current)
 end
 
 function Harness.probeFishingBank(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local actor = Harness.leader or Harness.splitObserver
     if Harness.phase == "fishing_find_bank" then
         local cell, originX, originY = getWorld():getCell(),
@@ -13510,7 +13510,7 @@ local function probeSplitScreenSimulation(current)
 end
 
 function Harness.probeColdRestartRecovery(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local candidate = Harness.coldRestartCandidate
     local saved = SC.Persistence.lastDocument()
@@ -13588,7 +13588,7 @@ function Harness.probeColdRestartRecovery(current)
 end
 
 function Harness.probeColdRestartCrashSave(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local temporary = mission and mission.lastBootstrapActor
     local slot = getSpecificPlayer(1)
@@ -13630,7 +13630,7 @@ function Harness.probeColdRestartCrashSave(current)
 end
 
 function Harness.probeColdRestartLfFirstSave(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local leader = mission and mission.leader and mission.leader.actor
     local ready = mission ~= nil and mission.restoring ~= true
@@ -13688,7 +13688,7 @@ function Harness.probeColdRestartCrashCapture(current)
         and current - Harness.phaseStartedAt >= 2000 then
         writeSignal(SPLIT_CRASH_READY_FILE, {
             "ready=true", "slotSqlId="
-                .. tostring(SurvivorCompanion.ExpeditionPrototype.current().slotSqlId),
+                .. tostring(LivingFellows.ExpeditionPrototype.current().slotSqlId),
         })
         setPhase("split_restart_crash_hold", current)
     elseif current - Harness.phaseStartedAt > 15000 then
@@ -13712,7 +13712,7 @@ end
 
 function Harness.probeColdRestartHandoffWait(current)
     if current - Harness.phaseStartedAt < 2000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local leader = Harness.coldRestoredLeader
     local valid, reason = SC.Actor.validateNative(leader)
@@ -13858,7 +13858,7 @@ local function companionName(actor)
 end
 
 local function describeMedical(actor)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local ok, a = pcall(SC.Medical.assess, actor)
     if not ok or type(a) ~= "table" then return "assess_failed", nil end
     local bandages, clothing = 0, 0
@@ -13884,7 +13884,7 @@ local function describeMedical(actor)
 end
 
 local function medicalProbe(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.medicalTarget == nil and Harness.medicalDone ~= true then
         local living = (SC.Registry and type(SC.Registry.living) == "function"
             and SC.Registry.living()) or {}
@@ -13998,17 +13998,17 @@ end
 -- observer's camp, photographs the client, then presses End again. The cloned
 -- save's own base is used when the observer stands in it; otherwise a small
 -- disposable camp is laid out around the observer in the clone.
-Harness.BASE_LAYOUT_READY_FILE = "SurvivorCompanionHarness/base-layout-ready.txt"
-Harness.BASE_LAYOUT_VISIBLE_FILE = "SurvivorCompanionHarness/base-layout-visible.txt"
-Harness.BASE_LAYOUT_CAPTURED_FILE = "SurvivorCompanionHarness/base-layout-captured.txt"
-Harness.COMPANION_INVENTORY_READY_FILE = "SurvivorCompanionHarness/companion-inventory-ready.txt"
-Harness.COMPANION_INVENTORY_CAPTURED_FILE = "SurvivorCompanionHarness/companion-inventory-captured.txt"
+Harness.BASE_LAYOUT_READY_FILE = "LivingFellowsHarness/base-layout-ready.txt"
+Harness.BASE_LAYOUT_VISIBLE_FILE = "LivingFellowsHarness/base-layout-visible.txt"
+Harness.BASE_LAYOUT_CAPTURED_FILE = "LivingFellowsHarness/base-layout-captured.txt"
+Harness.COMPANION_INVENTORY_READY_FILE = "LivingFellowsHarness/companion-inventory-ready.txt"
+Harness.COMPANION_INVENTORY_CAPTURED_FILE = "LivingFellowsHarness/companion-inventory-captured.txt"
 
 function Harness.beginCompanionInventory(current)
     -- Let the cloned save restore and the initial window sweep finish before
     -- opening a real native companion's inventory in the player's loot pane.
     if current - Harness.startedAt < 22000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local actor = Harness.inventoryActor
     if actor == nil and Harness.inventoryTicket ~= nil then
         local status
@@ -14151,7 +14151,7 @@ end
 -- player. Its SeatingManager height makes a premature getup look like a fall.
 function Harness.beginFurniturePose(current)
     if current - Harness.phaseStartedAt < 3000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local px, py, pz = position(Harness.player)
     if px == nil then result("FAIL", "furniture_fixture", "observer position missing")
@@ -14232,7 +14232,7 @@ function Harness.beginFurniturePose(current)
 end
 
 function Harness.probeFurniturePose(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.phase == "furniture_pose_spawn" then
         local actor, reason = SC.Actor.pollSpawn(Harness.poseTicket)
         if not actor then
@@ -14333,7 +14333,7 @@ end
 -- start the ordinary game-clock sleep in a disposable copy of the save.
 function Harness.beginSleepProbe(current)
     if current - Harness.phaseStartedAt < 3000 then return end
-    local SC, player = SurvivorCompanion, Harness.player
+    local SC, player = LivingFellows, Harness.player
     local U = SC.GameplayUtil
     local px, py, pz = position(player)
     if px == nil then
@@ -14420,7 +14420,7 @@ end
 function Harness.clearSleepRoute(actor)
     local moved = 0
     local x, y = actor:getX(), actor:getY()
-    for _, record in ipairs(SurvivorCompanion.Registry.records() or {}) do
+    for _, record in ipairs(LivingFellows.Registry.records() or {}) do
         local other = record.actor
         if other and other ~= actor and math.abs(other:getX() - x) <= 12
             and math.abs(other:getY() - y) <= 12 then
@@ -14434,7 +14434,7 @@ function Harness.clearSleepRoute(actor)
 end
 
 function Harness.probeSleep(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.phase == "sleep_probe_spawn" then
         local actor, reason = SC.Actor.pollSpawn(Harness.sleepTicket)
         if not actor then
@@ -14717,7 +14717,7 @@ end
 
 function Harness.beginVehiclePassenger(current)
     if current - Harness.phaseStartedAt < 3000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local px, py, pz = position(Harness.player)
     if px == nil or math.floor(pz or 0) ~= 0 then
@@ -14849,7 +14849,7 @@ function Harness.beginVehiclePassenger(current)
 end
 
 function Harness.probeVehiclePassenger(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.phase == "vehicle_passenger_spawn" then
         local actor, reason = SC.Actor.pollSpawn(Harness.passengerTicket)
         if not actor then
@@ -14987,7 +14987,7 @@ end
 -- A successful job must reach native chopping from a non-tree approach tile.
 function Harness.probeWoodcutter(current)
     if current - Harness.phaseStartedAt < 4000 then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     if not Harness.woodActor then
         for _, record in ipairs(SC.Registry.records() or {}) do
@@ -15076,7 +15076,7 @@ end
 
 function Harness.probePostedStream(current)
     if current - Harness.phaseStartedAt < 7000 then return end
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     for _, record in ipairs(SC.Registry.records() or {}) do
         local actor = record.actor
         local name = actor and tostring(U.nameOf(actor) or "") or ""
@@ -15124,7 +15124,7 @@ end
 
 function Harness.probePostedStreamFar(current)
     if current - Harness.phaseStartedAt < 14000 then return end
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local actor = Harness.postedActor
     local px, py = position(Harness.player)
     local ax, ay = position(actor)
@@ -15152,7 +15152,7 @@ end
 
 function Harness.probePostedStreamBand(current)
     if current - Harness.phaseStartedAt < 15000 then return end
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local actor = Harness.postedActor
     local px, py = position(Harness.player)
     local id = SC.Registry.idOf(actor)
@@ -15199,7 +15199,7 @@ end
 
 function Harness.probePostedStreamReturn(current)
     if current - Harness.phaseStartedAt < 15000 then return end
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local actor = Harness.postedActor
     local x, y, z = position(actor)
     local px, py = position(Harness.player)
@@ -15234,7 +15234,7 @@ function Harness.probePostedStreamReturn(current)
 end
 
 function Harness.nearestContainer(x, y, z, radius)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local best, bestDistance
     for dx = -radius, radius do
         for dy = -radius, radius do
@@ -15254,7 +15254,7 @@ function Harness.nearestContainer(x, y, z, radius)
 end
 
 function Harness.layOutBaseFixture(x, y, z)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local function square(dx, dy) return U.gridSquare(x + dx, y + dy, z) end
     SC.BaseLife.reset()
@@ -15282,7 +15282,7 @@ function Harness.layOutBaseFixture(x, y, z)
 end
 
 function Harness.beginBaseLayout(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     -- Persistence restores the save's base after the runtime starts. Wait for it
     -- (bounded) so an existing base is never mistaken for a missing one.
     local restored = false
@@ -15352,14 +15352,14 @@ function Harness.beginBaseLayout(current)
 end
 
 function Harness.probeBaseLayout(current)
-    local status = SurvivorCompanion.BaseVisuals.status() or {}
+    local status = LivingFellows.BaseVisuals.status() or {}
     -- Some offline clients never deliver the injected Insert key to Lua even
     -- though the foreground window accepts it. Exercise the overlay itself
     -- after a short grace period so the visual capture can still proceed.
     if status.enabled ~= true and not Harness.baseLayoutShown
         and current - Harness.phaseStartedAt > 3500 then
-        SurvivorCompanion.BaseVisuals.setEnabled(true)
-        status = SurvivorCompanion.BaseVisuals.status() or {}
+        LivingFellows.BaseVisuals.setEnabled(true)
+        status = LivingFellows.BaseVisuals.status() or {}
         Harness.baseLayoutDirectFallback = true
     end
     if status.enabled == true then
@@ -15381,8 +15381,8 @@ function Harness.probeBaseLayout(current)
         -- The runner pressed Insert again after its capture, so the overlay hides.
         if Harness.baseLayoutDirectFallback and status.enabled == true
             and current - Harness.baseLayoutCapturedAt > 1000 then
-            SurvivorCompanion.BaseVisuals.setEnabled(false)
-            status = SurvivorCompanion.BaseVisuals.status() or {}
+            LivingFellows.BaseVisuals.setEnabled(false)
+            status = LivingFellows.BaseVisuals.status() or {}
         end
         if status.enabled ~= true or current - Harness.baseLayoutCapturedAt > 5000 then
             check("base_layout_overlay", Harness.baseLayoutShown and Harness.baseLayoutDrawn
@@ -15405,7 +15405,7 @@ end
 -- Focused native cooking probe. It uses a disposable cloned save and real
 -- timed actions; the Chef controller itself is covered by chef_harness.lua.
 function Harness.probeChefRecipes(current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local inventory = Harness.player:getInventory()
     local function itemOf(kind)
         local items = inventory:getItems()
@@ -15708,9 +15708,9 @@ local function probeUIMenus(current)
             getCore():TakeFullScreenshot(name)
         end)
         check("ui_menu_screenshot_" .. tab, captured, tostring(reason))
-        if tab == "base" and SurvivorCompanion.UI.instance
-            and SurvivorCompanion.UI.instance.detail then
-            local panel = SurvivorCompanion.UI.instance.detail.content
+        if tab == "base" and LivingFellows.UI.instance
+            and LivingFellows.UI.instance.detail then
+            local panel = LivingFellows.UI.instance.detail.content
             panel:setYScroll(-math.max(0,
                 panel:getScrollHeight() - panel:getHeight()))
             setPhase("ui_menu_capture_bottom", current)
@@ -15731,7 +15731,7 @@ local function probeUIMenus(current)
         setPhase("ui_menu_probe", current)
         return
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if Harness.uiMenuCompanionId == nil then
         for _, record in ipairs(SC.Registry.snapshot() or {}) do
             if record.actor and record.recruited == true then
@@ -16053,7 +16053,7 @@ Harness.milliSignals = { write = writeSignal, exists = fileExists }
 -- standing inside each other (closer than 0.45 tiles on one floor); every
 -- fifteen seconds it prints where each one is and what it is doing.
 function Harness.restartChefForObservation()
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     if not base then
         result("FAIL", "chef_restart_base", "no active camp in cloned save")
@@ -16106,7 +16106,7 @@ function Harness.restartChefForObservation()
 end
 
 function Harness.observeSample(current, report)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local observe = Harness.observe
     local actors = {}
@@ -16492,7 +16492,7 @@ local function tick()
         Harness.probeUIMenus(current)
     elseif Harness.phase == "fishing_map_list" then
         if current - Harness.phaseStartedAt < 4000 then return end
-        local banks, reason, total = SurvivorCompanion.Fishing.bankCandidates(
+        local banks, reason, total = LivingFellows.Fishing.bankCandidates(
             Harness.player, 1000, 32, 0, true)
         local mapped
         for _, row in ipairs(banks or {}) do
@@ -16520,7 +16520,7 @@ local function tick()
         local function waterAt(tx, ty)
             local square = cell and cell:getGridSquare(tx, ty, 0)
             if not square then return "unloaded" end
-            return tostring(SurvivorCompanion.Topology.squareIsWater(square))
+            return tostring(LivingFellows.Topology.squareIsWater(square))
         end
         local detail = "site=" .. x .. ":" .. y
             .. " tile=" .. waterAt(x, y)
@@ -16636,7 +16636,7 @@ local function tick()
         or Harness.phase == "alife_shell_wait" or Harness.phase == "alife_damage" then
         Harness.probeALifeDamage(current)
     elseif Harness.phase == "place_metadata_probe" then
-        local places = SurvivorCompanion.ExpeditionPlaces
+        local places = LivingFellows.ExpeditionPlaces
         local world = type(getWorld) == "function" and getWorld() or nil
         local grid = world and world:getMetaGrid() or nil
         check("place_meta_grid_available", grid ~= nil,
@@ -16685,7 +16685,7 @@ local function tick()
             candidates ~= nil and known ~= nil and #known < #candidates,
             "known=" .. tostring(known and #known)
                 .. " metadata=" .. tostring(candidates and #candidates))
-        local config = SurvivorCompanion.Config
+        local config = LivingFellows.Config
         check("place_scope_defaults_all_nearby",
             config.get("expeditionDestinationScope") == "all_nearby",
             "scope=" .. tostring(config.get("expeditionDestinationScope")))
@@ -16738,7 +16738,7 @@ local function tick()
                 for y = unknownPlace.bounds.y, unknownPlace.bounds.y2 do
                     local square = cell:getGridSquare(x, y, 0)
                     if square ~= nil and square:getRoom() ~= nil
-                        and SurvivorCompanion.GameplayUtil.isSquareFree(square) then
+                        and LivingFellows.GameplayUtil.isSquareFree(square) then
                         interiorSquares[#interiorSquares + 1] = square
                     end
                 end
@@ -16755,7 +16755,7 @@ local function tick()
             local interiorPath, interiorGoal, pathReason
             for index = 1, math.min(12, #interiorSquares) do
                 local square = interiorSquares[index]
-                local path, reason = SurvivorCompanion.Navigation.findPath(
+                local path, reason = LivingFellows.Navigation.findPath(
                     Harness.player:getCurrentSquare(), square,
                     { actor = Harness.player, nodeBudget = 1800 })
                 if path ~= nil then
@@ -16843,7 +16843,7 @@ local function tick()
                 .. tostring(distantApproaches))
         setPhase("finish", current)
     elseif Harness.phase == "performance_baseline_wait" then
-        local records = #SurvivorCompanion.Registry.records()
+        local records = #LivingFellows.Registry.records()
         local target = tonumber(Harness.config.performance_population_target) or 4
         local elapsed = current - Harness.phaseStartedAt
         local timeout = target > 4 and 120000 or 25000
@@ -16857,7 +16857,7 @@ local function tick()
         end
         if Harness.phase == "performance_baseline_wait" and elapsed >= timeout then
             local ticket = Harness.performanceScaleTicket
-            if ticket then pcall(SurvivorCompanion.Actor.cancelSpawn, ticket) end
+            if ticket then pcall(LivingFellows.Actor.cancelSpawn, ticket) end
             result("FAIL", "performance_scale_timeout",
                 "records=" .. tostring(records) .. " target=" .. tostring(target))
             setPhase("finish", current)
@@ -16870,10 +16870,10 @@ local function tick()
             if Harness.phase ~= "performance_warmup" then return end
             if elapsed >= 120000 then
                 local ticket = Harness.performanceScaleTicket
-                if ticket then pcall(SurvivorCompanion.Actor.cancelSpawn, ticket) end
+                if ticket then pcall(LivingFellows.Actor.cancelSpawn, ticket) end
                 result("FAIL", "performance_scale_timeout",
                     "remote=true records="
-                        .. tostring(#SurvivorCompanion.Registry.records())
+                        .. tostring(#LivingFellows.Registry.records())
                         .. " target=" .. tostring(target))
                 setPhase("finish", current)
                 return
@@ -16884,11 +16884,11 @@ local function tick()
             local teamIds = {}
             for _, record in ipairs(team) do teamIds[record.id] = true end
             local extras, independent = 0, true
-            for _, record in ipairs(SurvivorCompanion.Registry.records()) do
+            for _, record in ipairs(LivingFellows.Registry.records()) do
                 if not teamIds[record.id] then
                     extras = extras + 1
                     independent = independent
-                        and not SurvivorCompanion.ExpeditionPrototype.isMember(record.actor)
+                        and not LivingFellows.ExpeditionPrototype.isMember(record.actor)
                 end
             end
             if not check("performance_scale_remote_distribution",
@@ -17055,11 +17055,11 @@ local function tick()
             Harness.entryWindowsRetried = true
             closeEntryWindows("observe_wait")
         end
-        local records = #SurvivorCompanion.Registry.records()
+        local records = #LivingFellows.Registry.records()
         local waited = current - Harness.phaseStartedAt
         if (records > 0 and waited >= 5000) or waited >= 30000 then
             if Harness.config.restart_chef_before_observe == "true" then
-                local base = SurvivorCompanion.BaseLife.active()
+                local base = LivingFellows.BaseLife.active()
                 local blockedCook = false
                 for _, job in ipairs(base and base.jobs or {}) do
                     if job.type == "cook" and job.state == "blocked" then
@@ -17073,11 +17073,11 @@ local function tick()
                 Harness.restartChefForObservation()
             end
             if Harness.config.observe_menus_closed == "true" then
-                SurvivorCompanion.UI.close()
-                local terminal = SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window
+                LivingFellows.UI.close()
+                local terminal = LivingFellows.Terminal and LivingFellows.Terminal.window
                 if terminal then terminal:close() end
-                check("observe_menus_closed", not SurvivorCompanion.UI.isOpen()
-                    and not (SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window),
+                check("observe_menus_closed", not LivingFellows.UI.isOpen()
+                    and not (LivingFellows.Terminal and LivingFellows.Terminal.window),
                     "companion panel and computer terminal closed before sampling")
             end
             Harness.observe = {
@@ -17088,8 +17088,8 @@ local function tick()
                 companions = 0,
             }
             if Harness.config.observe_inbound_return_fault == "true" then
-                local mission = SurvivorCompanion.ExpeditionPrototype
-                    and SurvivorCompanion.ExpeditionPrototype.current()
+                local mission = LivingFellows.ExpeditionPrototype
+                    and LivingFellows.ExpeditionPrototype.current()
                 if not mission or not mission.scout
                     or mission.scout.phase ~= "inbound"
                     or not mission.leader or not mission.leader.actor
@@ -17111,7 +17111,7 @@ local function tick()
             end
             result("PASS", "observe_started", "records=" .. tostring(records)
                 .. " observe_ms=" .. tostring(Harness.config.observe_ms))
-            if SCSoakAudit then SCSoakAudit.start(SurvivorCompanion) end
+            if SCSoakAudit then SCSoakAudit.start(LivingFellows) end
             if (tonumber(Harness.config.observe_speed) or 1) > 1 then
                 local speed = tonumber(Harness.config.observe_speed)
                 local speedOkay, speedReason = pcall(function()
@@ -17145,8 +17145,8 @@ local function tick()
             Harness.observeSample(current, true)
             if observe.inboundFault then
                 local actor = observe.inboundFault.actor
-                local mission = SurvivorCompanion.ExpeditionPrototype
-                    and SurvivorCompanion.ExpeditionPrototype.current()
+                local mission = LivingFellows.ExpeditionPrototype
+                    and LivingFellows.ExpeditionPrototype.current()
                 local clear = not mission or mission.technicalIssue == nil
                 local gathered, distanceHome = true, math.huge
                 if mission and mission.scout and mission.scout.returnPoint then
@@ -17175,17 +17175,17 @@ local function tick()
                 observe.companions, observe.samples, observe.stackedSamples,
                 observe.maxStacked, observe.unstackMoves, observe.longestStackMs,
                 tostring(observe.longestStackPair)))
-            local performance = SurvivorCompanion.Performance
+            local performance = LivingFellows.Performance
             if Harness.config.observe_menus_closed == "true" then
-                check("observe_menus_stayed_closed", not SurvivorCompanion.UI.isOpen()
-                    and not (SurvivorCompanion.Terminal and SurvivorCompanion.Terminal.window),
+                check("observe_menus_stayed_closed", not LivingFellows.UI.isOpen()
+                    and not (LivingFellows.Terminal and LivingFellows.Terminal.window),
                     "no companion panel or terminal reopened during observation")
             end
             if performance and type(performance.summary) == "function" then
                 print("SC_OBSERVE|performance|" .. string.gsub(performance.summary(),
                     "\n", "\nSC_OBSERVE|performance|"))
             end
-            if SCSoakAudit then SCSoakAudit.finish(SurvivorCompanion) end
+            if SCSoakAudit then SCSoakAudit.finish(LivingFellows) end
             pcall(function() getCore():TakeFullScreenshot(
                 Harness.config.run_id .. "-observe-end") end)
             setPhase("finish", current)
@@ -17202,7 +17202,7 @@ local function tick()
         if spawnState == false then setPhase("finish", current)
         elseif spawnState == true then setPhase("validate_actor", current) end
     elseif Harness.phase == "poll_spawn" then
-        local actor, reason = SurvivorCompanion.Actor.pollSpawn(Harness.spawnTicket)
+        local actor, reason = LivingFellows.Actor.pollSpawn(Harness.spawnTicket)
         if actor ~= nil then
             Harness.actor = actor
             result("PASS", "deferred_native_spawn", "spawn completed after Lua-to-Java frame unwound")
@@ -17215,7 +17215,7 @@ local function tick()
             setPhase("finish", current)
         end
     elseif Harness.phase == "validate_actor" then
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         local valid, reason = SC.Actor.validateNative(Harness.actor)
         check("native_actor_validation", valid == true, reason)
         check("registry_ownership", SC.Registry.idOf(Harness.actor) ~= nil
@@ -17245,7 +17245,7 @@ local function tick()
                 .. string.format("%.2f->%.2f", Harness.followInitialDistance, currentDistance))
             setPhase("begin_native_locomotion", current)
         elseif current - Harness.phaseStartedAt > 12000 then
-            local SC = SurvivorCompanion
+            local SC = LivingFellows
             local record = SC.Registry.byId(SC.Registry.idOf(Harness.actor))
             local runtime = record and record.runtime or {}
             local decision = SC.Decision.peek(Harness.actor) or {}
@@ -17371,7 +17371,7 @@ function Harness.safeTick()
 end
 
 function Harness.restoreObserver(observer)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local dead, checked = U.call(observer, "isDead")
     if not checked or dead ~= false then return false, "observer dead or unavailable; use a fresh cloned run" end
     local body, bodyOk = U.call(observer, "getBodyDamage")
@@ -17407,7 +17407,7 @@ function Harness.restoreObserver(observer)
 end
 
 function Harness.observerSnapshot(observer)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local body = U.call(observer, "getBodyDamage")
     local function value(object, method) return tostring((U.call(object, method))) end
     return "phase=" .. tostring(Harness.phase) .. " dead=" .. value(observer, "isDead")
@@ -17470,8 +17470,8 @@ local function onGameStart()
         or getGameSpeed() > 0, "game_speed=" .. tostring(type(getGameSpeed) == "function"
         and getGameSpeed() or "unavailable"))
     local loaded, failure = pcall(require, "SCBootstrap")
-    check("companion_bootstrap_loaded", loaded == true and type(SurvivorCompanion) == "table", failure)
-    local SC = SurvivorCompanion
+    check("companion_bootstrap_loaded", loaded == true and type(LivingFellows) == "table", failure)
+    local SC = LivingFellows
     if Harness.config.cold_restart_crash_probe == "true" then
         SC.ExpeditionPrototype.holdColdHandoffForTest(true)
     end

@@ -3,7 +3,7 @@
 -- on disk between the player's pickup and the farmer's next update.
 require "TimedActions/Animals/ISHutchGrabEgg"
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B, W, A, U = SC.BaseLife, SC.FarmWork, SC.AnimalWork, SC.GameplayUtil
 local s = { phase = "menu", notes = {}, modals = {} }
 

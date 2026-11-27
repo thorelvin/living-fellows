@@ -10,8 +10,8 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Core = Join-Path $ProjectRoot 'tests\core'
 $Gameplay = Join-Path $ProjectRoot 'tests\gameplay'
 $Essential = Join-Path $ProjectRoot 'tests\essential'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 . (Join-Path $Essential 'Gameplay.ps1')
 $logs = Join-Path $ProjectRoot ('build\test-results\stay-with-me-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
@@ -91,10 +91,10 @@ foreach ($mutation in $mutations) {
 $fixtures = Join-Path $logs 'native-fixtures'
 New-Item -ItemType Directory -Path $fixtures -Force | Out-Null
 $fixtureSources = @(Get-ChildItem (Join-Path $ProjectRoot 'tests\fixtures\stay-with-me') -Filter '*.java' -Recurse | ForEach-Object FullName)
-$nativeTest = Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStayWithMeProtectionTest.java'
+$nativeTest = Join-Path $ProjectRoot 'bridge\src\test\java\livingfellows\bridge\SCStayWithMeProtectionTest.java'
 & $javac --release 17 -cp $native -d $fixtures @fixtureSources $nativeTest
 if ($LASTEXITCODE -ne 0) { throw 'SWM native fixture compilation failed' }
-$nativeClass = 'survivorcompanion.bridge.SCStayWithMeProtectionTest'
+$nativeClass = 'livingfellows.bridge.SCStayWithMeProtectionTest'
 Require-SwmRun @('-cp', "$fixtures;$native", $nativeClass) 'native-positive'
 foreach ($mutation in @(
     @{ Label='native-filter-negative'; File='SCNativeCompanion.java';
@@ -105,7 +105,7 @@ foreach ($mutation in @(
         Needle='Object owns = adapter.rawget("owns");'; Replacement='Object owns = null;';
         Expected='unmarked API-owned client/server mirrors' }
 )) {
-    $path = Join-Path $ProjectRoot ('bridge\src\main\java\survivorcompanion\bridge\' + $mutation.File)
+    $path = Join-Path $ProjectRoot ('bridge\src\main\java\livingfellows\bridge\' + $mutation.File)
     $copy = Write-SwmMutation $path $mutation.Needle $mutation.Replacement $mutation.Label
     $classes = Join-Path (Split-Path -Parent $copy) 'classes'
     New-Item -ItemType Directory -Path $classes -Force | Out-Null

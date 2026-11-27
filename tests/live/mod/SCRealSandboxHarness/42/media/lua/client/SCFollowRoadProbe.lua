@@ -29,7 +29,7 @@ local function roadName(square)
 end
 
 local function clearCorridor(startGap)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local list = select(1, SC.GameplayUtil.call(getCell(), "getZombieList"))
     local count = list and tonumber(tostring(select(1,
         SC.GameplayUtil.call(list, "size")))) or 0
@@ -54,7 +54,7 @@ local function clearCorridor(startGap)
 end
 
 local function sample(harness, current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local run = harness.followRoad
     local px, py = xy(harness.player)
     if not px then return false end
@@ -159,7 +159,7 @@ local function sample(harness, current)
 end
 
 local function vehicleStep(H, current, check, result, setPhase)
-    local SC, run = SurvivorCompanion, H.followRoad
+    local SC, run = LivingFellows, H.followRoad
     if H.phase == "follow_road_car_prepare" then
         local square = getCell():getGridSquare(math.floor(START_X + DISTANCE - 5),
             math.floor(ROAD_Y + 2), 0)
@@ -254,7 +254,7 @@ end
 
 function Probe.step(harness, current, check, result, setPhase)
     local phase = harness.phase
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if phase:find("follow_road_car_", 1, true) == 1 then
         return vehicleStep(harness, current, check, result, setPhase)
     end

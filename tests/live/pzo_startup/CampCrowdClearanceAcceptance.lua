@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real companions and full-square furniture in a disposable camp. Pause only
 -- the decision service so the requester's next turn can arrive late.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local s = { phase="menu", modals={}, notes={} }
 local U, N = SC.GameplayUtil, SC.Navigation
 

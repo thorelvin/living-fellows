@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $ProjectRoot=Split-Path -Parent $PSScriptRoot
-$baselineBridge=Join-Path $BaselineProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$baselineBridge=Join-Path $BaselineProjectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
 foreach($path in @($SeedSave,$CandidateBridge,$baselineBridge)) {
     if(-not(Test-Path -LiteralPath $path)) { throw "Missing acceptance input: $path" }
 }
@@ -84,7 +84,7 @@ for($repeat=1;$repeat -le $Repeats;$repeat++) {
             (ConvertTo-Json -InputObject $records -Depth 4),[Text.UTF8Encoding]::new($false))
         Write-Output "TURN_LIVE_RESULT $label exit=$code run=$run"
         if($run) {
-            $events=Join-Path $run 'cache\Lua\SurvivorCompanionHarness\events.log'
+            $events=Join-Path $run 'cache\Lua\LivingFellowsHarness\events.log'
             if(Test-Path -LiteralPath $events) {
                 Get-Content -LiteralPath $events | Where-Object { $_ -match '^(PASS|FAIL)\|turn_' }
             }

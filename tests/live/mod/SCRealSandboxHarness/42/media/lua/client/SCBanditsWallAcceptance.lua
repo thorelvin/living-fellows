@@ -73,7 +73,7 @@ local function finish(H, current, check, result, setPhase, okay, why)
     setPhase("finish", current)
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.banditsWall
+    local SC, f = LivingFellows, H.banditsWall
     if not f then
         if current - H.startedAt < 10000 or not SC.State.active then return end
         if not check("wall_adapter_active", SC.BanditsAdapter.status().active, SC.BanditsAdapter.status().reason) then

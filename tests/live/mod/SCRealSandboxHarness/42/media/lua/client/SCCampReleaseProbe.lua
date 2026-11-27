@@ -2,7 +2,7 @@
 -- Real camp AI stays enabled. Controlled vitals/items exist only in this clone.
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 local P={} SCRealSandboxHarnessProbes.SCCampReleaseProbe=P
-local function S() return SurvivorCompanion end
+local function S() return LivingFellows end
 local function stat(a,k) return a:getStats():get(CharacterStat[k]) end
 local function set(a,k,v) a:getStats():set(CharacterStat[k],v) end
 local function shot(H,n) getCore():TakeFullScreenshot(H.config.run_id..'-camp-'..n..'.png') end

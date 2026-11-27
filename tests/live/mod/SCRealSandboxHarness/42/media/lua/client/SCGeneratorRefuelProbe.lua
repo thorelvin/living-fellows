@@ -49,7 +49,7 @@ local function generatorSquare(SC, base)
     end
 end
 local function stageWorker(H, actor, target, why)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local at, squares = SC.GameplayUtil.directInteractionAccess(actor, target)
     if at then return true end
     local square = squares and squares[1]
@@ -60,7 +60,7 @@ local function stageWorker(H, actor, target, why)
         x = math.floor(x) + 0.5, y = math.floor(y) + 0.5, z = math.floor(z) })
 end
 local function prepare(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local base = SC.BaseLife.active()
     local worker = base and workerNearBase(SC) or nil
     if base and not worker and not H.generatorRefuelTravelAt then
@@ -172,7 +172,7 @@ local function prepare(H, current, check, result, setPhase)
     setPhase("generator_refuel_work", current)
 end
 local function progress(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.generatorRefuel
+    local SC, f = LivingFellows, H.generatorRefuel
     if current - (f.nextWorkAt or 0) >= 300 then
         f.nextWorkAt = current
         f.handled, f.reason = SC.BaseWork.update(f.worker.actor, H.player, {})

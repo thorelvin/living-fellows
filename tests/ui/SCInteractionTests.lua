@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local interaction = assert(SurvivorCompanion.Interaction)
+local interaction = assert(LivingFellows.Interaction)
 local player = {}
 local row = { id = "sam", actor = {}, alive = true, available = true,
     recruited = true, distance = 2 }
@@ -9,12 +9,12 @@ assert(#interaction.quickOrders == 5)
 assert(interaction.quickOrders[5] == "send_home"
     and interaction.descriptor("send_home").kind == "sheet")
 assert(interaction.availability(row, "doing", player))
-SurvivorCompanion.GameplayUtil = {
+LivingFellows.GameplayUtil = {
     sameFloor = function() return false end,
 }
 local sameFloorAllowed, floorReason = interaction.availability(row, "doing", player)
 assert(not sameFloorAllowed and floorReason == "UI_SC_Talk_DifferentFloor")
-SurvivorCompanion.GameplayUtil = nil
+LivingFellows.GameplayUtil = nil
 assert(interaction.reasonText("conversation_partner_too_far") ==
     "UI_SC_Disabled_TooFar:16")
 assert(interaction.reasonText("conversation_unknown_interruption") == "UI_SC_Talk_Cancelled",

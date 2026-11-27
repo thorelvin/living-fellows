@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Wade, F = SC.OddballWade, SC.WadeFixture
 local group, wade, player, witness = F.group, F.wade, F.player, F.witness
 local story = group.oddball

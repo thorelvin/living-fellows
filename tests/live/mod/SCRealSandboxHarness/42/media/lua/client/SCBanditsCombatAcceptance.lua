@@ -5,7 +5,7 @@ local Probe = {}
 local unpackValues = unpack or table.unpack
 local function pack(...) return { n = select("#", ...), ... } end
 local function call(actor, key, ...)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local okay, callback = SC.Call.resolve(actor, key)
     if not okay then return nil end
     local safe, result = pcall(callback, actor, ...)
@@ -73,7 +73,7 @@ local function observeFirearms(f)
         local before, requests, armorBefore
         if matched then
             before = partsHealth(f.actor)
-            requests = SurvivorCompanion.BanditsAdapter.status().bulletHits
+            requests = LivingFellows.BanditsAdapter.status().bulletHits
             if f.armor then armorBefore = f.armorModule.lfSnapshot(f.armor) end
         end
         local values = pack(pcall(original, attacker, task, ...))
@@ -84,7 +84,7 @@ local function observeFirearms(f)
         end
         if matched then
             local after = partsHealth(f.actor)
-            local status = SurvivorCompanion.BanditsAdapter.status()
+            local status = LivingFellows.BanditsAdapter.status()
             if f.armor then
                 f.armorModule.observeShot(f, armorBefore, f.armorModule.lfSnapshot(f.armor), requests, status, before, after)
             end
@@ -226,7 +226,7 @@ local function consumeImpact(f)
     return false
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local regular = H.config.companion_firearms_probe == "true"
     local f = H.banditsAcceptance
     if not f then

@@ -1,0 +1,86 @@
+Living Fellows 0.27.102 - release
+
+FIELD GUIDE
+https://thorelvin.github.io/living-fellows/
+Quick reference: https://thorelvin.github.io/living-fellows/quick-reference.html
+
+You won't die... alone.
+Companions, survivor households and working bases for Project Zomboid 42.22.2.
+Single-player only.
+
+TAKE THE OTHERS WITH YOU
+- The Handover: after your death, create a fresh survivor at base or permanently
+  play a living recruit where they are, keeping their skills, gear and wounds.
+  Camp duties and bonds carry on. Separated followers seek shelter and radio for
+  help when real working equipment connects them to you.
+- Expeditions: send one to four companions to scout, search, fish or collect
+  wood. Walk or drive, watch the leader's view and bring supplies home.
+- Base Watch: leave an indoor resident on watch so the camp keeps working
+  while you travel. Base Watch and expeditions share one companion view.
+- Markus's taxi: call from a working walkie-talkie, get picked up on the road
+  and choose a destination on the map. Bring jewelry for the fare.
+- Persistent companions: real inventories, needs, wounds, relationships,
+  memories and private diaries. Death is permanent.
+- Living bases: assign jobs, sort loot, farm, cook, build and collect wood.
+  Blocked jobs retry automatically, with manual Retry still available.
+- Chicken care: Farmers supply separate feed and water troughs, collect eggs,
+  open hutches after dawn and clean them using real supplies.
+- Cattle care: Farmers supply feed and water from marked Farming storage.
+  Cattle pastures support up to 1,024 tiles. Farmers borrow empty milk containers,
+  preserve a calf reserve and deliver milk to Fresh food or Regular food storage.
+- Sheep care: Farmers feed and water the flock, milk ewes with a lamb reserve,
+  shear mature sheep and gather their real wool into Crafting or General storage.
+- EMMA computers: ask about camp supplies, people, jobs and expeditions,
+  request help with confirmation, and read the previous owners' files.
+  Everything runs offline, with readable text on a full-screen 1993 terminal.
+- Households and Strange Folk: trade, requests, recruitment and people with
+  their own stories. Random eligible encounters can begin on the second day.
+
+INSTALL
+Workshop: subscribe to ZombieBuddy 2.3.3 or newer, complete its one-time loader
+setup, then enable both mods. For an existing save, use More... > Choose Mods.
+When updating an older save to 0.27.102, select Living Fellows in that save's
+mod list before playing and clear the unavailable entry from the earlier release.
+Standalone Windows: extract the whole package, close the game and run
+Install.bat. Enable Living Fellows for the game and the save. No ZombieBuddy
+is needed. Uninstall.bat removes the standalone installation.
+Use one edition at a time.
+
+GETTING STARTED
+- Press Home or click LF to open the companion panel.
+- Meet a survivor: right-click them, choose Talk to (name), then Invite to join.
+  Use Orders for behavior and Squad for groups.
+- First steps on Status follows your progress. A short reminder stays beside
+  the collapsed launcher. Dismiss it or change Show tips in Mod Options.
+- Right-click the ground: Living Fellows > Set camp core here.
+  Mark storage and assign jobs at the top of More > Base.
+- Hold keypad 1 to Peek, press keypad 2 for Watch and hold keypad 3 to Steer.
+  These keys can be rebound.
+- More > Support provides a diagnostic report if something goes wrong.
+- Pause and choose Report a Living Fellows bug to review a draft and open it on GitHub.
+
+Wood expeditions borrow a usable axe, find nearby woodland and return logs
+to permitted Log Yard, Construction or General storage. Collected, carried
+and stored counts are separate. Full storage preserves the cargo and retries
+every three minutes. Manual Retry is available.
+
+For chicken care, draw a vanilla animal zone wholly inside camp, with a hutch
+and separate feed and water troughs. Mark Farming storage for feed and farm
+equipment, Water for water containers and Tools for cleaning supplies. Farmers
+can also use suitable supplies kept in Farming. Allow food deposits. Assign a
+Farmer. The Farmer closes the hutch at night once every known bird is
+sheltered, and opens it after dawn. Late birds keep the door open. Fertilised
+eggs stay in the nest; breeding management and culling remain disabled.
+
+Storage sorting uses Tools for work equipment, Clothes for bags, Medical for
+first-aid kits, Books & magazines for maps, Weapons for gun parts and Ammunition
+for clips and ammo cases. Construction holds usable building supplies; Crafting
+holds other components. General source is intake which sorting empties. Dual-use
+hand tools already in Tools or Weapons may stay there. Full shelves keep the
+existing cargo safe rather than authorizing a move to an unrelated category.
+
+Documentation, updates and bug reports:
+https://github.com/thorelvin/living-fellows
+
+Project Zomboid belongs to The Indie Stone. This unofficial mod is not
+affiliated with or endorsed by The Indie Stone.

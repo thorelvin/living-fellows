@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Measure public expedition packing calls against the same loaded stock in
 -- each release. Only the synchronous survey is timed, before withdrawal.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", modals = {}, trials = {} }
 
 local function write(name, message)

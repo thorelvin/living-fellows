@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC_CONFIG_OLD_DEFAULTS = SC.Config.defaults
 SC_CONFIG_OLD_SECTIONS = SC.Config.sections
 local refreshed = SC.Config.refreshSandbox({ LivingFellows = {

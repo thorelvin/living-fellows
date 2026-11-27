@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Extended fares, appearance and visit combinations remain available on demand.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Booking, Cab, Fare = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares
 local X = assert(SC.TaxiTestFixture)
 local check, item, glove, trunk = X.check, X.item, X.glove, X.trunk

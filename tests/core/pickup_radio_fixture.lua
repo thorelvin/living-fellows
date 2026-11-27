@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 require=function() end
-SurvivorCompanion={}
-local SC=SurvivorCompanion
+LivingFellows={}
+local SC=LivingFellows
 local F={hooks={},transmissions=0,clock=10,computers={}}
 PICKUP_RADIO=F
 function F.check(value,message) F.checks=(F.checks or 0)+1 if not value then error("pickup radio: "..message) end end

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Feed the real camp summary from the preceding fixture to the normal panel.
-local SC, summary=SurvivorCompanion,SC_TEST_STAFFING_VIEW
+local SC, summary=LivingFellows,SC_TEST_STAFFING_VIEW
 SC.BaseLife.summary=function() return summary end
 SC.BaseLife.blueprintsVisible=function() return false end
 SC.BaseLife.canRemoveZone=function() return false,"last_base_area" end

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local checks=0
 local function check(v,message) checks=checks+1;assert(v,message) end
 local clock,hour,age=0,10,0

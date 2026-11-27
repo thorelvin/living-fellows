@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Native body semantics are separately proven by MedicalCapabilities.lua.
 -- Here exercise selection, exact resources, and interrupted redress ownership.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local M,Care,F=SC.Medical,SC.MedicalMaintenance,SC.TestFixture
 local checks=0
 local function check(value,reason) checks=checks+1;assert(value,'medical maintenance '..checks..': '..reason) end
@@ -135,7 +135,7 @@ for _,case in ipairs({
         local oldParts=patient.body.getBodyParts
         patient.body.getBodyParts=function(self) fallbackReads=fallbackReads+1;return oldParts(self) end
         if mode==1 then
-            SCBridge={getProtocol=function() return '42.22-isocompanion-37' end,
+            SCBridge={getProtocol=function() return '42.22-isocompanion-38' end,
                 fillBodyFacts=function(character,out)
                     out.health,out.infected,out.apparentInfection=100,false,0
                     out.infectionTime,out.infectionDuration,out.count=-1,-1,1

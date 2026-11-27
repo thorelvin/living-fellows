@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=PICKUP,SurvivorCompanion
+local F,SC=PICKUP,LivingFellows
 local S,check=SC.PickupService,PICKUP.check
 local followerState=SC.Commands.peek(F.follower)
 F.follower.z=1

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real utility/facts/adapters; count only ownership reads, not normal facts.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local function check(value, why)
     checks = checks + 1
     assert(value, "External human fast path " .. checks .. ": " .. why)

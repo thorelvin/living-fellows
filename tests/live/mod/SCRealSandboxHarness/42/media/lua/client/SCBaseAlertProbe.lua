@@ -460,7 +460,7 @@ local function run(H, SC, check, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "base_alert_setup" then return setup(H, SC, check, result, setPhase, current) end
     if H.phase == "base_alert_spawn" then return spawn(H, SC, check, result, setPhase, current) end
     if H.phase == "base_alert_bed" then return bed(H, SC, check, result, setPhase, current) end

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable native acceptance fixture. Production owns queues and all effects.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local function clearSupplies(actor)
     local entries = assert(SC.BandageWash.inventoryEntries(actor))
     for _, row in ipairs(entries) do

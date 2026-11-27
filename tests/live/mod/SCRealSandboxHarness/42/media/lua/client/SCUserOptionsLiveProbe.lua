@@ -10,7 +10,7 @@ local function call(object, method, ...)
 end
 
 local function spawnSquare(player)
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local x, y, z = math.floor(player:getX()), math.floor(player:getY()),
         math.floor(player:getZ())
     for radius = 1, 6 do
@@ -42,11 +42,11 @@ local function restore(H)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "user_options_setup" then
         if current - H.phaseStartedAt < 3000 then return end
         local options = PZAPI and PZAPI.ModOptions
-            and PZAPI.ModOptions:getOptions("SurvivorCompanion")
+            and PZAPI.ModOptions:getOptions("LivingFellows")
         if not check("mod_options_registered", options ~= nil,
             "Options > Mods contains Living Fellows") then
             setPhase("finish", current) return

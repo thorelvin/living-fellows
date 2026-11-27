@@ -146,7 +146,7 @@ local function prepareCleaning(H, SC, check, result)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "base_maintenance_setup" then
         local base = SC.BaseLife.active()
         local roster = SC.Registry.snapshot() or {}

@@ -33,7 +33,7 @@ function Probe.measure(actor, previous, current)
     return frame
 end
 local function observeSaved(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.facingSaved
+    local SC, f = LivingFellows, H.facingSaved
     if not f then
         if current - H.startedAt < 8000 or not SC.State.active then return end
         H.facingSaved = { primary = Shared.playerState(), started = current, actors = {} }
@@ -98,7 +98,7 @@ function Probe.step(H, current, check, result, setPhase)
         or H.config.companion_facing_mode == "both" and not H.facingSavedDone then
         return observeSaved(H, current, check, result, setPhase)
     end
-    local SC, f = SurvivorCompanion, H.facing
+    local SC, f = LivingFellows, H.facing
     if not f then
         if current - H.startedAt < 8000 or not SC.State.active or SC.Registry.count() == 0 then return end
         local primary = Shared.playerState()

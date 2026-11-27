@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.102 - Living Fellows identity
+
+- Use Living Fellows in the mod list and ZombieBuddy approval. The mod ID is `LivingFellows` and the native bridge is `LivingFellowsBridge.jar`.
+- For an existing save, select Living Fellows in its mod list before playing. The standalone installer migrates the default profile, and saved companion data stays attached to the world.
+- Native bridge protocol `42.22-isocompanion-38`.
+
 ## 0.27.101 - Mixed-threat compatibility
 
 - Let companions respond to an urgent, visible A-Life or Bandits2 hostile when the only zombies in sight are distant. Close or immediate zombie danger still takes priority.

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,F=SurvivorCompanion,BasePolicyFixture
+local SC,F=LivingFellows,BasePolicyFixture
 local M,T=SC.ExpeditionMap,SC.ExpeditionTargets
 local oldText,oldButton=SC.UI.text,ISButton
 local oldResolve=T.resolveAtPoint

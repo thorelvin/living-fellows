@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run after the native SCUIContext/medical context fixture. Exercise the real
 -- car submenu without allowing a candidate scan or route plan in construction.
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local previous = { registry = SC.Registry, commands = SC.Commands, home = SC.HomeTrip,
     homeUi = SC.UIHomeTrip, car = SC.ExpeditionCar, text = SC.UI.text,
     getNew = ISContextMenu.getNew }

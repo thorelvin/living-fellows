@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local Search,Wheel,Emma,L,S=SC.TerminalLockSearch,SC.TerminalLockWheel,SC.TerminalLockEmma,SC.TerminalLocks,SC.TerminalSystem
 local check,before=T.check,T.checks
 local old={cell=getCell,mod=ModData,sandbox=SandboxVars,registry=SC.Registry,factory=InventoryItemFactory,

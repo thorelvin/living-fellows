@@ -1,5 +1,5 @@
 -- Runs the personas in the game's own Kahlua VM. Each check is an assert, so the exit status is the verdict.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local P = SC.TerminalPersona
 local REPORT = {}
 local function print(text) REPORT[#REPORT + 1] = text end

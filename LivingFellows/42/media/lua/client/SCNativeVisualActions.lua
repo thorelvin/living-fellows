@@ -1,0 +1,211 @@
+-- SPDX-License-Identifier: MIT
+
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
+
+SC.NativeVisualActions = SC.NativeVisualActions or {}
+local Visual = SC.NativeVisualActions
+local context
+local loopedEmoteSince = setmetatable({}, { __mode = "k" })
+local LOOPED_EMOTE_DURATION_MS = { clap = 1800, surrender = 2500 }
+
+function Visual.configure(value)
+    assert(type(value) == "table", "native visual context is required")
+    context = value
+    return Visual
+end
+
+local function invoke(object, name, ...)
+    return context.invoke(object, name, ...)
+end
+
+function Visual.handSignal(actor, intent, provider)
+    local requestedEmote = intent.emote or "freeze"
+    local emote = context.emoteAliases[requestedEmote] or requestedEmote
+    if context.humanEmotes[requestedEmote] ~= true then return false, "unsupported human emote" end
+    if intent.faceTargetBeforeEmote == true then
+        local target = intent.facingTarget or intent.target
+        if target == nil then return false, "hand signal facing target is unavailable" end
+        local stopped = context.stopDirect(actor, { preservePosture = true })
+        if stopped ~= true then return false, "hand signal could not stop active movement" end
+        local facingIntent = {}
+        for key, value in pairs(intent) do facingIntent[key] = value end
+        facingIntent.action = "face_alert"
+        facingIntent.targetPosition = target
+        facingIntent.targetSquare = nil
+        local faced, facingReason = Visual.faceTarget(
+            actor, facingIntent, provider, "hand_signal_facing_started")
+        if not faced then return false, facingReason end
+    end
+    local handled, reason = context.useProvider(provider, "emote", actor, emote, intent)
+    if handled ~= nil then
+        if handled and LOOPED_EMOTE_DURATION_MS[emote] then
+            loopedEmoteSince[actor] = { emote = emote, startedAt = context.nowMs() }
+        end
+        return handled, reason
+    end
+    if not provider.directNative then return false, reason end
+    local lowered, lowerReason = context.setWeaponReady(actor, false)
+    if not lowered then return false, lowerReason end
+    local played, failure = invoke(actor, "playEmote", emote)
+    if not played then return false, failure end
+    if LOOPED_EMOTE_DURATION_MS[emote] then
+        loopedEmoteSince[actor] = { emote = emote, startedAt = context.nowMs() }
+    end
+    return true, "hand_signal_started"
+end
+
+-- Vanilla clap and surrender inherit player/emote/looped.xml. EmoteLooped
+-- does not clear EmotePlaying, and a companion cannot press the player's cancel
+-- key. Poll only the actors on the bounded runtime pulse; this also recovers a
+-- looped emote left in a loaded save by an older version of the mod.
+function Visual.releaseLoopedEmote(actor, current)
+    if actor == nil then return false, "no_actor" end
+    local emoteOk, emote = invoke(actor, "getVariableString", "emote")
+    local playingOk, playing = invoke(actor, "getVariableBoolean", "EmotePlaying")
+    if not emoteOk or not playingOk then return false, "emote_state_unavailable" end
+    local duration = LOOPED_EMOTE_DURATION_MS[emote]
+    if duration == nil or playing ~= true then
+        loopedEmoteSince[actor] = nil
+        return false, "no_looped_emote"
+    end
+    local now = tonumber(current) or context.nowMs()
+    local observed = loopedEmoteSince[actor]
+    if observed == nil or observed.emote ~= emote or now < observed.startedAt then
+        loopedEmoteSince[actor] = { emote = emote, startedAt = now }
+        return false, "looped_emote_observed"
+    end
+    if now - observed.startedAt < duration then return false, "looped_emote_active" end
+    local ended = invoke(actor, "setVariable", "EmotePlaying", false)
+    if not ended then return false, "looped_emote_release_failed" end
+    invoke(actor, "clearVariable", "emote")
+    loopedEmoteSince[actor] = nil
+    return true, "looped_emote_released"
+end
+
+-- Build 42 "Ext" idle animations (AnimSets/player/ext and sitext): a short
+-- yawn, stretch, sneeze or cough. The graph picks the seated variant itself,
+-- so a gesture never stands a sitting companion up.
+Visual.EXT_GESTURES = { Yawn = true, TiredStretch = true, Sneeze1 = true, Sneeze2 = true,
+    Cough = true }
+-- The stock voice for a sneeze or cough (VoiceMale/VoiceFemale + name); the
+-- Ext animations themselves carry no sound. Heard only; no world noise.
+Visual.EXT_VOICES = { Sneeze1 = "SneezeLight", Sneeze2 = "SneezeHeavy", Cough = "Cough" }
+
+function Visual.extGesture(actor, intent, provider)
+    local name = intent.ext
+    if Visual.EXT_GESTURES[name] ~= true then return false, "unsupported ext gesture" end
+    local handled, reason = context.useProvider(provider, "ext", actor, name, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local set, failure = invoke(actor, "setVariable", "Ext", name)
+    if not set then return false, failure end
+    local reported, reportFailure = invoke(actor, "reportEvent", "EventDoExt")
+    if not reported then return false, reportFailure end
+    local voice = Visual.EXT_VOICES[name]
+    if voice ~= nil then invoke(actor, "playerVoiceSound", voice) end
+    return true, "ext_gesture_started"
+end
+
+function Visual.roomSweep(actor, intent, provider)
+    local handled, reason = context.useProvider(provider, "look", actor, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+
+    local ready, readyReason = context.setWeaponReady(actor, intent.weaponReady == true,
+        intent.targetSquare)
+    if not ready then return false, readyReason end
+
+    local x, y = context.position(actor)
+    if x == nil then return false, "actor position is unavailable for room sweep" end
+    local forwardX, forwardY = tonumber(intent.sweepForwardX), tonumber(intent.sweepForwardY)
+    local forwardXOk, forwardYOk = context.finite(forwardX), context.finite(forwardY)
+    if not forwardXOk or not forwardYOk then
+        forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
+        forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
+    end
+    if not forwardXOk or not forwardYOk or not context.finite(forwardX)
+        or not context.finite(forwardY)
+        or (forwardX * forwardX + forwardY * forwardY) < 0.000001 then
+        forwardX, forwardY = 1, 0
+    end
+    local side = intent.sweepSide == "right" and -1 or 1
+    local lookX, lookY = -forwardY * side, forwardX * side
+    local requested, turningRequested = invoke(
+        actor, "faceLocationF", x + lookX * 2, y + lookY * 2)
+    if not requested or turningRequested ~= true then
+        return false, "native room-check facing request was rejected"
+    end
+
+    local turningOk, turning = invoke(actor, "isTurning")
+    local afterXOk, afterX = invoke(actor, "getForwardDirectionX")
+    local afterYOk, afterY = invoke(actor, "getForwardDirectionY")
+    local facing = afterXOk and afterYOk and context.finite(afterX)
+        and context.finite(afterY) and (afterX * lookX + afterY * lookY) >= 0.75
+    if (not turningOk or turning ~= true) and not facing then
+        return false, "native room-check facing did not start"
+    end
+    return true, "room_sweep_facing_started"
+end
+
+function Visual.faceTarget(actor, intent, provider, successReason)
+    local handled, reason = context.useProvider(provider, "look", actor, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local target = intent.targetPosition or intent.targetSquare or intent
+    local x, y = context.position(target)
+    if x == nil then return false, "alert facing target is unavailable" end
+    if context.centerTargetOnTile(
+        intent, intent.targetSquare ~= nil and intent.targetPosition == nil) then
+        x, y = x + 0.5, y + 0.5
+    end
+    if intent.weaponReady ~= nil then
+        local ready, readyReason = context.setWeaponReady(
+            actor, intent.weaponReady == true, target)
+        if not ready then return false, readyReason end
+    end
+    local requested, turningRequested = invoke(actor, "faceLocationF", x, y)
+    if not requested or turningRequested ~= true then
+        return false, "native alert facing request was rejected"
+    end
+    local actorX, actorY = context.position(actor)
+    if actorX == nil then return false, "actor position is unavailable for alert facing" end
+    local forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
+    local forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
+    local dx, dy = x - actorX, y - actorY
+    local length = math.sqrt(dx * dx + dy * dy)
+    local facing = length <= 0.001 or (forwardXOk and forwardYOk
+        and context.finite(forwardX) and context.finite(forwardY)
+        and (forwardX * dx + forwardY * dy) / length >= 0.75)
+    local turningOk, turning = invoke(actor, "isTurning")
+    if (not turningOk or turning ~= true) and not facing then
+        return false, "native alert facing did not start"
+    end
+    return true, successReason or "facing_started"
+end
+
+function Visual.syncPlayerPosture(actor, intent)
+    local sneaking = intent.sneaking == true
+    local stopped = context.stopDirect(actor, { preservePosture = true })
+    if stopped ~= true then return false, "copy_posture_stop_rejected" end
+    local checked, actual = invoke(actor, "isSneaking")
+    if not checked or actual ~= sneaking then
+        local setOk, setResult = invoke(actor, "setSneaking", sneaking)
+        if not setOk or setResult == false then return false, "copy_posture_rejected" end
+        checked, actual = invoke(actor, "isSneaking")
+    end
+    if checked and actual ~= sneaking then return false, "copy_posture_not_verified" end
+    return true, sneaking and "copy_posture_crouched" or "copy_posture_standing"
+end
+
+function Visual.conversationPose(actor, intent, provider)
+    local faced, facingReason = Visual.faceTarget(
+        actor, intent, provider, "conversation_facing_started")
+    if not faced then return false, facingReason end
+    if type(intent.emote) ~= "string" or intent.emote == "" then return true, facingReason end
+    local gestured, gestureReason = Visual.handSignal(actor, intent, provider)
+    if not gestured then return false, gestureReason end
+    return true, "conversation_pose_started"
+end
+
+return Visual

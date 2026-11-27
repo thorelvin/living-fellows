@@ -2,7 +2,7 @@
 -- Phase 0 only: real native bindings and map fixtures in a disposable save.
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 local Probe={} SCRealSandboxHarnessProbes.SCPersonaReadinessProbe=Probe
-local function U() return SurvivorCompanion.ControlUtil end
+local function U() return LivingFellows.ControlUtil end
 local function call(object,method,...) return U().call(object,method,...) end
 local function log(value) print("SC_PERSONA_ZERO|"..value) end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-persona-zero-"..name..".png") end
@@ -14,7 +14,7 @@ local function standBeside(player,object)
     local sq=object:getSquare()
     for _,d in ipairs({{1,0},{0,1},{-1,0},{0,-1}}) do
         local at=getCell():getGridSquare(sq:getX()+d[1],sq:getY()+d[2],sq:getZ())
-        if at and SurvivorCompanion.GameplayUtil.isSquareFree(at) then
+        if at and LivingFellows.GameplayUtil.isSquareFree(at) then
             player:teleportTo(at:getX()+.5,at:getY()+.5,at:getZ()) return at
         end
     end
@@ -47,11 +47,11 @@ local function sampleStats(H,check)
         local native=MoodleType[uppercase]
         check("persona_moodle_"..name,native~=nil,"uppercase="..uppercase.." mixed="..tostring(okay and mixed or nil))
         log("MOODLE_KEY|"..name.."|mixed="..tostring(okay and mixed or nil).."|native="..tostring(native)
-            .."|helper="..SurvivorCompanion.GameplayUtil.moodleLevel(H.player,uppercase,-1))
+            .."|helper="..LivingFellows.GameplayUtil.moodleLevel(H.player,uppercase,-1))
     end
 end
 local function prototype(H,f)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     assert(SC.Terminal.open(H.player,f.pc),"native terminal did not open")
     local w=SC.Terminal.window f.window=w w:flush()
     w.rows,w.queue,w.typing,w.state={}, {}, nil,"idle" w.startupReady=true
@@ -79,7 +79,7 @@ local function nativeType(w,text)
     end
 end
 local function clean(H,f)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     if f.generator then f.generator:setActivated(false) f.generator:removeFromWorld() f.generator:removeFromSquare() end
     if f.chair then f.chair:removeFromWorld() f.chair:removeFromSquare() end
@@ -90,7 +90,7 @@ local function clean(H,f)
     H.player:setGhostMode(f.ghost) H.player:setGodMod(f.god)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion local f=H.personaZero
+    local SC=LivingFellows local f=H.personaZero
     if H.phase=="persona_zero_setup" then
         if current-H.phaseStartedAt<4000 then return end
         f={hydro=getWorld():isHydroPowerOn(),ghost=H.player:isGhostMode(),god=H.player:isGodMod(),zombies={},

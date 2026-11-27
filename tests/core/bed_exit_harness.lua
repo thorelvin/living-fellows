@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Native-shaped two-tile beds, solid seams, real geometry and exit controller.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local function check(ok, message)
     checks = checks + 1
     assert(ok, "bed exit " .. checks .. ": " .. message)

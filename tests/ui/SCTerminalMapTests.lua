@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local S,T=SC.TerminalServices,SC.ExpeditionTargets
 local checks=0
 local function check(value,message)checks=checks+1 assert(value,"terminal map "..checks..": "..message)end

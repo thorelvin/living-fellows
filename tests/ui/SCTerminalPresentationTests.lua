@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local P, Terminal, System, Brands = SC.TerminalPresentation, SC.Terminal, SC.TerminalSystem, SC.TerminalBrands
 local check, before = T.check, T.checks
 local sizes = { {640,480}, {800,600}, {1280,720}, {1366,768}, {1920,1080},

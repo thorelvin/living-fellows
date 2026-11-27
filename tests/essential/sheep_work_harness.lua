@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,F=SurvivorCompanion,FarmLifecycleFixture
+local SC,F=LivingFellows,FarmLifecycleFixture
 local A,W,U=SC.AnimalWork,SC.AnimalShearing,SC.GameplayUtil
 local checks=0
 local function check(okay,text) checks=checks+1 assert(okay,"sheep: "..text) end

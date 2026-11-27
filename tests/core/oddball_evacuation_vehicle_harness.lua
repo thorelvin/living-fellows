@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Vehicle = SC.OddballEvacuationVehicle
 local joy, brock, player = { id = "joy", x = 0.5, y = 0.5, z = 0 }, { id = "brock" }, {}
 local group = { id = "evac", house = { anchor = { x = 0, y = 0, z = 0 } },

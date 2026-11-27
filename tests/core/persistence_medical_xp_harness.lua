@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real captureRecord and applySkills preserve native XP before the first level.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F,T=SC.TestMedicalMedicines,SC.TestFixture
 local checks=0
 local function check(value,reason) checks=checks+1;assert(value,"medical XP persistence "..checks..": "..reason) end

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- A shovel has an explicitly valid secondary home in Weapons. The farmer
 -- must borrow/return that exact tool before switching to the seed packet.
-local SC, F = SurvivorCompanion, FarmLifecycleFixture
+local SC, F = LivingFellows, FarmLifecycleFixture
 local checks = 0
 local function check(value, reason)
     checks = checks + 1

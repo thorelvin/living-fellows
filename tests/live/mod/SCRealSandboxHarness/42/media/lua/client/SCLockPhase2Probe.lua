@@ -7,7 +7,7 @@ local function send(w,text) w:setEntryText(text) w:submit() end
 local function press(w,number) w:setEntryText(tostring(number)) w:entryChanged() end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-lock-phase2-"..name..".png") end
 local function open(H,f,kind,seed,saved)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     SC.TerminalDrawers.release(f.pc)
     local state=saved and SC.TerminalSystem.normalize(saved)
@@ -19,7 +19,7 @@ local function open(H,f,kind,seed,saved)
     return f.window.system
 end
 local function choose(w)
-    local SC=SurvivorCompanion local E=SC.TerminalLockEmma local facts=E.facts(w)
+    local SC=LivingFellows local E=SC.TerminalLockEmma local facts=E.facts(w)
     local weak,hard=E.temperament(w.system) local best,score
     for index,offer in ipairs(w.system.lock.emma.offers or {}) do
         local a=E.argument(offer.id) local actual=a.claim and facts[a.claim]
@@ -36,12 +36,12 @@ local function click(w,value)
     return false
 end
 local function finish(H,f,current,setPhase)
-    if f.helper then SurvivorCompanion.Actor.remove(f.helper) f.helper=nil end
-    if SurvivorCompanion.Terminal.window then SurvivorCompanion.Terminal.window:close() end
+    if f.helper then LivingFellows.Actor.remove(f.helper) f.helper=nil end
+    if LivingFellows.Terminal.window then LivingFellows.Terminal.window:close() end
     setPhase("finish",current)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,f=SurvivorCompanion,H.lockProbe
+    local SC,f=LivingFellows,H.lockProbe
     if H.phase=="lock_probe_phase2_begin" then
         SandboxVars.LivingFellows.LockRealItems=false
         if H.config.lock_phase2_reload=="true" then

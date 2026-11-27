@@ -3,7 +3,7 @@
 local P={}
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCFarmSoakProbe=P
-local function v(o,m,...) local value=SurvivorCompanion.GameplayUtil.call(o,m,...) return value end
+local function v(o,m,...) local value=LivingFellows.GameplayUtil.call(o,m,...) return value end
 local function emit(kind,text) print("SC_FARM_SOAK|"..kind.."|"..tostring(text)) end
 local function movePlayer(player,x,y)
     player:teleportTo(x,y,0)
@@ -17,7 +17,7 @@ local function shot(H,f,label)
     f.shot={at=getTimestampMs()+1200,label=label}
 end
 local function zone(kind,x,y,x2,y2,name)
-    local B=SurvivorCompanion.BaseLife
+    local B=LivingFellows.BaseLife
     assert(B.beginZone(kind,getSquare(x,y,0))) assert(B.finishZone(getSquare(x2,y2,0),name))
 end
 local function crate(x,y,kind)
@@ -26,7 +26,7 @@ local function crate(x,y,kind)
     o:setIsContainer(true) o:setContainer(ItemContainer.new("crate",sq,o)) o:getContainer():setCapacity(100)
     o:getContainer():setExplored(true) -- Keep native loot generation out of the supplied test stock.
     sq:AddSpecialObject(o)
-    assert(SurvivorCompanion.BaseLife.registerStorage(o,kind))
+    assert(LivingFellows.BaseLife.registerStorage(o,kind))
     return o:getContainer()
 end
 local function barrel(x,y,fluid,capacity,mark)
@@ -38,7 +38,7 @@ local function barrel(x,y,fluid,capacity,mark)
     sq:AddSpecialObject(o)
     local fc=o:getFluidContainer() fc:Empty() fc:setCapacity(capacity)
     if fluid then fc:addFluid(fluid,capacity) end
-    if mark then assert(SurvivorCompanion.BaseLife.registerStorage(o,mark)) end
+    if mark then assert(LivingFellows.BaseLife.registerStorage(o,mark)) end
     return o
 end
 local function add(container,kind,count)
@@ -124,7 +124,7 @@ local function clearSite(f)
     emit("SITE_CLEARED","non-floor objects="..cleared.."; no pre-existing fences inside pens")
 end
 local function setupFarm(H,f)
-    local SC,B,U=SurvivorCompanion,SurvivorCompanion.BaseLife,SurvivorCompanion.GameplayUtil
+    local SC,B,U=LivingFellows,LivingFellows.BaseLife,LivingFellows.GameplayUtil
     local x,y=f.x,f.y
     -- Initial fixture date only: carrot season, without disabling seasons or
     -- replenishing workers, stock or animals during the observation.
@@ -257,7 +257,7 @@ local function setupFarm(H,f)
     shot(H,f,"farm-start")
 end
 local function sample(H,f,check)
-    local SC,B=SurvivorCompanion,SurvivorCompanion.BaseLife
+    local SC,B=LivingFellows,LivingFellows.BaseLife
     local h=getGameTime():getWorldAgeHours()-f.startHour
     local storedMilk={CowMilk=0,SheepMilk=0}
     for _,object in ipairs({f.cowMilk,f.sheepMilk}) do
@@ -327,7 +327,7 @@ local function sample(H,f,check)
     if tod>=21 and tod<22 and f.night~=day then f.night=day shot(H,f,"farm-night-"..day) end
 end
 local function step(H,current,check,result,setPhase)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local f=H.farmSoak
     if not f then
         f={stage="load",at=current,crew={}} H.farmSoak=f
@@ -445,7 +445,7 @@ function P.step(H,current,check,result,setPhase)
     end
 end
 function P.inspect(H,current,check,result,setPhase)
-    local SC,U,B=SurvivorCompanion,SurvivorCompanion.GameplayUtil,SurvivorCompanion.BaseLife
+    local SC,U,B=LivingFellows,LivingFellows.GameplayUtil,LivingFellows.BaseLife
     local f=H.farmInspect or {at=current,nextAt=current+6000,shots={}} H.farmInspect=f
     if current<f.nextAt then return end f.nextAt=current+15000
     local base=B.active()

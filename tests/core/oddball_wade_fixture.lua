@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local F = { events = {}, nextItem = 0, slot = 1, now = 0, bankReady = true, state = { immediateCount = 0 } }
 SC.WadeFixture = F
 

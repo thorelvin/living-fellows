@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Actual terminal painting and input paths at the resolutions seen in game.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local Terminal,System=SC.Terminal,SC.TerminalSystem
 local check,before=T.check,T.checks
 local saved={core=getCore,world=SC.TerminalWorld.new,random=ZombRand,clock=Terminal._clock,

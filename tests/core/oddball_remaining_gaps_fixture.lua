@@ -1,1 +1,1 @@
-SurvivorCompanion = {}
+LivingFellows = {}

@@ -1,7 +1,7 @@
 -- Glue for the EMMA playground: the real EMMA modules from the mod, one live session,
 -- and a fixed test camp. EMMA's own Brain.respond writes every answer.
 local js = PLAYGROUND_JS
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Brain = SC.TerminalBrain
 local Lines = SC.TerminalLines
 

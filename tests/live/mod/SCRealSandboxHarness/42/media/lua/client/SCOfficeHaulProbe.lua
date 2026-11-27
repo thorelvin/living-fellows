@@ -563,19 +563,19 @@ end
 
 local function restore(fixture)
     if not fixture then return end
-    if fixture.originalDecision then SurvivorCompanion.Decision.update = fixture.originalDecision end
+    if fixture.originalDecision then LivingFellows.Decision.update = fixture.originalDecision end
     for index = #(fixture.stagedCargo or {}), 1, -1 do
         local row = fixture.stagedCargo[index]
-        local restored, reason = SurvivorCompanion.GameplayUtil.transferItemVerified(
+        local restored, reason = LivingFellows.GameplayUtil.transferItemVerified(
             row.destination, row.source, row.item)
         print("SC_REAL_SANDBOX|OFFICE_CARGO_RESTORED|ok=" .. tostring(restored)
-            .. " item=" .. SurvivorCompanion.GameplayUtil.itemType(row.item)
+            .. " item=" .. LivingFellows.GameplayUtil.itemType(row.item)
             .. " id=" .. tostring(call(row.item, "getID")) .. " reason=" .. tostring(reason)
             .. " originalContainsExact="
-            .. tostring(SurvivorCompanion.GameplayUtil.inventoryContains(row.source, row.item)))
+            .. tostring(LivingFellows.GameplayUtil.inventoryContains(row.source, row.item)))
     end
     if fixture.savedCommand then
-        local commands = SurvivorCompanion.Commands
+        local commands = LivingFellows.Commands
         local state = commands.peek(fixture.actor)
         for field in pairs(state) do state[field] = nil end
         for field, value in pairs(fixture.savedCommand) do state[field] = value end
@@ -1070,7 +1070,7 @@ local function run(H, SC, current, check, result, setPhase)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "office_haul_setup" then return setup(H, SC, current, check, result, setPhase) end
     if H.phase == "office_haul_staged" then return staged(H, SC, current, check, result, setPhase) end
     if H.phase == "office_haul_run" then return run(H, SC, current, check, result, setPhase) end

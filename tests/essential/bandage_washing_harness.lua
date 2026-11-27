@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Installed stock timed actions, with deterministic Java fluid/recipe boundaries.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local W, C, N, D, U = SC.BandageWash, SC.NativeCareActions, SC.NativeActions, SC.Downtime, SC.GameplayUtil
 local checks = 0
 local function check(value, message) checks = checks + 1; assert(value, "bandage wash " .. checks .. ": " .. message) end

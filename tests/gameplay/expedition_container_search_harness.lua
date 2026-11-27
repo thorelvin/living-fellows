@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Search a wide, loaded store through the production discovery/approach flow.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local clock, probes, contentReads, moves, failures = 10000, 0, 0, 0, 0
 local cells = {}
 local function key(x, y, z) return x .. ":" .. y .. ":" .. z end

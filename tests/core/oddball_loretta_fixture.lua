@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Small native-car double for Loretta's sealed-seat contract.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 CharacterStat = { THIRST = "thirst", HUNGER = "hunger" }
 SC_LORETTA_CLOCK = { hour = 100, ms = 1000, exits = 0, boards = 0,
     deaths = 0, zombies = 0, recoveries = 0, haloNotes = 0,

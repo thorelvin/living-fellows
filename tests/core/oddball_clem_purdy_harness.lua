@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Focused negative controls for Clem's opt-in duel and the Purdy body clue.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Clem, Purdy = SC.OddballClem, SC.OddballPurdy
 local checks, now, timeOfDay = 0, 1000, 11.5
 local groups, actors, squares = {}, {}, {}

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local function inventory() return { items = {} } end
 local husband = { id = "husband", x = 1, y = 1, z = 0, inv = inventory() }
 local wife = { id = "wife", x = 3, y = 2, z = 0, inv = inventory() }

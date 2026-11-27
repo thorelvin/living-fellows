@@ -27,7 +27,7 @@ function P.parking(SC, result)
     return false, "saved car46 not loaded"
 end
 function P.obstruct(H, f, check, result)
-    local SC, car = SurvivorCompanion, f.car
+    local SC, car = LivingFellows, f.car
     if f.obstacle then
         if getTimestampMs()-f.obstacleAt < 1500 then return nil end
         local a = f.access
@@ -91,7 +91,7 @@ local function percentile(values, fraction)
     return values[math.max(1, math.ceil(#values*fraction))] or 0
 end
 function P.camp(H, f, now, check, result, phase)
-    local SC, r = SurvivorCompanion, f.reliability
+    local SC, r = LivingFellows, f.reliability
     local function finish(reason)
         if r.originalScan then SC.BuildingScan.step = r.originalScan end
         if SC.Terminal.window then SC.Terminal.window:close() end
