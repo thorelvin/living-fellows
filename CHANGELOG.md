@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.96 - Each Strange Folk encounter checks its own save
+
+- Check the saved fields that only one Strange Folk encounter keeps in that encounter's own code, instead of in the shared faction restore. Seventeen encounters carry their own checks (Caleb, the forest storyteller, Delbert, the locked-room survivalist, Vera, Eli, Nate, Earl, Milli, the Purdys and the seven animal encounters); the faction restore keeps only what every story shares. Saves restore exactly as before.
+- A new encounter with saved fields of its own no longer has to change the faction restore. The 0.27.64 gun shop field rename showed why that mattered.
+- An encounter check that fails with a script error refuses that restore instead of breaking it.
+- Test the saved checks of Eli, Nate, the Purdys and Milli's bedroom posts, which no test restored before.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.95 - Dead code and shared restore checks
 
 - Remove 58 functions that nothing in the mod, its tests or its tools called any more, with the helpers and one menu text that only they used. About 425 lines go; nothing a player sees changes.
