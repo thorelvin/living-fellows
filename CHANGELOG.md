@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.97 - One set of Strange Folk helpers
+
+- Share the small helpers that most Strange Folk encounters each carried a copy of: finding the member's actor, checking whether the player stands close and can see them, reading the story, searching an inventory, taking lines in turn, the radio-edit text, saved numbers and the world clock. Sixty-three encounters now use one shared set; about a thousand lines of copies go, and nothing a player sees changes.
+- Encounters whose version does something different keep their own.
+- Test the shared helpers directly in every routine run.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.96 - Strange Folk rules live with each encounter
 
 - Keep every rule that belongs to one Strange Folk encounter in that encounter's own code. The shared faction code now names no encounter: it keeps what every story shares and asks the encounter the rest.
