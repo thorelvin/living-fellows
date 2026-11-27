@@ -887,10 +887,8 @@ switch ($Case) {
 }
 
 'damaged-mod-info' {
-    # An owned generation whose root mod.info is missing or names no Living
-    # Fellows ID is damaged, not foreign: reinstalling repairs it and -Force
-    # removes it. A mod.info naming the other Living Fellows ID still refuses
-    # before any change.
+    # Missing or edited metadata is repairable when the payload verifies
+    # ownership. Foreign replacements and conflicting Living Fellows IDs refuse.
     $damaged = if ($Variant -eq 'local') { New-Fixture 'damaged-mod-info-local' }
         else { New-StandaloneFixture ('damaged-mod-info-' + $Variant) }
     $installDamaged = {
@@ -918,22 +916,54 @@ switch ($Case) {
     $originalConfigHash = (Get-FileHash -LiteralPath $damaged.config).Hash
     & $installDamaged
     $info = Join-Path $damaged.target 'mod.info'
+    $versionedInfo = Join-Path $damaged.target '42\mod.info'
     $infoText = [IO.File]::ReadAllText($info)
+    $refusalPattern = 'mod\.info names a different mod ID'
     if ($Variant -eq 'conflict') {
         [IO.File]::WriteAllText($info, $infoText.Replace('id=LivingFellows', 'id=SurvivorCompanion'))
+    } elseif ($Variant -eq 'duplicate-id-conflict') {
+        [IO.File]::AppendAllText($info, "`r`nid=SurvivorCompanion`r`n")
+    } elseif ($Variant -eq 'versioned-id-conflict') {
+        $versionedText = [IO.File]::ReadAllText($versionedInfo)
+        [IO.File]::WriteAllText($versionedInfo, $versionedText.Replace('id=LivingFellows', 'id=SurvivorCompanion'))
+    } elseif ($Variant -eq 'repeated-id-prefix-conflict') {
+        $versionedText = [IO.File]::ReadAllText($versionedInfo)
+        [IO.File]::WriteAllText($versionedInfo, $versionedText.Replace('id=LivingFellows', 'id=Survivorid=Companion'))
+    } elseif ($Variant -eq 'version-directory-id-conflict') {
+        $specificVersion = Join-Path $damaged.target '42.22'
+        New-Item -ItemType Directory -Path $specificVersion | Out-Null
+        [IO.File]::WriteAllText((Join-Path $specificVersion 'mod.info'),
+            $infoText.Replace('id=LivingFellows', 'id=SurvivorCompanion'))
+    } elseif ($Variant -eq 'foreign-replacement') {
+        $original = Join-Path $damaged.root 'previous-owned-copy'
+        Move-Item -LiteralPath $damaged.target -Destination $original
+        $foreignScripts = Join-Path $damaged.target '42\media\lua\client'
+        New-Item -ItemType Directory -Path $foreignScripts -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $original '.sc-install-manifest.json') -Destination $damaged.target
+        Copy-Item -LiteralPath (Join-Path $original 'LICENSE.txt') -Destination $damaged.target
+        [IO.File]::WriteAllText($info, "name=Different Mod`r`nid=DifferentMod`r`n")
+        [IO.File]::WriteAllText($versionedInfo, [IO.File]::ReadAllText($info))
+        [IO.File]::WriteAllText((Join-Path $foreignScripts 'DifferentMod.lua'), 'DifferentMod = {}')
+        $refusalPattern = 'metadata and payload do not verify ownership'
     } elseif ($Variant -eq 'edited') {
         [IO.File]::WriteAllText($info, $infoText.Replace('id=LivingFellows', 'id=MyRenamedCopy'))
+        $refusalPattern = ''
     } elseif ($Variant -in @('missing', 'local')) {
         Remove-Item -LiteralPath $info
+        $refusalPattern = ''
     } else { throw "Unknown damaged-mod-info variant: $Variant" }
     $before = & $snapshot
 
-    if ($Variant -eq 'conflict') {
-        foreach ($operation in @($installDamaged, { & $uninstallDamaged -Force })) {
+    if ($refusalPattern) {
+        foreach ($operation in @(
+            { & $uninstallDamaged -Force },
+            $installDamaged,
+            { & $Uninstall -ModsRoot $damaged.mods -Force | Out-Null }
+        )) {
             $refusal = ''
             try { & $operation } catch { $refusal = $_.Exception.Message }
-            if ($refusal -notmatch 'mod\.info names a different mod ID' -or (& $snapshot) -cne $before) {
-                throw "A mod.info naming the other Living Fellows ID was not refused before mutation: $refusal"
+            if ($refusal -notmatch $refusalPattern -or (& $snapshot) -cne $before) {
+                throw "Damaged metadata case '$Variant' was not refused before mutation: $refusal"
             }
         }
     } else {
@@ -969,6 +999,54 @@ switch ($Case) {
             (Get-FileHash -LiteralPath $damaged.config).Hash -cne $originalConfigHash) {
             throw 'Uninstall -Force did not remove every damaged generation and restore the launcher.'
         }
+    }
+}
+
+'invalid-staged-mod-id' {
+    $fixture = New-StandaloneFixture ('invalid-staged-mod-id-' + $Variant)
+    $relative = switch ($Variant) {
+        'wrong-root' { 'mod.info' }
+        'version-directory-override' { '42.22\mod.info' }
+        default { '42\mod.info' }
+    }
+    # Exercise both fresh installation and update of an intact installation.
+    if ($Variant -ne 'wrong-root') {
+        Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    }
+    $prepared = Join-Path $fixture.root 'invalid-payload'
+    Copy-Item -LiteralPath $StandalonePreparedPayload -Destination $prepared -Recurse
+    $path = Join-Path $prepared $relative
+    $expectedError = 'Install payload mod\.info must declare exactly one id=LivingFellows'
+    if ($Variant -eq 'version-directory-override') {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $prepared '42\mod.info') -Destination $path
+        $expectedError = 'Install payload mod\.info uses an unexpected version directory'
+    }
+    $info = [IO.File]::ReadAllText($path)
+    if ($Variant -eq 'duplicate-versioned') {
+        [IO.File]::AppendAllText($path, "`r`nid=LivingFellows`r`n")
+    } elseif ($Variant -eq 'space-before-equals') {
+        [IO.File]::WriteAllText($path, $info.Replace('id=LivingFellows', 'id =LivingFellows'))
+    } elseif ($Variant -eq 'indented-key') {
+        [IO.File]::WriteAllText($path, $info.Replace('id=LivingFellows', ' id=LivingFellows'))
+    } elseif ($Variant -eq 'utf8-bom-id') {
+        $firstId = "id=LivingFellows`r`n" + [regex]::Replace($info, '(?m)^id=LivingFellows\r?$', '')
+        [IO.File]::WriteAllText($path, $firstId, [Text.UTF8Encoding]::new($true))
+    } elseif ($Variant -eq 'utf16-metadata') {
+        [IO.File]::WriteAllText($path, $info, [Text.Encoding]::Unicode)
+    } else {
+        [IO.File]::WriteAllText($path, $info.Replace('id=LivingFellows', 'id=DifferentMod'))
+    }
+
+    $before = Get-StandaloneFixtureSnapshot $fixture
+    $refusal = ''
+    try {
+        Install-StandaloneFixture $ProjectRoot $fixture $prepared $PrebuiltJar 'native-config-stage'
+    } catch { $refusal = $_.Exception.Message }
+    if ($refusal -notmatch $expectedError -or
+        -not $refusal.EndsWith("\$relative") -or
+        (Get-StandaloneFixtureSnapshot $fixture) -cne $before) {
+        throw "Invalid payload ID '$Variant' was not refused before launcher work: $refusal"
     }
 }
 

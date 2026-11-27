@@ -1,20 +1,13 @@
 # SPDX-License-Identifier: MIT
-param([int]$TimeoutSeconds=420, [ValidateSet(2,6)][int]$FontSize=2, [switch]$CheckViewTransition)
+param([int]$TimeoutSeconds=420, [ValidateSet(2,6)][int]$FontSize=2, [switch]$CheckViewTransition,[string]$HistoricalRunRoot='')
 $ErrorActionPreference='Stop'
 $project=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $captureRoot=Join-Path $project ('build\speech-colors\native-font-'+$FontSize)
-$runRoot=Join-Path $project 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8'
-$manifest=Get-Content -LiteralPath (Join-Path $runRoot 'run-manifest.json') -Raw | ConvertFrom-Json
-foreach($destination in @($manifest.cacheRoot,$manifest.sourceBridge,$manifest.targetSave)){
- if(-not [IO.Path]::GetFullPath($destination).StartsWith($runRoot+'\',[StringComparison]::OrdinalIgnoreCase)){
-  throw 'Native acceptance target leaves the disposable clone'
- }
-}
+. (Join-Path $PSScriptRoot '..\NativeProbeFixture.ps1')
+$manifest = New-HistoricalNativeProbeFixture -ProjectRoot $project -HistoricalRunRoot $HistoricalRunRoot -ProbeName 'speech-colors'
 if(-not (Test-Path -LiteralPath (Join-Path $manifest.targetSave 'global_mod_data.bin'))){throw 'Prepared clone is missing'}
 New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
-$cloneMedia=Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia = $manifest.media
 $probe='SC_SPEECH_TEST_VIEW='+$CheckViewTransition.IsPresent.ToString().ToLowerInvariant()+"`n"+[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'native-probe.lua'))
 [IO.File]::WriteAllText((Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'),$probe)
 $evidence=Join-Path $manifest.cacheRoot 'Lua\LivingFellowsHarness\speech-colors.log'
@@ -22,12 +15,12 @@ if(Test-Path -LiteralPath $evidence){
  Move-Item -LiteralPath $evidence -Destination ($evidence+'.'+(Get-Date -Format 'yyyyMMddHHmmss')+'.previous')
 }
 $game='C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
-$launcher=Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
-$classpath=@($launcher.classpath | ForEach-Object {if($_ -eq 'LivingFellowsBridge.jar'){$manifest.sourceBridge}else{$_}}) -join ';'
+$launcher = Get-NativeProbeLauncher $game $manifest.sourceBridge
+$classpath = $launcher.classpath -join ';'
 $marker=Join-Path $captureRoot ('colours-'+(Get-Date -Format 'yyyyMMddHHmmss')+'-marker.txt')
 $arguments=@('-XX:ActiveProcessorCount=4')+@($launcher.vmArgs)+@('-XX:+UseZGC',
  ('-XX:ErrorFile="'+(Join-Path $captureRoot 'hs_err_pid%p.log')+'"'),
- ('-javaagent:"'+(Join-Path $runRoot 'terminal-loading-agent.jar')+'"="'+$marker+'"'),
+ ('-javaagent:"'+$manifest.loadingAgent+'"="'+$marker+'"'),
  '-cp',('"'+$classpath+'"'),'livingfellows.bridge.SCLauncher',
  ('-cachedir="'+$manifest.cacheRoot+'"'),'-nosteam','-novoip','-nosound')
 $optionsPath=Join-Path $manifest.cacheRoot 'options.ini'

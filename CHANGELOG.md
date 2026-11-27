@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.105 - Installer ownership and diagnostic fixtures
+
+- Repair and forced uninstall verify original Living Fellows files when mod metadata is damaged. Conflicting Living Fellows IDs are rejected in both metadata files.
+- Standalone installation validates the mod ID in both copies of mod.info before changing the launcher or installed mod.
+- Live sandbox preparation removes the exact legacy ID, including escaped entries, while retaining similarly named mods.
+- Native diagnostics stage the current payload with the older save in an isolated cache. The historical combat evidence collector reads the paths and log prefixes from those runs.
+- Native bridge protocol `42.22-isocompanion-38`.
+
 ## 0.27.104 - Installer repair after the rename
 
 - Install.bat can again repair a Living Fellows install whose `mod.info` is missing or edited, and `Uninstall.bat -Force` can again remove one. Since 0.27.102 both stopped at the damaged file. A `mod.info` that names the other Living Fellows ID is still refused.

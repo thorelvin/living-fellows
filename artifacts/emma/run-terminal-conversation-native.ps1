@@ -1,30 +1,25 @@
 # SPDX-License-Identifier: MIT
-param([int]$TimeoutSeconds=240,[ValidatePattern('^[a-z0-9-]+$')][string]$RunName='emma-conversation-native')
+param(
+ [int]$TimeoutSeconds=240,
+ [ValidatePattern('^[a-z0-9-]+$')][string]$RunName='emma-conversation-native',
+ [string]$HistoricalRunRoot='',
+ [string]$SeedSave='',
+ [string]$UserCache=(Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid')
+)
 $ErrorActionPreference='Stop'
 $project=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $root=Join-Path $project ('build\'+$RunName)
-$cache=Join-Path $root 'cache'
-$seed=Join-Path $project 'build\skill-copy\pristine\LF-Skills5-Test-2026-10-29'
-if(-not (Test-Path -LiteralPath (Join-Path $seed 'players.db'))){throw 'Prepared pristine save copy is missing'}
-if(Test-Path -LiteralPath $cache){throw 'Use a fresh disposable native cache; preserve previous evidence'}
-New-Item -ItemType Directory -Path (Join-Path $cache 'Saves\Rising'),(Join-Path $cache 'mods') -Force | Out-Null
-Copy-Item -LiteralPath $seed -Destination (Join-Path $cache 'Saves\Rising') -Recurse
-foreach($mod in @('LivingFellows','SurvivalControlPanel')){
- Copy-Item -LiteralPath (Join-Path 'C:\Users\thore\Zomboid\mods' $mod) -Destination (Join-Path $cache 'mods') -Recurse
-}
-$media=Join-Path $cache 'mods\LivingFellows\42\media'
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $media -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'terminal-conversation-native.lua') -Destination (Join-Path $media 'lua\client\ZZEmmaConversationAcceptance.lua')
-foreach($name in @('default.txt','reset-mods-42_00.txt')){
- Copy-Item -LiteralPath (Join-Path 'C:\Users\thore\Zomboid\mods' $name) -Destination (Join-Path $cache ('mods\'+$name))
-}
-Copy-Item -LiteralPath 'C:\Users\thore\Zomboid\options.ini' -Destination (Join-Path $cache 'options.ini')
-"LF-Skills5-Test-2026-10-29`nRising`n" | Set-Content -LiteralPath (Join-Path $cache 'latestSave.ini') -Encoding ascii
+. (Join-Path $PSScriptRoot '..\NativeProbeFixture.ps1')
+$world='LF-Skills5-Test-2026-10-29'
+if(-not $SeedSave){$SeedSave=Join-Path $project ('build\skill-copy\pristine\'+$world)}
+$agent=Get-NativeProbeLoadingAgent (Get-NativeProbeHistoricalRoot $project $HistoricalRunRoot)
+$fixture=New-NativeProbeFixture -ProjectRoot $project -RunRoot $root -InputCache $UserCache `
+ -InputSave $SeedSave -GameMode Rising -World $world -LoadingAgent $agent -ModFolders @('SurvivalControlPanel') -UseProbeAutoload
+$cache=$fixture.cacheRoot
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'terminal-conversation-native.lua') -Destination (Join-Path $fixture.media 'lua\client\ZZEmmaConversationAcceptance.lua')
 $game='C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
-$launcher=Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
-$bridge=Join-Path $media 'java\LivingFellowsBridge.jar'
-$classpath=@($launcher.classpath | ForEach-Object {if($_ -eq 'LivingFellowsBridge.jar'){$bridge}else{$_}}) -join ';'
-$agent=Join-Path $project 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8\terminal-loading-agent.jar'
+$launcher=Get-NativeProbeLauncher $game $fixture.sourceBridge
+$classpath=$launcher.classpath -join ';'
 $arguments=@('-XX:ActiveProcessorCount=4')+@($launcher.vmArgs)+@('-XX:+UseZGC',
  ('-XX:ErrorFile="'+(Join-Path $root 'hs_err_pid%p.log')+'"'),
  ('-javaagent:"'+$agent+'"="'+(Join-Path $root 'marker.txt')+'"'),'-cp',('"'+$classpath+'"'),

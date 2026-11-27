@@ -142,6 +142,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness static contracts failed.' }
     & (Join-Path $TestRoot 'test_steam_launch_static.ps1')
     if (-not $?) { throw 'Steam launch ownership checks failed.' }
+    & (Join-Path $TestRoot 'test_sandbox_mod_list.ps1')
 }
 finally {
     if (Test-Path -LiteralPath $BuildRoot) {

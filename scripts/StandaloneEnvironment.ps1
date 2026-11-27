@@ -3,6 +3,7 @@
 $LivingFellowsModId = 'LivingFellows'
 $LivingFellowsLegacyModId = 'SurvivorCompanion'
 $LivingFellowsModIds = @($LivingFellowsModId, $LivingFellowsLegacyModId)
+$LivingFellowsModInfoPaths = @('mod.info', '42\mod.info')
 $LivingFellowsBridgeOwner = 'LivingFellows.NativeBridge'
 $LivingFellowsLegacyBridgeOwner = 'SurvivorCompanion.NativeBridge'
 $LivingFellowsBridgeJar = 'LivingFellowsBridge.jar'
@@ -28,23 +29,55 @@ function Get-LivingFellowsInstalledTarget([string]$ModsRoot) {
     return (Join-Path $ModsRoot $LivingFellowsModId)
 }
 
-# The single id= value in a generation's root mod.info, or '' when the file is
-# missing, empty or has no single id line.
-function Get-LivingFellowsModInfoId([string]$GenerationPath) {
-    $path = Join-Path $GenerationPath 'mod.info'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
-    $info = [string](Get-Content -LiteralPath $path -Raw -Encoding utf8)
-    $ids = [regex]::Matches($info, '(?m)^id[ \t]*=[ \t]*([^\r\n]+)')
-    if ($ids.Count -ne 1) { return '' }
-    return $ids[0].Groups[1].Value.Trim()
+function Get-LivingFellowsModInfoIds([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    # Match the game's UTF-8 reader, which leaves any BOM in the first line.
+    $metadata = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($Path))
+    $trimCharacters = [char[]](0..32)
+    foreach ($line in ($metadata -split '\r\n|[\r\n]')) {
+        if ($line.StartsWith('id=', [StringComparison]::Ordinal)) {
+            $line.Replace('id=', '').Trim($trimCharacters)
+        }
+    }
+}
+
+function Get-LivingFellowsAdditionalModInfoPaths([string]$GenerationPath) {
+    foreach ($directory in (Get-ChildItem -LiteralPath $GenerationPath -Directory -Force)) {
+        if ($directory.Name -notmatch '^[0-9]+(?:\.[0-9]+)*$') { continue }
+        $relative = Join-Path $directory.Name 'mod.info'
+        if ($relative -notin $LivingFellowsModInfoPaths -and
+            (Test-Path -LiteralPath (Join-Path $GenerationPath $relative) -PathType Leaf)) {
+            $relative
+        }
+    }
+}
+
+function Test-LivingFellowsPayloadOwnership([string]$GenerationPath, $Manifest) {
+    # A retained manifest or a common asset such as the license is not enough.
+    # Check for code that still matches the installed generation's receipt.
+    $mediaPrefix = [IO.Path]::GetFullPath((Join-Path $GenerationPath '42\media')) + '\'
+    foreach ($property in $Manifest.files.PSObject.Properties) {
+        $relative = [string]$property.Name
+        if ($relative -notmatch '^42/media/(lua|java)/.+\.(lua|jar)$' -or
+            $relative -match '[:\\]|(?:^|/)\.\.?(?:/|$)' -or
+            [string]$property.Value -notmatch '^[a-f0-9]{64}$') {
+            continue
+        }
+        $path = [IO.Path]::GetFullPath((Join-Path $GenerationPath $relative.Replace('/', '\')))
+        if ($path.StartsWith($mediaPrefix, [StringComparison]::OrdinalIgnoreCase) -and
+            (Test-Path -LiteralPath $path -PathType Leaf) -and
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $property.Value) {
+            return $true
+        }
+    }
+    return $false
 }
 
 # A managed generation's mod ID. From 0.27.102 on, the ownership manifest records
 # it. An older generation uses the ID its caller recorded when the backup was
-# made, and failing that its whitelisted directory or backup name. mod.info is only
-# a cross-check, so a missing or hand-edited one never blocks repairing or
-# removing an owned install; the owned file hashes report that damage. A mod.info
-# that names the other Living Fellows ID still refuses.
+# made, and failing that its whitelisted directory or backup name. If either
+# mod.info is damaged, require matching payload code before accepting ownership.
+# An alternate version directory may override the canonical files in the game.
 function Get-LivingFellowsGenerationId([string]$GenerationPath, $Manifest, [string]$RecordedId = '') {
     $leaf = Split-Path -Leaf $GenerationPath
     $leafId = ''
@@ -60,9 +93,20 @@ function Get-LivingFellowsGenerationId([string]$GenerationPath, $Manifest, [stri
     if ($id -cnotin $LivingFellowsModIds) {
         throw "Managed generation has an unrecognized mod ID: $GenerationPath"
     }
-    $infoId = Get-LivingFellowsModInfoId $GenerationPath
-    if ($infoId -cin $LivingFellowsModIds -and $infoId -cne $id) {
-        throw "Managed generation's mod.info names a different mod ID: $GenerationPath"
+    $metadataAgrees = $true
+    $metadataPaths = $LivingFellowsModInfoPaths + @(Get-LivingFellowsAdditionalModInfoPaths $GenerationPath)
+    foreach ($relative in $metadataPaths) {
+        $path = Join-Path $GenerationPath $relative
+        $infoIds = @(Get-LivingFellowsModInfoIds $path)
+        foreach ($infoId in $infoIds) {
+            if ($infoId -cin $LivingFellowsModIds -and $infoId -cne $id) {
+                throw "Managed generation's mod.info names a different mod ID: $path"
+            }
+        }
+        if ($infoIds.Count -ne 1 -or $infoIds[0] -cne $id) { $metadataAgrees = $false }
+    }
+    if (-not $metadataAgrees -and -not (Test-LivingFellowsPayloadOwnership $GenerationPath $Manifest)) {
+        throw "Managed generation's metadata and payload do not verify ownership: $GenerationPath"
     }
     return $id
 }

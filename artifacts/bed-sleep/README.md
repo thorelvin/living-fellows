@@ -2,9 +2,11 @@
 
 # Native bed sleep acceptance
 
-`run-native.ps1` uses the prepared disposable camp clone named in the script.
-It copies the current payload only into that clone and launches an owned hidden
-process. It does not install into the player's game or alter the original save.
+`run-native.ps1` stages a fresh cache and the current payload under
+`build/native-probes/`, then launches a hidden test process against that cache.
+Use `-HistoricalRunRoot` if the prepared camp fixture has moved. The runner
+reads the retained run and game installation and writes only to the staged
+cache and capture directories.
 
 The fixture places a recruited companion beside an existing sprite-grid bed
 with an available native entry, seeds fatigue, hunger and thirst, and leaves
@@ -45,9 +47,10 @@ production paths. Auto-zoom and the prior camera target are restored afterward.
 Local captures are in `build/bed-sleep/native`; retained evidence and exact
 coverage are linked from [validation](../../docs/validation-bed-sleep.md).
 
-`run-exhaustion-native.ps1` runs `exhaustion-native.lua` in the same disposable
-clone. It exercises automatic chair-to-bed recovery at 100% fatigue in a marked
-Rest bedroom, then verifies native lying sleep, fatigue recovery and alarm wake.
+`run-exhaustion-native.ps1` stages the same historical fixture and runs
+`exhaustion-native.lua`. It exercises automatic chair-to-bed recovery at 100%
+fatigue in a marked Rest bedroom and verifies native lying sleep, fatigue
+recovery and alarm wake.
 It also places the observer on the target pillow, waits for native tile
 membership to settle, and checks that alignment rejects the occupied tile
 without moving the sleeper. After the observer leaves, normal bed entry resumes.

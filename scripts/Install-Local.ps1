@@ -82,6 +82,21 @@ function Get-InstallHash([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Assert-InstallModInfoIds([string]$PayloadPath) {
+    foreach ($relative in $LivingFellowsModInfoPaths) {
+        $path = Join-Path $PayloadPath $relative
+        $infoIds = @(Get-LivingFellowsModInfoIds $path)
+        if ($infoIds.Count -ne 1 -or $infoIds[0] -cne $LivingFellowsModId) {
+            throw "Install payload mod.info must declare exactly one id=$LivingFellowsModId at $path"
+        }
+    }
+    $additional = @(Get-LivingFellowsAdditionalModInfoPaths $PayloadPath)
+    if ($additional.Count -gt 0) {
+        $path = Join-Path $PayloadPath $additional[0]
+        throw "Install payload mod.info uses an unexpected version directory at $path"
+    }
+}
+
 function Test-InstallSamePath([string]$Left, [string]$Right) {
     if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
         return $false
@@ -261,15 +276,6 @@ try {
         }
         New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
         Copy-Item -LiteralPath $prepared -Destination $stagedMod -Recurse
-        foreach ($metadataPath in @(
-            (Join-Path $stagedMod 'mod.info'),
-            (Join-Path $stagedMod '42\mod.info'))) {
-            $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding utf8
-            if (($metadata -match '(?m)^require=\\ZombieBuddy$') -or
-                ($metadata -match '(?m)^ZBVersionMin=')) {
-                throw "Prepared private payload retained a Workshop-only dependency: $metadataPath"
-            }
-        }
         $markerName = if ($Standalone) {
             'STANDALONE-NATIVE-BRIDGE.txt'
         } else {
@@ -281,6 +287,17 @@ try {
     }
     Invoke-InstallFault 'payload-build'
     if (-not (Test-Path -LiteralPath $stagedMod -PathType Container)) { throw 'Private payload staging failed.' }
+    Assert-InstallModInfoIds $stagedMod
+    if (-not [string]::IsNullOrWhiteSpace($PreparedPayloadRoot)) {
+        foreach ($relative in $LivingFellowsModInfoPaths) {
+            $metadataPath = Join-Path $stagedMod $relative
+            $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding utf8
+            if (($metadata -match '(?m)^require=\\ZombieBuddy$') -or
+                ($metadata -match '(?m)^ZBVersionMin=')) {
+                throw "Prepared private payload retained a Workshop-only dependency: $metadataPath"
+            }
+        }
+    }
     $expectedNativeJar = Join-Path $stagedMod '42\media\java\LivingFellowsBridge.jar'
     $selectedBridgeJar = if (-not [string]::IsNullOrWhiteSpace($compiledBridgeJar)) {
         [System.IO.Path]::GetFullPath($compiledBridgeJar)
@@ -396,12 +413,13 @@ try {
     $committedManifest = Get-Content -LiteralPath $committedManifestPath -Raw -Encoding utf8 |
         ConvertFrom-Json
     if ([string]$committedManifest.owner -ne $Owner -or
-        (Get-LivingFellowsGenerationId $Target $committedManifest) -cne $LivingFellowsModId -or
+        [string]$committedManifest.modId -cne $LivingFellowsModId -or
         [string]$committedManifest.version -ne $installedVersion -or
         -not (Test-InstallSamePath ([string]$committedManifest.bridgeRoot) $BridgeRoot) -or
         [string]$committedManifest.bridgeSha256 -ne $selectedBridgeHash) {
         throw 'Installed mod manifest ownership/version/native bridge postcondition failed.'
     }
+    Assert-InstallModInfoIds $Target
     $committedPrefix = [System.IO.Path]::GetFullPath($Target).TrimEnd('\') + '\'
     $expectedNames = [System.Collections.Generic.HashSet[string]]::new(
         [System.StringComparer]::OrdinalIgnoreCase)

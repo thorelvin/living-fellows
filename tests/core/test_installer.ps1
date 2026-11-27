@@ -193,8 +193,12 @@ try {
         Add-InstallerCase 'legacy-brand' $variant
     }
     # Install.bat repairs, and Uninstall.bat -Force removes, a damaged mod.info.
-    foreach ($variant in @('missing', 'edited', 'conflict', 'local')) {
+    foreach ($variant in @('missing', 'edited', 'conflict', 'local',
+            'duplicate-id-conflict', 'versioned-id-conflict', 'foreign-replacement')) {
         Add-InstallerCase 'damaged-mod-info' $variant
+    }
+    foreach ($variant in @('wrong-root', 'wrong-versioned', 'duplicate-versioned')) {
+        Add-InstallerCase 'invalid-staged-mod-id' $variant
     }
     if ($Essential) {
         # Distinct publication and ownership boundaries, rather than every
@@ -211,6 +215,13 @@ try {
         Add-InstallerCase 'shared-launcher' 'uninstall'
         Add-InstallerCase 'shared-launcher-ambiguous'
     } else {
+    foreach ($variant in @('repeated-id-prefix-conflict', 'version-directory-id-conflict')) {
+        Add-InstallerCase 'damaged-mod-info' $variant
+    }
+    foreach ($variant in @('space-before-equals', 'indented-key', 'utf8-bom-id', 'utf16-metadata',
+            'version-directory-override')) {
+        Add-InstallerCase 'invalid-staged-mod-id' $variant
+    }
     # old-mod-backup cannot be reached on a fresh install: there is no
     # previous generation to back up.
     foreach ($boundary in @($failureBoundaries | Where-Object { $_ -ne 'old-mod-backup' })) {

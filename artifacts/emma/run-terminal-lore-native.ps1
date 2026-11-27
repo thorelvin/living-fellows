@@ -1,23 +1,19 @@
 # SPDX-License-Identifier: MIT
+param([string]$HistoricalRunRoot='')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-$runRoot = Join-Path $project 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8'
-$manifest = Get-Content -LiteralPath (Join-Path $runRoot 'run-manifest.json') -Raw | ConvertFrom-Json
+. (Join-Path $PSScriptRoot '..\NativeProbeFixture.ps1')
+$manifest = New-HistoricalNativeProbeFixture -ProjectRoot $project -HistoricalRunRoot $HistoricalRunRoot -ProbeName 'terminal-lore'
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
-$cloneMedia = Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
-Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
-New-Item -ItemType Directory -Path (Join-Path $cloneMedia 'shaders') -Force | Out-Null
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\shaders\LF_TerminalLogo.*') -Destination (Join-Path $cloneMedia 'shaders') -Force
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\lua\client\SCTerminal*.lua') -Destination (Join-Path $cloneMedia 'lua\client') -Force
-Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\lua\client\SCBootstrap.lua') -Destination (Join-Path $cloneMedia 'lua\client\SCBootstrap.lua') -Force
+$runRoot = $manifest.runRoot
+$cloneMedia = $manifest.media
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'terminal-lore-native.lua') -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\textures\Terminal\*.png') -Destination (Join-Path $cloneMedia 'textures\Terminal') -Force
 $evidence = Join-Path $manifest.cacheRoot 'Lua\LivingFellowsHarness\terminal-lore.log'
 if (Test-Path -LiteralPath $evidence) { Move-Item -LiteralPath $evidence -Destination ($evidence + '.' + (Get-Date -Format 'yyyyMMddHHmmss') + '.previous') }
-$launcher = Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
-$classpath = @($launcher.classpath | ForEach-Object { if ($_ -eq 'LivingFellowsBridge.jar') { $manifest.sourceBridge } else { $_ } }) -join ';'
+$launcher = Get-NativeProbeLauncher $game $manifest.sourceBridge
+$classpath = $launcher.classpath -join ';'
 $marker = Join-Path $runRoot ('terminal-lore-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-marker.txt')
-$arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-javaagent:"' + (Join-Path $runRoot 'terminal-loading-agent.jar') + '"="' + $marker + '"'),
+$arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-javaagent:"' + $manifest.loadingAgent + '"="' + $marker + '"'),
     '-cp', ('"' + $classpath + '"'), 'livingfellows.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip', '-nosound')
 $owned = Start-Process -FilePath (Join-Path $game 'jre64\bin\java.exe') -ArgumentList $arguments -WorkingDirectory $game -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $runRoot 'terminal-lore.stdout.log') -RedirectStandardError (Join-Path $runRoot 'terminal-lore.stderr.log')

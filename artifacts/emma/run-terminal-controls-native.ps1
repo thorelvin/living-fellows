@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT
-param([ValidateSet('controls','power','tripwalk','tripdrive','savesetup','saveverify','knowledge','radiodevices','followersitting')][string]$Scenario='controls')
+param(
+    [ValidateSet('controls','power','tripwalk','tripdrive','savesetup','saveverify','knowledge','radiodevices','followersitting')]
+    [string]$Scenario = 'controls',
+    [string]$HistoricalRunRoot = '',
+    [string]$SeedSave = ''
+)
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $captureRoot = Join-Path $project ('build\computer-controls\native\' + $Scenario)
@@ -7,47 +12,40 @@ $probeName = if ($Scenario -eq 'followersitting') { 'follower-sitting-native.lua
 $logName = if ($Scenario -eq 'followersitting') { 'follower-sitting' } elseif ($Scenario -eq 'radiodevices') { 'taxi-radio-devices' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge' } elseif ($Scenario.StartsWith('trip') -or $Scenario.StartsWith('save')) { 'terminal-controls-' + $Scenario } elseif ($Scenario -eq 'power') { 'terminal-controls-power' } else { 'terminal-controls' }
 $passText = 'PASS native ' + $logName.Replace('-',' ') + ' acceptance complete'
 New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
-$runRoot = Join-Path $project 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8'
-$manifest = Get-Content -LiteralPath (Join-Path $runRoot 'run-manifest.json') -Raw | ConvertFrom-Json
+. (Join-Path $PSScriptRoot '..\NativeProbeFixture.ps1')
+$HistoricalRunRoot = Get-NativeProbeHistoricalRoot $project $HistoricalRunRoot
+$session = Join-Path $project 'build\computer-controls\native\last-fixture.json'
+$resuming = $Scenario -in @('saveverify','knowledge','radiodevices','followersitting')
+$inputSave = if ($resuming) {
+    if (Test-Path -LiteralPath $session -PathType Leaf) {
+        $last = Get-Content -LiteralPath $session -Raw -Encoding utf8 | ConvertFrom-Json
+        if ($last.history -eq $HistoricalRunRoot) { $last.targetSave }
+    }
+} else { $SeedSave }
+$manifest = New-HistoricalNativeProbeFixture -ProjectRoot $project -HistoricalRunRoot $HistoricalRunRoot `
+    -ProbeName "terminal-controls-$Scenario" -InputSave $inputSave -UseSeedSave:(-not $resuming)
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
-foreach ($destination in @($manifest.cacheRoot,$manifest.sourceBridge)) {
-    if (-not ([IO.Path]::GetFullPath($destination)).StartsWith($runRoot + '\',[StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Preview target is outside its disposable harness directory'
-    }
+if ($resuming -and -not (Test-Path -LiteralPath (Join-Path $manifest.targetSave 'global_mod_data.bin'))) {
+    throw 'Run savesetup before saveverify.'
 }
-$targetSave = [IO.Path]::GetFullPath($manifest.targetSave)
-$previousSave = $targetSave + '.controls-previous-' + (Get-Date -Format 'yyyyMMddHHmmss')
-foreach ($checkedPath in @($targetSave,$previousSave)) {
-    if (-not $checkedPath.StartsWith($runRoot + '\',[StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Save reset would leave the disposable harness directory'
-    }
-}
-if ($Scenario -in @('saveverify','knowledge','radiodevices','followersitting')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $targetSave 'global_mod_data.bin'))) { throw 'Run savesetup before saveverify.' }
-} else {
-    if (Test-Path -LiteralPath $targetSave) { Move-Item -LiteralPath $targetSave -Destination $previousSave }
-    Copy-Item -LiteralPath $manifest.seedSave -Destination $targetSave -Recurse
-}
-$cloneMedia = Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
-Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia = $manifest.media
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $probeName) -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
 if ($Scenario.StartsWith('trip')) {
     $probeTarget = Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'
     $probeSource = "LF_CONTROLS_TRIP_MODE='$Scenario'`n" + (Get-Content -LiteralPath $probeTarget -Raw)
-    Set-Content -LiteralPath $probeTarget -Value $probeSource -Encoding utf8NoBOM
+    [IO.File]::WriteAllText($probeTarget, $probeSource, [Text.UTF8Encoding]::new($false))
 }
 if ($Scenario.StartsWith('save')) {
     $probeTarget = Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'
     $probeSource = "LF_CONTROLS_SAVE_MODE='$Scenario'`n" + (Get-Content -LiteralPath $probeTarget -Raw)
-    Set-Content -LiteralPath $probeTarget -Value $probeSource -Encoding utf8NoBOM
+    [IO.File]::WriteAllText($probeTarget, $probeSource, [Text.UTF8Encoding]::new($false))
 }
 $evidence = Join-Path $manifest.cacheRoot ('Lua\LivingFellowsHarness\' + $logName + '.log')
 if (Test-Path -LiteralPath $evidence) { Move-Item -LiteralPath $evidence -Destination ($evidence + '.' + (Get-Date -Format 'yyyyMMddHHmmss') + '.previous') }
-$launcher = Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
-$classpath = @($launcher.classpath | ForEach-Object { if ($_ -eq 'LivingFellowsBridge.jar') { $manifest.sourceBridge } else { $_ } }) -join ';'
+$launcher = Get-NativeProbeLauncher $game $manifest.sourceBridge
+$classpath = $launcher.classpath -join ';'
 $marker = Join-Path $captureRoot ('terminal-controls-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-marker.txt')
-$arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-XX:ErrorFile="' + (Join-Path $captureRoot 'hs_err_pid%p.log') + '"'), ('-javaagent:"' + (Join-Path $runRoot 'terminal-loading-agent.jar') + '"="' + $marker + '"'),
+$arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-XX:ErrorFile="' + (Join-Path $captureRoot 'hs_err_pid%p.log') + '"'), ('-javaagent:"' + $manifest.loadingAgent + '"="' + $marker + '"'),
     '-cp', ('"' + $classpath + '"'), 'livingfellows.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip')
 if ($Scenario -ne 'power') { $arguments += '-nosound' }
 if ($Scenario -eq 'followersitting') { $arguments = @('-XX:ActiveProcessorCount=4') + $arguments }
@@ -79,3 +77,7 @@ try {
 } finally {
     if (-not $owned.HasExited) { Stop-Process -InputObject $owned -Force }
 }
+$next = @{ history = $HistoricalRunRoot; targetSave = $manifest.targetSave } | ConvertTo-Json
+$receipt = Join-Path $manifest.runRoot 'controls-fixture.json'
+[IO.File]::WriteAllText($receipt, $next, [Text.UTF8Encoding]::new($false))
+Move-Item -LiteralPath $receipt -Destination $session -Force

@@ -1249,24 +1249,7 @@ function Get-SteamLaunchedClient {
     return $null
 }
 
-function Add-ModEntry([string]$Text, [string]$ModId) {
-    if ($Text -match ('(?m)^\s*mod\s*=\s*' + [regex]::Escape($ModId) + '\s*,?\s*$')) {
-        return $Text
-    }
-    $pattern = New-Object regex '(?ms)(mods\s*\{\s*)'
-    if (-not $pattern.IsMatch($Text)) { throw 'mods.txt has no mods block.' }
-    $newline = [Environment]::NewLine
-    return $pattern.Replace($Text, ('$1    mod = ' + $ModId + ',' + $newline), 1)
-}
-
-function Remove-ModEntry([string]$Text, [string]$ModId) {
-    if ($ModId -notmatch '^[A-Za-z0-9_. -]{1,128}$') {
-        throw "Unsafe excluded mod id: $ModId"
-    }
-    $pattern = New-Object regex (
-        '(?m)^\s*mod\s*=\s*' + [regex]::Escape($ModId) + '\s*,?\s*\r?\n?')
-    return $pattern.Replace($Text, '')
-}
+. (Join-Path $PSScriptRoot 'ActiveModList.ps1')
 
 function Initialize-WindowInput {
     if ($null -eq ('SCLiveHarness.WindowInput' -as [type])) {
