@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 SC_TEST_CLOCK = { ms = 0, hour = 0, rain = false, nav = 0, cancel = 0,
     squares = {}, visual = {}, moves = 0 }
 local C = SC_TEST_CLOCK

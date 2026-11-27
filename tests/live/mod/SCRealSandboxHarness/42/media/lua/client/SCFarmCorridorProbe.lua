@@ -348,7 +348,7 @@ end
 local function releaseControl(H)
     local fixture = H.farmCorridor
     if fixture and fixture.decisionUpdate then
-        SurvivorCompanion.Decision.update = fixture.decisionUpdate
+        LivingFellows.Decision.update = fixture.decisionUpdate
         fixture.decisionUpdate = nil
     end
 end
@@ -407,7 +407,7 @@ local function nextCorridor(H, SC, current, result, setPhase)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     if H.phase == "farm_corridor_setup" then
         if current - H.phaseStartedAt < 6000 then return end

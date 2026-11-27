@@ -5,7 +5,7 @@ require 'TimedActions/ISRemoveGlass'
 require 'TimedActions/ISCleanBurn'
 require 'TimedActions/ISDisinfect'
 require 'XpSystem/ISUI/ISHealthPanel'
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={}}
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function check(value,reason) s.checks=s.checks+1;assert(value,'medical procedures '..s.checks..': '..reason) end
 local function note(value) s.notes[#s.notes+1]=value;print('SC_MEDICAL_PROCEDURE '..value) end

@@ -4,8 +4,8 @@ param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\Project
 $ErrorActionPreference='Stop'
 $ProjectRoot=Split-Path -Parent $PSScriptRoot
 $Core=Join-Path $ProjectRoot 'tests\core'
-$Shared=Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client=Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared=Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client=Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 $Essential=Join-Path $ProjectRoot 'tests\essential'
 $Gameplay=Join-Path $ProjectRoot 'tests\gameplay'
 . (Join-Path $Essential 'Gameplay.ps1')

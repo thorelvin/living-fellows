@@ -5,8 +5,8 @@ local installed,nextSample,started=false,0,nil
 local lines,scenes,completed,claims=0,{},0,0
 local observedScene
 local loggedInterruptions=setmetatable({}, {__mode="k"})
-local transcript="SurvivorCompanionHarness/voice-transcript.txt"
-local diagnostics="SurvivorCompanionHarness/voice-diagnostics.txt"
+local transcript="LivingFellowsHarness/voice-transcript.txt"
+local diagnostics="LivingFellowsHarness/voice-diagnostics.txt"
 local function write(path,line)
     local writer=getFileWriter(path,true,true)
     if writer then writer:write(tostring(line):gsub("[\r\n]"," ").."\n") writer:close() end
@@ -16,7 +16,7 @@ local function stamp(SC)
     return string.format("Day %d %02d:%02d",math.floor(hours/24),math.floor(hours%24),math.floor(hours%1*60))
 end
 local function install()
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if installed or not SC or not SC.Dialogue or not SC.Scenes or not SC.GameplayUtil
         or not getPlayer() then return end
     installed=true started=SC.GameplayUtil.nowMs()
@@ -54,7 +54,7 @@ end
 local function sample()
     install()
     if not installed then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local now=SC.GameplayUtil.nowMs()
     local scene=SC.Banter._partyForTests().exchange
     if scene and scene.generalized then observedScene=scene end

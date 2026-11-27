@@ -13,7 +13,7 @@ local function snapshot(f)
     local item = call(part, "getInventoryItem")
     local window = call(part, "getWindow")
     local condition = call(part, "getCondition")
-    local damage = SurvivorCompanion.BanditsAdapter.status()
+    local damage = LivingFellows.BanditsAdapter.status()
     return { condition = condition, item = item, window = window, meleeHits = damage.meleeHits,
         open = call(window, "isOpen") == true,
         intact = item ~= nil and type(condition) == "number" and condition > 0 }
@@ -21,7 +21,7 @@ end
 local function observe(f, action, task, hitBefore, before, after, healthBefore, healthAfter)
     if action ~= "Smack" or task.eid ~= "lf:" .. f.id or hitBefore == true or task.hit ~= true
         or not before or not after then return end
-    local status = SurvivorCompanion.BanditsAdapter.status()
+    local status = LivingFellows.BanditsAdapter.status()
     if before.intact and not before.open and after.intact and healthBefore and healthAfter
         and healthAfter < healthBefore then f.failure = "native wound passed intact closed glass" end
     local wound = healthBefore and healthAfter and healthAfter < healthBefore
@@ -42,7 +42,7 @@ local function finish(H, current, check, result, setPhase, good, why)
     local f = H.banditsVehicle
     if f then
         good = check("window_primary_isolation", Shared.samePlayers(f.primary), "main identity/slots/count unchanged") and good
-        good = check("window_stopped_car", SurvivorCompanion.Vehicle.isStationary(f.car)
+        good = check("window_stopped_car", LivingFellows.Vehicle.isStationary(f.car)
             and call(f.car, "isEngineRunning") == false, "actual car stationary and engine stopped") and good
         if f.gun then
             good = check("vehicle_hold_fire_retained", (f.lfSpent or 0) == 0,
@@ -200,7 +200,7 @@ local function unloadObserver(player, square)
     return good, good and "observer load prepared" or "observer remains overloaded"
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.banditsVehicle
+    local SC, f = LivingFellows, H.banditsVehicle
     if not f then
         if current - H.startedAt < 10000 or not SC.State.active or SC.Registry.count() == 0 then return end
         if not check("window_adapter_active", SC.BanditsAdapter.status().active, SC.BanditsAdapter.status().reason) then
@@ -454,7 +454,7 @@ function Probe.step(H, current, check, result, setPhase)
     if current >= (f.nextTrace or current) then
         f.nextTrace = current + 1000
         local state, task = snapshot(f), f.bandit and Bandit.GetTask(f.bandit)
-        local decision = SurvivorCompanion.Decision.peek(f.actor) or {}
+        local decision = LivingFellows.Decision.peek(f.actor) or {}
         print("SC_REAL_SANDBOX|VEHICLE_WINDOW|stage=" .. f.stage .. "|condition=" .. tostring(state.condition)
             .. "|open=" .. tostring(state.open) .. "|parts=" .. tostring(partsHealth(f.actor))
             .. "|task=" .. tostring(task and task.action) .. ":" .. tostring(task and task.eid)

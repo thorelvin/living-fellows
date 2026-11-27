@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- A late item and concurrent workers must survive bounded real selector calls.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local base, saved, sources, touched, resolved = SC.BaseLife, {}, {}, {}, 0
 for _, key in ipairs({ "storageRows", "resolveContainer", "depositStorageRows", "storageAcceptsDeposit" }) do
     saved[key] = base[key]

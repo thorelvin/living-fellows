@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real transfer/relationship paths, with only perception held quiet at the edge.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check, player = f.check, f.player
 local guest = f.actor("essential-help-guest", 1, 1, { recruited = false })
 f.registry[guest.id] = { actor = guest, runtime = {} }

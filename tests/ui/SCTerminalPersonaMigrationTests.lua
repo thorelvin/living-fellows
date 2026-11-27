@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Legacy readiness is ambiguous; actual dialogue qualifies new pending lines.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local D,L,P,S=SC.TerminalPersonaDiscovery,SC.TerminalLocks,SC.TerminalPersona,SC.TerminalSystem
 local check,before=T.check,T.checks
 local old={mod=ModData,find=SC.TerminalDrawers.find,debug=isDebugEnabled,config=SCConfig}

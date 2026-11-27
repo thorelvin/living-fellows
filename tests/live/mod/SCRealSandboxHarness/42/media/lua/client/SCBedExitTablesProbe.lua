@@ -39,7 +39,7 @@ local function catalogue()
 end
 local function contents(actor)
     local items = {}
-    for _, item in ipairs(SurvivorCompanion.GameplayUtil.inventoryItemsDeep(actor:getInventory(), 512, 12)) do
+    for _, item in ipairs(LivingFellows.GameplayUtil.inventoryItemsDeep(actor:getInventory(), 512, 12)) do
         items[item] = true
     end
     return items
@@ -48,11 +48,11 @@ local function intact(f)
     local current = contents(f.actor)
     for item in pairs(f.items) do if not current[item] then return false end end
     for item in pairs(current) do if not f.items[item] then return false end end
-    return SurvivorCompanion.Registry.byId(f.id).actor == f.actor and not f.actor:isDead()
+    return LivingFellows.Registry.byId(f.id).actor == f.actor and not f.actor:isDead()
         and f.table:getObjectIndex() >= 0
 end
 local function place(f)
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     local case = f.cases[f.index]
     local origin, best, score = f.actor:getCurrentSquare(), nil, nil
     for dx = -12, 12 do for dy = -12, 12 do
@@ -101,11 +101,11 @@ local function stageTableOverlap(f)
     actor:setCurrent(tile) tile:getMovingObjects():add(actor)
     actor:setOnBed(false) actor:setSitOnFurnitureObject(nil)
     actor:setCollidable(true)
-    SurvivorCompanion.GameplayUtil.invalidateSpatial(actor)
+    LivingFellows.GameplayUtil.invalidateSpatial(actor)
     f.exitState = { object = f.objects[1] }
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "bed_exit_tables_setup" then
         if current - H.phaseStartedAt < 8000 then return end
         local row

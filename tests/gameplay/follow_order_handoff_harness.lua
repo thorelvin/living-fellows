@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real Commands + BaseWork cancellation: Follow variants must use the same
 -- resident/job/navigation handoff before their options or convoy take effect.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local C, W = SC.Commands, SC.BaseWork
 local actors, records, residents, jobs, routes = {}, {}, {}, {}, {}
 local base = { id = "follow-camp", core = { x = 0, y = 0, z = 0 }, zones = {}, jobs = {},

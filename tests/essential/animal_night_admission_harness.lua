@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the real BaseWork night gate before the farm-specific fixture.
-local SC,f=SurvivorCompanion,SurvivorCompanion.TestFixture
+local SC,f=LivingFellows,LivingFellows.TestFixture
 local B=SC.BaseLife
 local worker=f.actor("night-farmer",2,1,{})
 f.registry[worker.id]={actor=worker}

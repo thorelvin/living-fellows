@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exact timber delivery is exercised separately from ordinary search receipts.
-local SC, T = SurvivorCompanion, INTEGRATION_TEST
+local SC, T = LivingFellows, INTEGRATION_TEST
 local I, U = SC.ExpeditionIntegration, SC.GameplayUtil
 local physicalWood, physicalLogging = SC.ExpeditionWood, SC.LoggingWork
 local checks = 0

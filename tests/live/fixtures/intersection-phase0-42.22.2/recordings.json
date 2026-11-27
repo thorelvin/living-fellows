@@ -112,127 +112,127 @@
   "domain": "Native asphalt; roadworthy stock scripts; requested inputs +/-0.5 and +/-1; cruise targets 6,12,20 km/h; actual speeds recorded.",
   "model": "R_body = L/tan(abs(delta)) * (a0 + a1*tan(delta)^2 + a2*(actual_kmh/3.6)^2). Coefficients fitted to right turns; left turns checked separately.",
   "driving_class_hashes": {
-    "survivorcompanion/bridge/SCCompanionDriver$ClearEdge.class": {
+    "livingfellows/bridge/SCCompanionDriver$ClearEdge.class": {
       "identical": true,
       "sha256": "a9b98882bbadb4b107641a9a30c763032ab6478d517cd260e62b069ebcd4bf8d"
     },
-    "survivorcompanion/bridge/SCCompanionDriver$WorldView.class": {
+    "livingfellows/bridge/SCCompanionDriver$WorldView.class": {
       "identical": true,
       "sha256": "0e2b1cd98bb7ea18bc4b2e4ed507c59c2166033de44c827a39b4248d3da2865d"
     },
-    "survivorcompanion/bridge/SCCompanionDriver.class": {
+    "livingfellows/bridge/SCCompanionDriver.class": {
       "identical": true,
       "sha256": "9fd3e1406fab7d5021fca2f017ac3c7c9fc97cc3c2352f21ddb12c1cec79e7fa"
     },
-    "survivorcompanion/bridge/SCDriveControl$Input.class": {
+    "livingfellows/bridge/SCDriveControl$Input.class": {
       "identical": true,
       "sha256": "949539a0c9283334f74a5115b07ec63e0f723c9fa56fe655cdda851f686caa43"
     },
-    "survivorcompanion/bridge/SCDriveControl.class": {
+    "livingfellows/bridge/SCDriveControl.class": {
       "identical": true,
       "sha256": "8d73e94a8e639aab1dba5a2c27ad7d649d388859742027d0910f0fbbb5dcd3f1"
     },
-    "survivorcompanion/bridge/SCDrivePath$Projection.class": {
+    "livingfellows/bridge/SCDrivePath$Projection.class": {
       "identical": true,
       "sha256": "b2d6202a77e2e8566d3480a2585cb6832dcf7c2c72515170f512018c5e6ef36b"
     },
-    "survivorcompanion/bridge/SCDrivePath.class": {
+    "livingfellows/bridge/SCDrivePath.class": {
       "identical": true,
       "sha256": "99233281297d5ebcd91645efc6bac6bf36bb66db6e18c305f21d7f0be3b4c11e"
     },
-    "survivorcompanion/bridge/SCLaneScan$Result.class": {
+    "livingfellows/bridge/SCLaneScan$Result.class": {
       "identical": true,
       "sha256": "273c3accc122f81d544fe41b3b5ace51b1119408adb66557ca849752f1ef6829"
     },
-    "survivorcompanion/bridge/SCLaneScan$World.class": {
+    "livingfellows/bridge/SCLaneScan$World.class": {
       "identical": true,
       "sha256": "3cc8e15b8f5da11b52eb04b82abc7921019f851daa108702a524d0407aa3bd6a"
     },
-    "survivorcompanion/bridge/SCLaneScan.class": {
+    "livingfellows/bridge/SCLaneScan.class": {
       "identical": true,
       "sha256": "3859cc7f23dbea9f4d4ef737de78b2598c840ff3dceb313f87e4b6b02882b114"
     },
-    "survivorcompanion/bridge/SCRoadFollower$Command.class": {
+    "livingfellows/bridge/SCRoadFollower$Command.class": {
       "identical": true,
       "sha256": "1134a02f41ebc40f96e962556ca5316513cd367e67d67165dfe43b06622eb666"
     },
-    "survivorcompanion/bridge/SCRoadFollower$Mode.class": {
+    "livingfellows/bridge/SCRoadFollower$Mode.class": {
       "identical": true,
       "sha256": "be278b935290177162b8954a0e078acb1182f40cebf52b2848c71429aafcaca7"
     },
-    "survivorcompanion/bridge/SCRoadFollower.class": {
+    "livingfellows/bridge/SCRoadFollower.class": {
       "identical": true,
       "sha256": "c19687d2a76b4ae5fb5a47844deab1011c84a61b7a2f4f3816e9f505fd956e60"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Attachment.class": {
+    "livingfellows/bridge/SCRoadRouter$Attachment.class": {
       "identical": true,
       "sha256": "f5c5892b0dae09afe9987cdf20615f1e8a1a0623118b610cb186d78c505840f7"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Avoidance.class": {
+    "livingfellows/bridge/SCRoadRouter$Avoidance.class": {
       "identical": true,
       "sha256": "0a4f9ced1aee9a4947c75a61c4e0b7d4b0fda67d471b4d98edebdf4939b18d2f"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Avoidances.class": {
+    "livingfellows/bridge/SCRoadRouter$Avoidances.class": {
       "identical": true,
       "sha256": "3e618b6c80fdb8d9d7b39569fc152dc7cea4183fbb2d86bac1cabdb417d6517c"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Edge.class": {
+    "livingfellows/bridge/SCRoadRouter$Edge.class": {
       "identical": true,
       "sha256": "b04ef8d00a96def5966e0742683f912334f6417bcc4104be11753266e0e2344e"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Graph.class": {
+    "livingfellows/bridge/SCRoadRouter$Graph.class": {
       "identical": true,
       "sha256": "93046bc0f7ec89c82cd91ad701e25268dfcba68269380244b10b92a270bc63b5"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Intersection.class": {
+    "livingfellows/bridge/SCRoadRouter$Intersection.class": {
       "identical": true,
       "sha256": "cebaeca26f853e3222209f33f1cca79d45e4f4086ac8dcb625eb6137a9e14378"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Junction.class": {
+    "livingfellows/bridge/SCRoadRouter$Junction.class": {
       "identical": true,
       "sha256": "51d9cf0ac0b93bd5e81b3ee7ba32e1ebcd42aca884eb1602b465585c245fcbf5"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Link.class": {
+    "livingfellows/bridge/SCRoadRouter$Link.class": {
       "identical": true,
       "sha256": "b9d2d8e0df55b2a4b1ddb224995779eba5a24916c51cf34cfce6c8d9cf511f86"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Point.class": {
+    "livingfellows/bridge/SCRoadRouter$Point.class": {
       "identical": true,
       "sha256": "2001678737f585267bdef8f901335d5733e12b6e5c6d009970968b0469378e08"
     },
-    "survivorcompanion/bridge/SCRoadRouter$QueueEntry.class": {
+    "livingfellows/bridge/SCRoadRouter$QueueEntry.class": {
       "identical": true,
       "sha256": "6dec28eed7f7c6a85bb2f7bb7e9097f8cb24c5b48401f6b55814a39098b9325d"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Result.class": {
+    "livingfellows/bridge/SCRoadRouter$Result.class": {
       "identical": true,
       "sha256": "75e71970076baf3b86e74b1cbb7c5147e53cffc6a248a3b3d5b5eff0fd7ccd35"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Segment.class": {
+    "livingfellows/bridge/SCRoadRouter$Segment.class": {
       "identical": true,
       "sha256": "012742765f1728f1a0520dd6a3fe1c45d8dc45858b9456409e4636071a4d124b"
     },
-    "survivorcompanion/bridge/SCRoadRouter$Step.class": {
+    "livingfellows/bridge/SCRoadRouter$Step.class": {
       "identical": true,
       "sha256": "6708d1575b840c794bc4490b96ca85dba77f38a49e5b2c7b541238bc21f7c67f"
     },
-    "survivorcompanion/bridge/SCRoadRouter$StreetLine.class": {
+    "livingfellows/bridge/SCRoadRouter$StreetLine.class": {
       "identical": true,
       "sha256": "930d2593dcd72da833624f7938cfc6f0e3165f9e506890ba7ea321ebcebe7e7c"
     },
-    "survivorcompanion/bridge/SCRoadRouter.class": {
+    "livingfellows/bridge/SCRoadRouter.class": {
       "identical": true,
       "sha256": "1d390b3a690163fe1c542597a7e8b9fdb4428813ef87d9f786fb8750d7f432ba"
     },
-    "survivorcompanion/bridge/SCTurnAround$State.class": {
+    "livingfellows/bridge/SCTurnAround$State.class": {
       "identical": true,
       "sha256": "b430cf947c2bb3862091f6683af763b34b1f91e5de9316558c6ed9773badbfaa"
     },
-    "survivorcompanion/bridge/SCTurnAround$Step.class": {
+    "livingfellows/bridge/SCTurnAround$Step.class": {
       "identical": true,
       "sha256": "a0257e77eecaf0bea31bd08cfac9658b8a2b116cdb4b1c9ae9fb72317c196c2f"
     },
-    "survivorcompanion/bridge/SCTurnAround.class": {
+    "livingfellows/bridge/SCTurnAround.class": {
       "identical": true,
       "sha256": "83b916f134939ebe0604d7b09d1fde61815b9e594c353b61d73b4ed54f80b70d"
     }

@@ -24,8 +24,8 @@ $Core = Join-Path $ProjectRoot 'tests\core'
 $Gameplay = Join-Path $ProjectRoot 'tests\gameplay'
 $UI = Join-Path $ProjectRoot 'tests\ui'
 $Essential = Join-Path $ProjectRoot 'tests\essential'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 . (Join-Path $Essential 'Gameplay.ps1')
 $script:ScTestJvmStarts = 0
 $prepared = $false
@@ -37,8 +37,8 @@ New-Item -ItemType Directory -Path $tools, $logs -Force | Out-Null
 $jar = Join-Path $GameRoot 'projectzomboid.jar'
 $java = Join-Path $GameRoot 'jre64\bin\java.exe'
 $nativeClasses = Join-Path $ProjectRoot 'build\native-bridge\classes'
-$nativeJar = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
-$payloadJar = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$nativeJar = Join-Path $ProjectRoot 'build\native-bridge\LivingFellowsBridge.jar'
+$payloadJar = Join-Path $ProjectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
 $hostPath = Get-ScPowerShellHost
 $native = @{
     Build = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest', 'SCNativeBridgeExposureTest')
@@ -87,7 +87,7 @@ function Initialize-EssentialTools {
     $sources = @((Join-Path $Gameplay 'KahluaTestRunner.java'), (Join-Path $UI 'ReflectLuaCompiler.java'))
     foreach ($name in @($selected | ForEach-Object { $native[$_] } | Select-Object -Unique)) {
         if ($plainTests -contains $name) { $sources += Join-Path $Core "$name.java" }
-        else { $sources += Join-Path $ProjectRoot "bridge\src\test\java\survivorcompanion\bridge\$name.java" }
+        else { $sources += Join-Path $ProjectRoot "bridge\src\test\java\livingfellows\bridge\$name.java" }
     }
     Invoke-ScTestCommand -FilePath $javac -Arguments (@('-cp', $nativeClasses, '-d', $tools) + $sources) `
         -LogPath (Join-Path $logs 'tools.log') -WorkingDirectory $ProjectRoot
@@ -95,7 +95,7 @@ function Initialize-EssentialTools {
 }
 function Invoke-EssentialNative([string]$Domain) {
     foreach ($name in $native[$Domain]) {
-        $class = if ($plainTests -contains $name) { $name } else { "survivorcompanion.bridge.$name" }
+        $class = if ($plainTests -contains $name) { $name } else { "livingfellows.bridge.$name" }
         $classpath = if ($stubTests -contains $name) { "$tools;$nativeClasses" } else { "$tools;$nativeJar;$jar" }
         $arguments = @('-cp', $classpath, $class)
         if ($name -eq 'SCIntersectionTurnsTest') {
@@ -134,7 +134,7 @@ function Invoke-EssentialLua([string]$Domain) {
 }
 function Invoke-EssentialBuild {
     Invoke-EssentialScript 'source' (Join-Path $PSScriptRoot 'Test-Source.ps1') @('-Scope', 'Metadata')
-    $lua = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua') `
+    $lua = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'LivingFellows\42\media\lua') `
         -Recurse -File -Filter '*.lua' | Sort-Object FullName | ForEach-Object FullName)
     $inputKey = Get-ScLuaCompilationKey $ProjectRoot $GameRoot
     # Long checkout paths can exceed Windows' command-line limit. Keep the

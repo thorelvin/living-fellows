@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Who speaks around a treatment, and the quality of the medical and needs
 -- lines. Real pools, real Medical.treat; speech is recorded, not shown.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local M,D,U=SC.Medical,SC.Dialogue,SC.GameplayUtil
 local P,MF=SC.TestMedicalProcedures,SC.TestMedicalMedicines
 local checks=0

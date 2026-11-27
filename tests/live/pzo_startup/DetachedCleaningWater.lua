@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run in a disposable world. The console also records whether the host logged
 -- Java coordinate exceptions even when the Lua call returned normally.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", modals = {}, notes = {} }
 
 local function write(name, text)

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Booking = SC.TaxiBooking
 
 local function check(condition, label)

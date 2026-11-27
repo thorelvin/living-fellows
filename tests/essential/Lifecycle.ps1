@@ -700,15 +700,15 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Core 'production_spawn_harness.lua')) }
 @{ Name = 'private-spawn'; Extended = $true; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCNamespace.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCSpeechColors.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCCall.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCStableValue.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCTransaction.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCConfig.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCDiagnostics.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\shared\SCRegistry.lua'),
-    (Join-Path $ProjectRoot 'build\private-playtest\SurvivorCompanion\42\media\lua\client\SCSpawn.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCNamespace.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCSpeechColors.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCCall.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCStableValue.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCTransaction.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCConfig.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCDiagnostics.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\shared\SCRegistry.lua'),
+    (Join-Path $ProjectRoot 'build\private-playtest\LivingFellows\42\media\lua\client\SCSpawn.lua'),
     (Join-Path $Core 'private_spawn_harness.lua')) }
 @{ Name = 'oddball-animal-spawn'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_animal_spawn_fixture.lua'),

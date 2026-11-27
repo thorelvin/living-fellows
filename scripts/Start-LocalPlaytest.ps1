@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $expectedVersion = (Get-Content -LiteralPath (Join-Path $projectRoot 'VERSION.txt') -Raw).Trim()
-$modInfo = Join-Path $ModsRoot 'SurvivorCompanion\42\mod.info'
+$modInfo = Join-Path $ModsRoot 'LivingFellows\42\mod.info'
 if (-not (Test-Path -LiteralPath $modInfo -PathType Leaf)) {
     throw "Local Living Fellows install is missing: $modInfo"
 }
@@ -27,7 +27,7 @@ if (Get-Process -Name 'ProjectZomboid*' -ErrorAction SilentlyContinue) {
 }
 
 # Build 42 defaults to workshop,steam,mods. A staged Workshop copy with the
-# same SurvivorCompanion ID can therefore mask this newer private install.
+# same LivingFellows ID can therefore mask this newer private install.
 # Put local mods first for this launch only; no Workshop staging is changed.
 $game = Start-Process -FilePath $gameExe -WorkingDirectory $GameRoot `
     -ArgumentList @('-modfolders', 'mods,workshop,steam') -PassThru

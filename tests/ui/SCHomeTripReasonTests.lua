@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Load the actual SCHomeTrip module first. These cases verify its public UI
 -- reason mapping without route planning, native motion or game-world setup.
-local Home=assert(SurvivorCompanion and SurvivorCompanion.HomeTrip)
+local Home=assert(LivingFellows and LivingFellows.HomeTrip)
 local previousGetText=getText
 getText=function(key) return "translated:"..key end
 local cases={

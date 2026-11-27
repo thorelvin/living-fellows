@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 local F = PyroFixture
-local Pyro = SurvivorCompanion.OddballPyromaniac
+local Pyro = LivingFellows.OddballPyromaniac
 local checks = 0
 local function check(value, message)
     checks = checks + 1
@@ -100,8 +100,8 @@ local legacy = { id = "legacy-pyro-group", standing = "Wary",
         site = { spawn = { x = 21, y = 20, z = 0 },
             fuelPosts = { { x = 20, y = 21, z = 0 },
                 { x = 22, y = 21, z = 0 } } } } }
-local oldSquare = SurvivorCompanion.GameplayUtil.gridSquare(20, 21, 0)
-local otherSquare = SurvivorCompanion.GameplayUtil.gridSquare(22, 21, 0)
+local oldSquare = LivingFellows.GameplayUtil.gridSquare(20, 21, 0)
+local otherSquare = LivingFellows.GameplayUtil.gridSquare(22, 21, 0)
 local priorCount = #F.worldItems
 oldSquare:AddWorldInventoryItem("Base.PetrolCan")
 oldSquare:AddWorldInventoryItem("Base.PetrolCan")

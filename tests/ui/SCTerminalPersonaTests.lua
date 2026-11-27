@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the actual window, persistence and effects, not a second renderer.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local UI,P,S,L,D=SC.TerminalPersonaUI,SC.TerminalPersona,SC.TerminalSystem,SC.TerminalLocks,SC.TerminalDrawers
 local check,before=T.check,T.checks
 local old={find=D.find,debug=isDebugEnabled,config=SCConfig,claim=D.claim,open=D.open,release=D.release,

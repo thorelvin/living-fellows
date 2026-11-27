@@ -22,7 +22,7 @@ local function finish(H, current, check, result, setPhase, okay, why)
     setPhase("finish", current)
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.banditsLifecycle
+    local SC, f = LivingFellows, H.banditsLifecycle
     if not f then
         if current - H.startedAt < 10000 or not SC.State.active or SC.Registry.count() == 0 then return end
         if not check("lifecycle_adapter_active", SC.BanditsAdapter.status().active,
@@ -54,7 +54,7 @@ function Probe.step(H, current, check, result, setPhase)
         and PlayerDamageModel.MeleeHit == model and occurrences(BanditPlayer.GetPlayers(), actor) == 1,
         "three initializations retain one wrapper and one native actor entry") and good
 
-    local option = PZAPI.ModOptions:getOptions("SurvivorCompanion"):getOption("banditsCompatibility")
+    local option = PZAPI.ModOptions:getOptions("LivingFellows"):getOption("banditsCompatibility")
     local prior = option:getValue()
     local okay, why = pcall(function()
         option:setValue(false)

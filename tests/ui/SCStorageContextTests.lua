@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the public world menu and callback arguments, including two
 -- containers sharing one tile. BaseLife's real removal guards have gameplay tests.
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local checks, removed, visualRefreshes, uiRefreshes = 0, {}, 0, 0
 local shown, remote, inside, blocked, pending = false, false, true, false, nil
 local function check(value, why)

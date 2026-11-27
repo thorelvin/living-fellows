@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real audit/controllers under a deterministic allowance exhausted mid-scan.
-local SC, checks, clock = SurvivorCompanion, 0, 100000
+local SC, checks, clock = LivingFellows, 0, 100000
 local U, B, W, F, L, FW = SC.GameplayUtil, SC.BaseLife, SC.BaseWork,
     SC.Factions, SC.FactionLife, SC.FactionWorld
 local function check(value, message)

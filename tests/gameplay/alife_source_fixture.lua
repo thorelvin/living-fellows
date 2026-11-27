@@ -26,6 +26,7 @@ P.Animations = { current = {}, apply = function() return true end }
 P.Endurance = { consumeAttack = function() end }
 P.Voice = { play = function() end }
 P.AudioPolicy = { playFrom = function() end, allowsNPC = function() return false end }
+P.SoundVolume = { playSource = function() end }
 P.Speech = { combatBark = function() end }
 P.NPCHitRelay = { ready = function() return true end, beginAttack = function() end, prepareAttack = function() end }
 P.ShellSimulation = { standardHealth = function() return 100 end }

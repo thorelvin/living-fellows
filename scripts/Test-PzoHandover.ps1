@@ -45,7 +45,7 @@ function Get-SeedFingerprint {
     finally{$hash.Dispose()}
 }
 function Get-SourceManifest {
-    $names=@(& git -C $PayloadProjectRoot ls-files --cached --others --exclude-standard -- SurvivorCompanion | Sort-Object -Unique)
+    $names=@(& git -C $PayloadProjectRoot ls-files --cached --others --exclude-standard -- LivingFellows | Sort-Object -Unique)
     if($LASTEXITCODE -ne 0 -or -not $names.Count){throw 'Cannot freeze native payload project source files.'}
     foreach($name in $names){
         $path=Join-Path $PayloadProjectRoot $name
@@ -54,10 +54,10 @@ function Get-SourceManifest {
 }
 $sourceBefore=@(Get-SourceManifest)
 [IO.File]::WriteAllText((Join-Path $output 'source-before.json'),($sourceBefore|ConvertTo-Json -Depth 3),$utf8)
-$payloadRoot=Join-Path $PayloadProjectRoot 'SurvivorCompanion'
+$payloadRoot=Join-Path $PayloadProjectRoot 'LivingFellows'
 $payloadBefore=Get-SeedFingerprint $payloadRoot
 $seedBefore=Get-SeedFingerprint
-$installedMod=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid\mods\SurvivorCompanion'
+$installedMod=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid\mods\LivingFellows'
 $installedModBefore=if(Test-Path -LiteralPath $installedMod){Get-SeedFingerprint $installedMod}else{'absent'}
 $protected=@{}
 foreach($name in @('ProjectZomboid64.json','LivingFellowsBridge.jar','projectzomboid.jar')){
@@ -81,9 +81,9 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'Loading-gate compilation failed.'}
     $manifest=Join-Path $output 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes livingfellows
     if($LASTEXITCODE -ne 0){throw 'Loading-gate packaging failed.'}
     if($ReuseRun){
         $run=[IO.Path]::GetFullPath($ReuseRun)
@@ -113,17 +113,17 @@ try {
     # metadata. Compare against that exact public payload, including metadata.
     $expectedRoot=Join-Path $output 'expected-payload'
     & (Join-Path $PSScriptRoot 'New-StandalonePayload.ps1') -ProjectRoot $PayloadProjectRoot -OutputRoot $expectedRoot -AllowExternalOutput | Out-Null
-    $expectedPayload=Join-Path $expectedRoot 'SurvivorCompanion'
+    $expectedPayload=Join-Path $expectedRoot 'LivingFellows'
     $sourceRows=@();$sourceFailures=@()
     foreach($file in Get-ChildItem -LiteralPath $expectedPayload -Recurse -File){
         $relative=$file.FullName.Substring($expectedPayload.Length).TrimStart([char[]]'\/')
-        $staged=Join-Path (Join-Path $fixture.cache 'mods\SurvivorCompanion') $relative
+        $staged=Join-Path (Join-Path $fixture.cache 'mods\LivingFellows') $relative
         $expected=(Get-FileHash -LiteralPath $file.FullName).Hash
         $actual=if(Test-Path -LiteralPath $staged){(Get-FileHash -LiteralPath $staged).Hash}else{'missing'}
         $sourceRows+=@{path=$relative;sha256=$expected}
         if($actual -ne $expected){$sourceFailures+=@{path=$relative;expected=$expected;actual=$actual}}
     }
-    $stagedPayload=Join-Path $fixture.cache 'mods\SurvivorCompanion'
+    $stagedPayload=Join-Path $fixture.cache 'mods\LivingFellows'
     $installManifestPath=Join-Path $stagedPayload '.sc-install-manifest.json'
     $installManifest=Get-Content -LiteralPath $installManifestPath -Raw|ConvertFrom-Json
     if($installManifest.owner -ne 'LivingFellows.Companion.cleanroom.0.9.0' -or -not $installManifest.nativeBridge){throw 'Unexpected fixture installation manifest.'}
@@ -140,7 +140,7 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $output 'source-match.json'),(@{files=$sourceRows.Count;matches=($sourceFailures.Count -eq 0);expectedBuilder='New-StandalonePayload.ps1';installManifestSha256=(Get-FileHash -LiteralPath $installManifestPath).Hash;failures=$sourceFailures;manifest=$sourceRows}|ConvertTo-Json -Depth 5),$utf8)
     if($sourceFailures.Count){throw 'Staged native payload does not match the frozen source.'}
-    $expectedBridge=(Get-FileHash -LiteralPath (Join-Path $expectedPayload '42\media\java\SurvivorCompanionBridge.jar')).Hash
+    $expectedBridge=(Get-FileHash -LiteralPath (Join-Path $expectedPayload '42\media\java\LivingFellowsBridge.jar')).Hash
     if((Get-FileHash -LiteralPath (Join-Path $fixture.game 'LivingFellowsBridge.jar')).Hash -ne $expectedBridge){
         throw 'Fixture game bridge differs from the exact staged payload bridge.'
     }
@@ -202,7 +202,7 @@ try {
         }
     }
     $pzo=Get-Content -LiteralPath (Join-Path $fixture.cache 'Lua\pzo_engine.log') -Raw
-    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
         throw 'PZO did not load the production bridge.'
     }
     Write-Output "NATIVE_PZO_HANDOVER_PASS evidence=$output"

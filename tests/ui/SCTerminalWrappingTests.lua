@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Native glyph advances can differ from the M-based layout estimate.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local Terminal,check=SC.Terminal,T.check
 local before=T.checks
 local oldCore,oldManager=getCore,getTextManager

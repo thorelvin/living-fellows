@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Focused policy check against the real SCVehicle seat planner.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(name, okay, detail)
     if not okay then error("LORETTA_VEHICLE_FAIL " .. name .. " "

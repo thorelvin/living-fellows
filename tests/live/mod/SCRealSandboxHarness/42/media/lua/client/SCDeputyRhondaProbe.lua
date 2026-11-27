@@ -89,7 +89,7 @@ local function captureView(SC, H, group)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "deputy_rhonda_prepare" then
         if current - H.phaseStartedAt < 1500 then return end
         local definition = SC.Oddballs.definition("checkpoint_deputy_rhonda")
@@ -221,7 +221,7 @@ function Probe.step(H, current, check, result, setPhase)
         pcall(function() deputy.actor:Say("Deputy Rhonda Vance") end)
         if H.config.deputy_rhonda_screenshot == "true" then
             local signal = H.deputyRhondaSignals.write(
-                "SurvivorCompanionHarness/deputy-rhonda-ready.txt",
+                "LivingFellowsHarness/deputy-rhonda-ready.txt",
                 { "ready=true", "station=" .. stations[H.deputyStationIndex].name,
                     "members=" .. tostring(#actors) })
             if not check("deputy_capture_ready", signal,
@@ -236,7 +236,7 @@ function Probe.step(H, current, check, result, setPhase)
     end
     if H.phase == "deputy_rhonda_capture" then
         if H.deputyRhondaSignals.exists(
-            "SurvivorCompanionHarness/deputy-rhonda-captured.txt") then
+            "LivingFellowsHarness/deputy-rhonda-captured.txt") then
             result("PASS", "deputy_live_capture", "native checkpoint captured")
             setPhase("finish", current)
         elseif current - H.phaseStartedAt > 15000 then

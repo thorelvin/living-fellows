@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local L,S,P,R,V=SC.TerminalLocks,SC.TerminalSystem,SC.TerminalLockPhone,SC.TerminalLockRadio,SC.TerminalLockRival
 local check,before=T.check,T.checks
 local old={mod=ModData,cell=getCell,time=getGameTime,paused=isGamePaused,world=getWorld,sound=addSound,

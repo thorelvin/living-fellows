@@ -164,8 +164,8 @@ function T.player(x, y, z)
     return player
 end
 
-SurvivorCompanion = SurvivorCompanion or {}
-SurvivorCompanion.GameplayUtil = {
+LivingFellows = LivingFellows or {}
+LivingFellows.GameplayUtil = {
     nowMs=function() return T.now end,
     call = function(object, method, ...)
         if object == nil then return nil, false end

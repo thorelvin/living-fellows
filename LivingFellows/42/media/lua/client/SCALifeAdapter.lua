@@ -2,8 +2,8 @@
 
 -- Project A-Life owns its shells, diplomacy and wounds. This boundary adds LF
 -- people to combat perception without publishing them as simulation anchors.
-SurvivorCompanion = SurvivorCompanion or {}
-local SC = SurvivorCompanion
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
 SC.ALifeAdapter = SC.ALifeAdapter or {}
 local Adapter = SC.ALifeAdapter
 local PREFIX, REJECT = "lf:", "SC_ALIFE_VICTIM_UNAVAILABLE"
@@ -187,7 +187,7 @@ function Adapter.invalidate()
     roster, rosterAt, rosterVersion = nil, -math.huge, nil
 end
 function Adapter.status()
-    return { state = state, active = active(), reason = detail, profile = "ProjectALife/1.4.6/42.21",
+    return { state = state, active = active(), reason = detail, profile = "ProjectALife/Interop-v1",
         listBuilds = metrics.listBuilds, wounds = metrics.wounds, rejected = metrics.rejected,
         lastVictim = metrics.lastVictim }
 end
@@ -605,7 +605,7 @@ function Adapter.initialize()
         changeState("unsupported", "Simultaneous A-Life and Bandits is not supported") return false
     end
     if not configured() then changeState("disabled", "Combat integration is off; identity guards retained") return false end
-    changeState("active", "Project A-Life 1.4.6 interfaces ready")
+    changeState("active", "Project A-Life Interop v1 interfaces ready")
     return active()
 end
 function Adapter.pulse(current)

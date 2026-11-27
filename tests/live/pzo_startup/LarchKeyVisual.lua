@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Visual-only follow-up against the durable Phase 0 world and exact native items.
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={'probe_revision=phase0-visible-native-inventory-r1'}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={'probe_revision=phase0-visible-native-inventory-r1'}}
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function check(v,why) s.checks=s.checks+1;assert(v,why) end
 local function phase(v) s.phase,s.at=v,getTimestampMs() end

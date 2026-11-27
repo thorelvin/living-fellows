@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local D, S = SC.Downtime, SC.ActionSupervisor
 local function check(value, message)
     checks = checks + 1

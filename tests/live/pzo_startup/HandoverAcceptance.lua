@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production events, actual UI callbacks and a genuine native disk restart.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local s={phase='menu',checks=0,notes={}}
 local function write(k,v) local w=assert(getFileWriter(k,true,false));w:write(v);w:close() end
 local function read(k) local r=getFileReader(k,false);if not r then return end;local v=r:readLine();r:close();return v end

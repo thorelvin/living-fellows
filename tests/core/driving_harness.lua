@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, SC_DRIVING_TEST
+local SC, T = LivingFellows, SC_DRIVING_TEST
 local Driving, Supervisor = SC.Driving, SC.ActionSupervisor
 local checks = 0
 local function check(ok, message)

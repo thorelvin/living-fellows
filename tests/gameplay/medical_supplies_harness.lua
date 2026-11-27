@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real camp storage policy and the production medicine context, read only.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B,K,S,D,M,P=SC.BaseLife,SC.MedicKit,SC.MedicalSupplies,SC.MedicalMedicines,SC.Medical,SC.MedicalProcedures
 local F,T,C=SC.TestMedicalMedicines,SC.TestFixture,SC.TestMedicalProcedures
 local checks=0

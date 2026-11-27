@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local clock = 1000
 local room = { name = "bedroom" }
 local hall = { name = "hall" }

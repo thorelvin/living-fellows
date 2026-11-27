@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Clinical metadata shares the ordinary Commands/Persistence care document.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F,T=SC.TestMedicalProcedures,SC.TestFixture
 local M,P,C,U=SC.Medical,SC.MedicalProcedures,SC.MedicalMaintenance,SC.GameplayUtil
 local checks,serial=0,91000

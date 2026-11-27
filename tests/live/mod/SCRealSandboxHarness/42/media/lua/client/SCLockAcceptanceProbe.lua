@@ -4,11 +4,11 @@
 local Probe={}
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCLockAcceptanceProbe=Probe
-local function call(o,m,...) return SurvivorCompanion.ControlUtil.call(o,m,...) end
+local function call(o,m,...) return LivingFellows.ControlUtil.call(o,m,...) end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-lock-acceptance-"..name..".png") end
 local function send(w,text) w:setFocusMode("chat") w.entry:setText(text) w:submit() end
 local function contents(stash)
-    local SC=SurvivorCompanion local c=stash and stash.location and SC.TerminalDrawers.container(stash.location)
+    local SC=LivingFellows local c=stash and stash.location and SC.TerminalDrawers.container(stash.location)
     if not c then return false end
     local seen={}
     local function collect(container,depth)
@@ -23,7 +23,7 @@ local function contents(stash)
     return #stash.items>0
 end
 local function fresh(H,f,kind,seed)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     SC.TerminalDrawers.release(f.pc)
     -- A fresh, documented program fixture on a real native office desktop.
@@ -36,8 +36,8 @@ local function fresh(H,f,kind,seed)
     return f.window.system
 end
 local function complete(H,f,current,result,setPhase)
-    if f.actor then SurvivorCompanion.Actor.remove(f.actor) f.actor=nil end
-    if SurvivorCompanion.Terminal.window then SurvivorCompanion.Terminal.window:close() end
+    if f.actor then LivingFellows.Actor.remove(f.actor) f.actor=nil end
+    if LivingFellows.Terminal.window then LivingFellows.Terminal.window:close() end
     if f.oldGod~=nil then H.player:setGodMod(f.oldGod) end
     if f.oldGhost~=nil then H.player:setGhostMode(f.oldGhost) end
     result("SKIP","lock_acceptance_optional_inventory_mod","Inventory Tetris not enabled; custom-button omission is covered by automated tests")
@@ -45,7 +45,7 @@ local function complete(H,f,current,result,setPhase)
     setPhase("finish",current)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,f=SurvivorCompanion,H.lockProbe
+    local SC,f=LivingFellows,H.lockProbe
     if H.phase=="lock_probe_accept_begin" then
         local marker=f.pc:getModData().LF_LockAcceptance
         if H.config.lock_acceptance_reload=="true" then

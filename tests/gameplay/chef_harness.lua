@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Small controller contract: safe food, stock threshold, power and one-shot order.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local chef, baseLife, util = SC.ChefWork, SC.BaseLife, SC.GameplayUtil
 assert(baseLife.ROLES.chef and baseLife.JOB_TYPES.cook,
     "Chef must survive role and job normalization")

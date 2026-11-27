@@ -2,7 +2,7 @@
 -- Camp fishing keeps its chosen food shelf while the angler walks there and
 -- plays the loot pose. The player may relabel that shelf in between updates;
 -- the catch must then go to a shelf that is still marked for food.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local base, checks, serial = SC.BaseLife, 0, 0
 local function check(value, reason)
     checks = checks + 1

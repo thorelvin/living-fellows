@@ -6,7 +6,7 @@ require 'TimedActions/ISSplint'
 require 'TimedActions/ISWashClothing'
 require 'TimedActions/ISCleanBandage'
 require 'Entity/TimedActions/ISHandcraftAction'
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={}}
 local function write(name,value)
     local w=assert(getFileWriter(name,true,false));w:write(value);w:close()
 end
@@ -206,7 +206,7 @@ local function step()
     elseif s.phase=='craft' then craft();phase('world-wash')
     elseif s.phase=='world-wash' then
         worldWash()
-        if SC.Identity.bridgeProtocol=='42.22-isocompanion-37' then
+        if SC.Identity.bridgeProtocol=='42.22-isocompanion-38' then
             s.findSource,s.count,s.partReset=findSource,count,partReset
             phase('acceptance-start')
         else finish(true,'native medical and washing capabilities verified') end

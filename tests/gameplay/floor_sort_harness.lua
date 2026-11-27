@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exact floor intake, physical trash, blocked storage and reload recovery.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Floor = SC.FloorSort
 local realBaseWork, realUtil, realTransport = SC.BaseWork, SC.GameplayUtil, SC.WorkTransport
 local now = 1000

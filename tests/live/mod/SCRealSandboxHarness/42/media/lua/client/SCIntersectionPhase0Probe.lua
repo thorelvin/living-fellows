@@ -2,7 +2,7 @@
 -- Measurements in a disposable save. No production controller changes, no
 -- zombie intervention, no position/angle/velocity writes during a trial.
 local Probe = {}
-local ROOT = "SurvivorCompanionHarness/"
+local ROOT = "LivingFellowsHarness/"
 local SCRIPTS = {"Base.CarNormal", "Base.Van", "Base.PickUpTruck"}
 -- Selected from the installed 42.22.2 streets.xml; baseline uses the actual
 -- planner geometry (including inferred T links), expanded by production Lua.
@@ -57,7 +57,7 @@ local function heading(car)
     return v:x(),v:z()
 end
 local function square(x,y)
-    return SurvivorCompanion.GameplayUtil.gridSquare(math.floor(x),math.floor(y),0)
+    return LivingFellows.GameplayUtil.gridSquare(math.floor(x),math.floor(y),0)
 end
 local function free(x,y,ownCar)
     local s=square(x,y)
@@ -196,7 +196,7 @@ local function arena(s)
     local n=s.arenaCursor-1
     if n>80 then return false,"no loaded open arena" end
     local x,y=6444+(n%9-4)*4,5461+(math.floor(n/9)-4)*4
-    local U=SurvivorCompanion.GameplayUtil
+    local U=LivingFellows.GameplayUtil
     for dx=-25,25 do for dy=-25,25 do
         if dx*dx+dy*dy<=625 then
             if not free(x+dx,y+dy) then return nil end
@@ -225,7 +225,7 @@ local function clean(SC,s)
     return true
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     H.phase0=H.phase0 or {geometry={},queue={},cursor=0,baseline=0,baselineCount=0}
     local s=H.phase0
     local function fail(name,why)

@@ -1,5 +1,5 @@
 -- Focused native-boundary simulation for the four final authored encounters.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local U={}
 SC.GameplayUtil=U
 local now,hour=1000,240

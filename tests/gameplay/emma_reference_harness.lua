@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B,R,F=SC.TerminalBrain,SC.EmmaReference,SC.EmmaTalkPolishFixture
 local checks=0
 local function check(ok,why) checks=checks+1 assert(ok,why) end

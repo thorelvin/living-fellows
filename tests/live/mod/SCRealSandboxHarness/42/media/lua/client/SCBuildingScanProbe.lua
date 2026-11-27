@@ -5,7 +5,7 @@
 local Probe={}
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCBuildingScanProbe=Probe
-local function call(object,name,...) return SurvivorCompanion.ControlUtil.call(object,name,...) end
+local function call(object,name,...) return LivingFellows.ControlUtil.call(object,name,...) end
 local function log(text) print("SC_REAL_SANDBOX|BUILDING_SCAN|"..text) end
 local function screenshot(H,suffix) getCore():TakeFullScreenshot(H.config.run_id.."-scan-"..suffix..".png") end
 local function unlock(SC,state,player)
@@ -21,8 +21,8 @@ local function locate(H,f,radius)
     for dx=-radius,radius do for dy=-radius,radius do
         local square=getCell():getGridSquare(x+dx,y+dy,0)
         local def=call(square,"getBuildingDef")
-        if def and (not f.expectedDef or def==f.expectedDef) and call(square,"TreatAsSolidFloor")==true and not SurvivorCompanion.Topology.squareHasStairs(square)
-            and SurvivorCompanion.GameplayUtil.isSquareFree(square) then
+        if def and (not f.expectedDef or def==f.expectedDef) and call(square,"TreatAsSolidFloor")==true and not LivingFellows.Topology.squareHasStairs(square)
+            and LivingFellows.GameplayUtil.isSquareFree(square) then
             local area=(def:getX2()-def:getX())*(def:getY2()-def:getY())
             local rank=f.site==3 and -area+math.abs(dx)+math.abs(dy) or dx*dx+dy*dy
             if not score or rank<score then best,score=square,rank end
@@ -31,7 +31,7 @@ local function locate(H,f,radius)
     return best
 end
 local function prepare(H,f,tile)
-    local SC,player=SurvivorCompanion,H.player
+    local SC,player=LivingFellows,H.player
     f.pc=IsoObject.new(tile,"appliances_com_01_72","Computer") tile:AddTileObject(f.pc)
     local inventory=player:getInventory()
     inventory:AddItem("Base.Screwdriver")
@@ -67,7 +67,7 @@ local function prepare(H,f,tile)
     return true
 end
 local function nextSite(H,f,current,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if f.window then f.window:close() end
     if f.originalDraw then SC.TerminalScanUI.draw=f.originalDraw f.originalDraw=nil end
     f.site=f.site+1
@@ -88,7 +88,7 @@ local function percentile(values,fraction)
     table.sort(values) return values[math.max(1,math.ceil(#values*fraction))]
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if H.phase=="building_scan_setup" then
         if current-H.phaseStartedAt<3000 then return end
         if SC.UI then SC.UI.close() end

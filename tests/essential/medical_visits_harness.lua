@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Camp medical work must name its patient independently from its assigned medic.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local checks = 0
 local function check(value, reason)
     checks = checks + 1

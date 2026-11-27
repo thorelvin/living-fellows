@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Test-only: compiled into the disposable live-run agent JAR, never into the
 // shipped bridge. SCExposure looks it up by name for convoy live runs.
-package survivorcompanion.harness;
+package livingfellows.harness;
 
 import org.joml.Vector3f;
 import zombie.MainThread;

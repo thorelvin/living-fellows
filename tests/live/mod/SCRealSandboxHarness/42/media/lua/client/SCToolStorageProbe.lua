@@ -14,7 +14,7 @@ local function photo(H,name)
     pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-tools-" .. name .. ".png") end)
 end
 function P.step(H,now,check,result,setPhase)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     if SC.UI and SC.UI.instance then SC.UI.close() end
     H.toolStorage=H.toolStorage or {index=1}
     local s=H.toolStorage

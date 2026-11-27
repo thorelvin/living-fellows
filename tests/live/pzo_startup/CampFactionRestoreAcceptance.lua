@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Create a real clearing in a disposable world, save it and check the same
 -- faction after starting a second game process.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase="menu", modals={}, cursor=0 }
 
 local function write(name, text)

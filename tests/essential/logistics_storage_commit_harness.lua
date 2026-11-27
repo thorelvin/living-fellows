@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Drive ordinary Logistics.update across a native-pose completion boundary.
 -- The player may change a shelf while the companion is already walking/looting.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local base, checks, serial = SC.BaseLife, 0, 0
 local function check(value, reason)
     checks = checks + 1

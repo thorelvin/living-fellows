@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Public playground regressions. Cases continue after a failure so a reverted
 -- fix produces observable per-case failures; process exit decides the gate.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B,H,Q,F=SC.TerminalBrain,SC.EmmaHooks,SC.EmmaContext,SC.EmmaTalkPolishFixture
 local failed,passed={},0
 local function check(ok,reason) assert(ok,reason) end

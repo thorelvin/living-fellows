@@ -9,7 +9,7 @@ local function limp(actor)
     return math.abs(assert(tonumber(actor:GetVariable('WalkInjury')),'native WalkInjury is unavailable'))
 end
 local function compareCaptures(s,check,note,label)
-    local M=SurvivorCompanion.Medical
+    local M=LivingFellows.Medical
     local bridge=SCBridge
     local native=M.assess(s.actor)
     SCBridge=nil
@@ -32,7 +32,7 @@ local function compareCaptures(s,check,note,label)
     return native
 end
 function Probe.step(s,check,note,phase)
-    local SC=SurvivorCompanion;local M=SC.Medical;local actor=s.actor
+    local SC=LivingFellows;local M=SC.Medical;local actor=s.actor
     local now=getTimestampMs()
     if string.sub(s.phase,1,16)~='acceptance-wash-' and string.sub(s.phase,1,16)~='acceptance-camp-' then
         -- Observe the loaded world through production senses; elective care

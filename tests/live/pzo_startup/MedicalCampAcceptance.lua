@@ -12,7 +12,7 @@ local function countOpen(base)
     return result
 end
 local function refreshContext(s, check)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local context = SC.GameplayUtil.actorState(s.actor)
     local snapshot = SC.Senses.snapshot(s.actor, s.primary, context)
     check(type(snapshot)=='table' and snapshot.valid==true, 'native camp receives an actual valid world observation')
@@ -21,7 +21,7 @@ local function refreshContext(s, check)
     return context
 end
 local function freeSquares(origin, actor)
-    local U, result = SurvivorCompanion.GameplayUtil, {}
+    local U, result = LivingFellows.GameplayUtil, {}
     for radius = 2, 5 do
         for dx = -radius, radius do for dy = -radius, radius do
             if math.abs(dx) == radius or math.abs(dy) == radius then
@@ -43,12 +43,12 @@ local function crate(square, category, check)
     local container = object:getContainer()
     container:setCapacity(100); container:setExplored(true)
     square:AddSpecialObject(object); square:RecalcAllWithNeighbours(true)
-    local okay, row = SurvivorCompanion.BaseLife.registerStorage(object, category)
+    local okay, row = LivingFellows.BaseLife.registerStorage(object, category)
     check(okay, 'native camp registers its '..category..' storage: '..tostring(row))
     return { object=object, container=container, row=row }
 end
 local function observe(s, check)
-    local SC, state = SurvivorCompanion, s.campAcceptance
+    local SC, state = LivingFellows, s.campAcceptance
     local batch = state.job and state.job.target and state.job.target.dressingBatch
     if batch then
         check(#batch.ids <= 8, 'native camp receipt never exceeds eight selected stock identities')
@@ -75,7 +75,7 @@ local function observe(s, check)
         and state.protected:getFullType()=='Base.BandageDirty', 'quest-protected source stock remains untouched throughout camp work')
 end
 function Probe.step(s, check, note, phase)
-    local SC, actor, now = SurvivorCompanion, s.actor, getTimestampMs()
+    local SC, actor, now = LivingFellows, s.actor, getTimestampMs()
     if s.phase=='acceptance-camp-start' then
         -- A single fixture population reset in the disposable cloned save.
         -- Later danger is observed normally and must fail the safety check.

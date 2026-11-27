@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Terminal, System, Files = SC.Terminal, SC.TerminalSystem, SC.TerminalFiles
 local check, beforeChecks = T.check, T.checks
 local oldWorld, oldRand, oldCore, oldPerks = SC.TerminalWorld.new, ZombRand, getCore, Perks

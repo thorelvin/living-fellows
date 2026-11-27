@@ -29,7 +29,7 @@ $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
 $Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $Compiler = Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java'
-$LuaRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua'
+$LuaRoot = Join-Path $ProjectRoot 'LivingFellows\42\media\lua'
 $LuaFiles = @(Get-ChildItem -LiteralPath $LuaRoot -Recurse -File -Filter '*.lua' |
     Sort-Object FullName | ForEach-Object FullName)
 if ($LuaFiles.Count -eq 0) { throw "No payload Lua files found under $LuaRoot" }

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real pools and selectors; deterministic world/actor facts, no native work.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local D, B, A, R, P = SC.Dialogue, SC.BaseLife, SC.BaseAlert, SC.Relationship, SC.Production
 local checks = 0
 local function check(value, message)

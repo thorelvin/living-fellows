@@ -1,12 +1,12 @@
 -- SPDX-License-Identifier: MIT
 -- Subject scenarios use the same native-shaped fixture as the essential checks.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject
 local makeSquare, squares, movementLog = f.makeSquare, f.squares, f.movementLog
-function SurvivorCompanion.__testDecisionNativeSwingLease()
-    local SC = SurvivorCompanion
+function LivingFellows.__testDecisionNativeSwingLease()
+    local SC = LivingFellows
     local oldSenses, oldNative = SC.Senses, SC.NativeActions
     local oldStop, oldMove = SC.Actor.stop, SC.Actor.setMovement
     local quietSnapshot = {
@@ -146,11 +146,11 @@ function SurvivorCompanion.__testDecisionNativeSwingLease()
     SC.Actor.stop, SC.Actor.setMovement = oldStop, oldMove
     SC.Senses, SC.NativeActions = oldSenses, oldNative
 end
-SurvivorCompanion.__testDecisionNativeSwingLease()
-SurvivorCompanion.__testDecisionNativeSwingLease = nil
+LivingFellows.__testDecisionNativeSwingLease()
+LivingFellows.__testDecisionNativeSwingLease = nil
 
-function SurvivorCompanion.__testDelegateReleasesCorpseDrag()
-    local sc = SurvivorCompanion
+function LivingFellows.__testDelegateReleasesCorpseDrag()
+    local sc = LivingFellows
     local saved = {
         production = sc.Production, downtime = sc.Downtime and sc.Downtime.update,
         needs = sc.Needs and sc.Needs.update, encounter = sc.Encounter and sc.Encounter.update,
@@ -179,7 +179,7 @@ function SurvivorCompanion.__testDelegateReleasesCorpseDrag()
         "every delegate but base work and combat puts a towed body down first: "
             .. table.concat(released, ","))
 end
-SurvivorCompanion.__testDelegateReleasesCorpseDrag()
-SurvivorCompanion.__testDelegateReleasesCorpseDrag = nil
+LivingFellows.__testDelegateReleasesCorpseDrag()
+LivingFellows.__testDelegateReleasesCorpseDrag = nil
 
 print("SUBJECT_PASS checks=" .. tostring(f.checks()))

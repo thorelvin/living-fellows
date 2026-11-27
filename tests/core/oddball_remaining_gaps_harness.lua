@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the real inventory, work-intent, and one-shot wake transitions.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local now = 1000
 local checks = 0
 local function check(value, reason)

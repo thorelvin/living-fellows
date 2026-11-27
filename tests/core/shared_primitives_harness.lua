@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Call = SC.Call
 local Transaction = SC.Transaction
 local NativeList = SC.NativeList

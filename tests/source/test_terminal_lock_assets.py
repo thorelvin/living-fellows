@@ -65,7 +65,7 @@ class TerminalLockAssets(unittest.TestCase):
                                 and p["clip"][0] + p["clip"][2] >= x1 and p["clip"][1] + p["clip"][3] >= y1]
                     self.assertEqual(len(covering), 1, f"{entry['id']} has a missing or overlapping source rectangle")
         self.assertLessEqual(total, 10 * 1024 * 1024)
-        actual = set((ROOT / "SurvivorCompanion/42/media/textures/Terminal/Locks").glob("*.png"))
+        actual = set((ROOT / "LivingFellows/42/media/textures/Terminal/Locks").glob("*.png"))
         self.assertEqual(named, {p.resolve() for p in actual})
 
 

@@ -51,7 +51,7 @@ if ($ActualHash -ne $ExpectedHash) {
 }
 
 $Namespace = Get-Content -LiteralPath (Join-Path $ProjectRoot `
-    'SurvivorCompanion\42\media\lua\shared\SCNamespace.lua') -Raw
+    'LivingFellows\42\media\lua\shared\SCNamespace.lua') -Raw
 $Installer = Get-Content -LiteralPath (Join-Path $ProjectRoot `
     'scripts\Install-NativeBridge.ps1') -Raw
 $NamespaceMatch = [regex]::Match($Namespace, 'gameVersion\s*=\s*"([^"]+)"')

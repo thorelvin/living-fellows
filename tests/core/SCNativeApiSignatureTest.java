@@ -87,8 +87,8 @@ public final class SCNativeApiSignatureTest {
                 "Handover pre-world native store transaction changed");
         handoverStore.getDeclaredMethod("init",Class.forName("gnu.trove.set.hash.TIntHashSet"));
         for(String key:new String[]{"sqlId","x","y","z","worldVersion","isDead","name"}) handoverData.getDeclaredField(key);
-        Class<?> companion = Class.forName("survivorcompanion.bridge.SCNativeCompanion");
-        Class<?> bridge = Class.forName("survivorcompanion.bridge.SCBridge");
+        Class<?> companion = Class.forName("livingfellows.bridge.SCNativeCompanion");
+        Class<?> bridge = Class.forName("livingfellows.bridge.SCBridge");
         Class<?> square = Class.forName("zombie.iso.IsoGridSquare");
         require(method(square, "getObjects").getReturnType() == java.util.List.class
                         && method(character, "getHitInfoList").getReturnType() == java.util.ArrayList.class,
@@ -479,24 +479,25 @@ public final class SCNativeApiSignatureTest {
                 "bridge edition signatures changed");
         // The Lua names a mixed Workshop/standalone setup from this result, so
         // each place a bridge JAR really comes from must classify exactly.
-        Class<?> bridgeOrigin = Class.forName("survivorcompanion.bridge.SCBridgeOrigin");
-        Method classifyOrigin = bridgeOrigin.getDeclaredMethod("classify", String.class);
+        Class<?> bridgeOrigin = Class.forName("livingfellows.bridge.SCBridgeOrigin");
+        Method classifyOrigin = bridgeOrigin.getDeclaredMethod("classify", String.class, boolean.class);
         classifyOrigin.setAccessible(true);
         String[][] origins = {
             {"C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\LivingFellowsBridge.jar", "launcher"},
-            {"D:\\Games\\steamapps\\workshop\\content\\108600\\3805760339\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "workshop"},
-            {"C:\\Users\\Player\\Zomboid\\Workshop\\LivingFellows\\Contents\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "staging"},
-            {"C:\\Users\\Player\\Zomboid\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "mods"},
-            {"/home/player/Zomboid/mods/SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar", "mods"},
-            {"C:\\work\\build\\native-bridge\\SurvivorCompanionBridge.jar", "unknown"},
+            {"D:\\Games\\steamapps\\workshop\\content\\108600\\3805760339\\mods\\LivingFellows\\42\\media\\java\\LivingFellowsBridge.jar", "workshop"},
+            {"C:\\Users\\Player\\Zomboid\\Workshop\\LivingFellows\\Contents\\mods\\LivingFellows\\42\\media\\java\\LivingFellowsBridge.jar", "staging"},
+            {"C:\\Users\\Player\\Zomboid\\mods\\LivingFellows\\42\\media\\java\\LivingFellowsBridge.jar", "mods"},
+            {"/home/player/Zomboid/mods/LivingFellows/42/media/java/LivingFellowsBridge.jar", "mods"},
+            {"D:\\Games\\steamapps\\workshop\\content\\108600\\3805760339\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "unknown"},
+            {"C:\\work\\build\\native-bridge\\LivingFellowsBridge.jar", "unknown"},
             {"", "unknown"}
         };
         for (String[] row : origins) {
-            Object classified = classifyOrigin.invoke(null, row[0]);
+            Object classified = classifyOrigin.invoke(null, row[0], row[1].equals("launcher"));
             require(row[1].equals(classified),
                     "bridge origin " + row[0] + " classified as " + classified + ", expected " + row[1]);
         }
-        require("unknown".equals(classifyOrigin.invoke(null, (Object) null)),
+        require("unknown".equals(classifyOrigin.invoke(null, null, false)),
                 "a missing bridge location must classify as unknown");
         Method runtimeContract = companion.getDeclaredMethod("runtimeContractFailure");
         runtimeContract.setAccessible(true);
@@ -605,14 +606,14 @@ public final class SCNativeApiSignatureTest {
                 "world-map fishing XML source signatures changed");
         // Build 42 exposes WorldMapStreetsV1 to Kahlua but not WorldMapStreets, so
         // the street walk runs in the bridge and Lua passes the streets API object.
-        require(method(survivorcompanion.bridge.SCBridge.class, "nearestStreet", Object.class,
+        require(method(livingfellows.bridge.SCBridge.class, "nearestStreet", Object.class,
                         double.class, double.class, double.class).getReturnType() == String.class,
                 "Kahlua-visible nearest-street bridge signature changed");
-        require(method(survivorcompanion.bridge.SCBridge.class, "planRoadRoute", Object.class,
+        require(method(livingfellows.bridge.SCBridge.class, "planRoadRoute", Object.class,
                         double.class, double.class, double.class, double.class,
                         se.krka.kahlua.vm.KahluaTable.class).getReturnType() == boolean.class,
                 "Kahlua-visible road route bridge signature changed");
-        require(method(survivorcompanion.bridge.SCBridge.class, "planRoadRouteAvoiding",
+        require(method(livingfellows.bridge.SCBridge.class, "planRoadRouteAvoiding",
                         Object.class, double.class, double.class, double.class,
                         double.class, double.class, double.class, double.class,
                         se.krka.kahlua.vm.KahluaTable.class).getReturnType() == boolean.class,
@@ -667,7 +668,7 @@ public final class SCNativeApiSignatureTest {
                         && method(square, "getPlayerCutawayFlag", int.class, long.class).getReturnType() == int.class
                         && chunk.getDeclaredField("renderLevels").getType().getComponentType() == renderLevels,
                 "deferred primary-frame restore or diagnostic signatures changed");
-        Class<?> splitProbe = Class.forName("survivorcompanion.bridge.SCSplitScreenProbe");
+        Class<?> splitProbe = Class.forName("livingfellows.bridge.SCSplitScreenProbe");
         require(method(splitProbe, "pollPrimaryViewRestore").getReturnType() == String.class
                         && method(splitProbe, "debugSetPrimaryViewRestoreMode", String.class).getReturnType() == boolean.class
                         && method(splitProbe, "debugPrimaryCutawaySample", int.class, int.class, int.class).getReturnType() == String.class,

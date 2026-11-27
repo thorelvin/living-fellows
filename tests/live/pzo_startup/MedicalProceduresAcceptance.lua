@@ -19,11 +19,11 @@ local cases={
 local results={remove_bullet='bullet_removed',remove_glass='glass_removed',clean_burn='burn_cleaned',disinfect_wound='wound_disinfected'}
 local function inventory(actor)
     local result={}
-    for _,row in ipairs(assert(SurvivorCompanion.BandageWash.inventoryEntries(actor))) do result[row.item]=row.source end
+    for _,row in ipairs(assert(LivingFellows.BandageWash.inventoryEntries(actor))) do result[row.item]=row.source end
     return result
 end
 local function refresh(s,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local context=SC.GameplayUtil.actorState(s.actor)
     local snapshot=SC.Senses.snapshot(s.actor,s.primary,context)
     check(type(snapshot)=='table' and snapshot.valid==true,'clinical acceptance observes actual loaded world')
@@ -31,7 +31,7 @@ local function refresh(s,check)
     return context
 end
 local function spawnSquare(s)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local origin=s.primary:getSquare();local room=origin:getRoom()
     local fallback
     for radius=1,10 do for dx=-radius,radius do for dy=-radius,radius do
@@ -46,8 +46,8 @@ local function spawnSquare(s)
     return fallback
 end
 local function protect(actor,item,key,check)
-    local okay=SurvivorCompanion.PersonalItems.restoreMarker(item,{ownerId='native-medical-control',key=key,kind='medical'},true)
-    check(okay and SurvivorCompanion.PersonalItems.isProtected(item,actor,'medical_consume'),'native fixture protection marker is authoritative')
+    local okay=LivingFellows.PersonalItems.restoreMarker(item,{ownerId='native-medical-control',key=key,kind='medical'},true)
+    check(okay and LivingFellows.PersonalItems.isProtected(item,actor,'medical_consume'),'native fixture protection marker is authoritative')
 end
 local function unchanged(row,actor,check,label)
     local root=actor:getInventory()
@@ -61,7 +61,7 @@ local function unchanged(row,actor,check,label)
     for _,item in ipairs(row.fresh) do check(root:contains(item),label..' preserves exact fresh supply') end
 end
 local function setup(s,check,note)
-    local SC,M=SurvivorCompanion,SurvivorCompanion.Medical
+    local SC,M=LivingFellows,LivingFellows.Medical
     local state=s.procedureState;local spec=cases[state.index]
     local actor,root=s.actor,s.actor:getInventory()
     for item,container in pairs(inventory(actor)) do
@@ -122,7 +122,7 @@ local function setup(s,check,note)
     return row
 end
 local function verify(s,check,note)
-    local SC,M=SurvivorCompanion,SurvivorCompanion.Medical
+    local SC,M=LivingFellows,LivingFellows.Medical
     local row,actor=s.procedureState.row,s.actor
     local root=actor:getInventory();local kind=row.case.kind
     check(row.part:bandaged(),'successful surgical procedure finishes with fresh covering')
@@ -164,7 +164,7 @@ local function verify(s,check,note)
         ..'; oldcoverreturned='..returned..'; nativepain='..row.part:getAdditionalPain()..'; primary_queue_untouched=true')
 end
 function Probe.step(s,check,note,phase)
-    local SC,M,N=SurvivorCompanion,SurvivorCompanion.Medical,SurvivorCompanion.NativeActions
+    local SC,M,N=LivingFellows,LivingFellows.Medical,LivingFellows.NativeActions
     local now=getTimestampMs()
     if s.phase=='acceptance-procedures-start' then
         s.procedureState={index=1,actors={},capabilityActor=s.actor}

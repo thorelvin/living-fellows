@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Owner = 'SurvivorCompanion.NativeBridge'
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
 $PzoMain = 'com/pzoptimizer/PZOEntrypoint'
 $OriginalMain = 'zombie/gameStates/MainScreenState'
 $AgentArgument = '-javaagent:LivingFellowsBridge.jar'
@@ -44,7 +44,8 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "No owned native bridge manifest was found at $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
-if ($manifest.owner -ne $Owner) { throw "Refusing to remove bridge owned by $($manifest.owner)" }
+$layout = Get-LivingFellowsNativeLayout ([string]$manifest.owner)
+if (-not $layout) { throw "Refusing to remove bridge owned by $($manifest.owner)" }
 if (-not (Same-Path ([string]$manifest.bridgeRoot) $BridgeRoot)) {
     throw 'Native manifest bridge root does not match the requested uninstall root.'
 }
@@ -65,7 +66,8 @@ if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Project Zomboid launcher configuration is missing: $configPath"
 }
 $bridgeJar = [System.IO.Path]::GetFullPath([string]$manifest.bridgeJar)
-if (-not (Same-Path $bridgeJar (Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'))) {
+if (-not (Same-Path $bridgeJar (Join-Path $BridgeRoot $layout.jar)) -or
+    [string]$manifest.wrapperMainClass -cne $layout.wrapper) {
     throw 'Native manifest JAR path is outside its owned bridge location.'
 }
 if (-not (Test-Path -LiteralPath $bridgeJar -PathType Leaf) -or
@@ -97,7 +99,7 @@ if ($ExpectedCurrentConfigSha256 -and $configHash -ne $ExpectedCurrentConfigSha2
     throw 'Launcher configuration changed after uninstall preflight; refusing automatic rollback.'
 }
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding utf8 | ConvertFrom-Json
-$wrapper = [string]$manifest.wrapperMainClass
+$wrapper = $layout.wrapper
 $launchMode = if ($manifest.launchMode) { [string]$manifest.launchMode } else { 'wrapper' }
 if ($launchMode -notin @('wrapper', 'agent', 'pzo-loader')) { throw 'Unknown native bridge launch mode; refusing automatic rollback.' }
 $agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })

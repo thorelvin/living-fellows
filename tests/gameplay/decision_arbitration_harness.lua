@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Standalone wiring and ownership matrix: decisions must be selectable,
 -- reach their controllers, and release control for independent emergencies.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local D, Supervisor = SC.Decision, SC.ActionSupervisor
 local clock, delegated, interrupted = 10000, nil, 0
 local nativePhase, nativeOwner, nativeName = "none", nil, nil

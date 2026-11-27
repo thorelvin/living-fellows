@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package survivorcompanion.harness;
+package livingfellows.harness;
 
 import java.lang.instrument.Instrumentation;
 

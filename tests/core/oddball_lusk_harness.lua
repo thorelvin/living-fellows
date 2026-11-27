@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local clockHour, seen = 22, false
 local lusk = { id = "lusk", x = 0, y = 0, z = 0 }
 local player = { id = "player", x = 11, y = 0, z = 0,

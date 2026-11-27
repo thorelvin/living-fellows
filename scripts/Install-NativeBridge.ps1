@@ -13,13 +13,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Owner = 'SurvivorCompanion.NativeBridge'
-$WrapperMain = 'survivorcompanion/bridge/SCLauncher'
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
+$Owner = $LivingFellowsBridgeOwner
+$WrapperMain = $LivingFellowsWrapperMain
 $OriginalMain = 'zombie/gameStates/MainScreenState'
 $PzoMain = 'com/pzoptimizer/PZOEntrypoint'
-$AgentMain = 'survivorcompanion.bridge.SCBootstrapAgent'
+$AgentMain = 'livingfellows.bridge.SCBootstrapAgent'
 $AgentArgument = '-javaagent:LivingFellowsBridge.jar'
-$ExpectedProtocol = '42.22-isocompanion-37'
+$ExpectedProtocol = '42.22-isocompanion-38'
 $ExpectedSupportedGame = '42.22'
 $ExpectedCompiledGame = '42.22.2'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -96,11 +97,11 @@ function Get-BridgeMetadata([string]$JarPath) {
     try {
         $entryNames = @($archive.Entries | ForEach-Object { $_.FullName })
         foreach ($required in @(
-            'survivorcompanion/bridge/SCNativeCompanion.class',
-            'survivorcompanion/bridge/SCBridge.class',
-            'survivorcompanion/bridge/SCBootstrap.class',
-            'survivorcompanion/bridge/SCLauncher.class',
-            'survivorcompanion/bridge/Main.class'
+            'livingfellows/bridge/SCNativeCompanion.class',
+            'livingfellows/bridge/SCBridge.class',
+            'livingfellows/bridge/SCBootstrap.class',
+            'livingfellows/bridge/SCLauncher.class',
+            'livingfellows/bridge/Main.class'
         )) {
             if ($entryNames -notcontains $required) {
                 throw "Native bridge JAR is missing $required"
@@ -124,7 +125,7 @@ function Get-BridgeMetadata([string]$JarPath) {
             supportedGame = [string]$fields['SC-Supported-Game-Version']
             compiledGame = [string]$fields['SC-Compiled-Game-Version']
             premainClass = [string]$fields['Premain-Class']
-            hasAgent = $entryNames -contains 'survivorcompanion/bridge/SCBootstrapAgent.class'
+            hasAgent = $entryNames -contains 'livingfellows/bridge/SCBootstrapAgent.class'
         }
     }
     finally { $archive.Dispose() }
@@ -152,14 +153,20 @@ if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)) {
 $ConfigBackupRoot = Normalize-Path $ConfigBackupRoot
 
 $manifestPath = Join-Path $BridgeRoot 'install-manifest.json'
-$targetJar = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
+$targetJar = Join-Path $BridgeRoot $LivingFellowsBridgeJar
+$legacyJar = Join-Path $BridgeRoot $LivingFellowsLegacyBridgeJar
 $targetJarArgument = $targetJar.Replace('\', '/')
-$launcherJarArgument = 'LivingFellowsBridge.jar'
+$legacyJarArgument = $legacyJar.Replace('\', '/')
+$launcherJarArgument = $LivingFellowsBridgeJar
 $launcherJar = Join-Path $GameRoot $launcherJarArgument
+if (Test-SamePath $targetJar $launcherJar) {
+    throw 'BridgeRoot must be separate from GameRoot so the stored bridge and launcher JAR have distinct paths.'
+}
 function Test-BridgeClasspathEntry([string]$Entry) {
     $normalized = $Entry.Replace('\', '/')
     return $normalized.Equals($targetJarArgument,
         [System.StringComparison]::OrdinalIgnoreCase) -or
+        $normalized.Equals($legacyJarArgument, [System.StringComparison]::OrdinalIgnoreCase) -or
         $normalized.Equals($launcherJarArgument,
             [System.StringComparison]::OrdinalIgnoreCase)
 }
@@ -169,17 +176,22 @@ $config = $configText | ConvertFrom-Json
 if ($null -eq $config.classpath) { throw 'ProjectZomboid64.json has no classpath array.' }
 
 $existingManifest = $null
+$existingBridgeJar = $targetJar
 if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     $existingManifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
-    if ($existingManifest.owner -ne $Owner) {
+    $existingLayout = Get-LivingFellowsNativeLayout ([string]$existingManifest.owner)
+    if (-not $existingLayout) {
         throw "Refusing to update a native bridge owned by $($existingManifest.owner)"
     }
+    $existingBridgeJar = Join-Path $BridgeRoot $existingLayout.jar
 }
+$renamingStoredJar = -not (Test-SamePath $existingBridgeJar $targetJar)
+$isWrapper = (Normalize-MainClass ([string]$config.mainClass)) -in @($WrapperMain, $LivingFellowsLegacyWrapperMain)
 
-if ($config.mainClass -eq $WrapperMain -and $null -eq $existingManifest) {
+if ($isWrapper -and $null -eq $existingManifest) {
     throw "SCLauncher is active but its owned manifest is missing at $manifestPath. Restore ProjectZomboid64.json from a known-good backup before reinstalling; the wrapper must never be inferred as the original launcher."
 }
-if (-not (Test-HostMain ([string]$config.mainClass)) -and $config.mainClass -ne $WrapperMain) {
+if (-not (Test-HostMain ([string]$config.mainClass)) -and -not $isWrapper) {
     throw "Refusing to replace an unknown Project Zomboid mainClass: $($config.mainClass)"
 }
 $launchMode = if (Test-PzoMain ([string]$config.mainClass)) { 'pzo-loader' } else { 'wrapper' }
@@ -196,15 +208,24 @@ if ($existingManifest) {
     $manifestMismatch = -not (Test-SamePath ([string]$existingManifest.gameRoot) $GameRoot) `
         -or -not (Test-SamePath ([string]$existingManifest.gameConfig) $configPath) `
         -or -not (Test-SamePath $ownedBridgeRoot $BridgeRoot) `
-        -or -not (Test-SamePath ([string]$existingManifest.bridgeJar) $targetJar) `
-        -or [string]$existingManifest.wrapperMainClass -ne $WrapperMain
+        -or -not (Test-SamePath ([string]$existingManifest.bridgeJar) $existingBridgeJar) `
+        -or [string]$existingManifest.wrapperMainClass -cne $existingLayout.wrapper
     if ($manifestMismatch) {
         throw 'Existing native bridge manifest does not own this normalized game/config/bridge path set.'
+    }
+    if ($renamingStoredJar -and (Test-Path -LiteralPath $targetJar)) {
+        throw "Refusing to replace an existing native bridge at the new path: $targetJar"
+    }
+    if (@($classpathMatches | Where-Object {
+        ([string]$_).Replace('\', '/') -ine $launcherJarArgument -and
+        ([string]$_).Replace('\', '/') -ine $existingBridgeJar.Replace('\', '/')
+    }).Count -gt 0) {
+        throw 'Launcher contains a native bridge path outside the owned generation.'
     }
     $previousMode = if ($existingManifest.launchMode) { [string]$existingManifest.launchMode } else { 'wrapper' }
     if ($previousMode -notin @('wrapper', 'agent', 'pzo-loader')) { throw 'Unknown owned native bridge launch mode; refusing update.' }
     $activeOwnedLauncher = $false
-    if ($config.mainClass -eq $WrapperMain -and $previousMode -eq 'wrapper') {
+    if ((Normalize-MainClass ([string]$config.mainClass)) -ceq $existingLayout.wrapper -and $previousMode -eq 'wrapper') {
         if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 0) {
             throw 'SCLauncher classpath or bootstrap agent ownership is missing or duplicated; refusing update.'
         }
@@ -250,10 +271,10 @@ if ($existingManifest) {
             -not $recordedInstalledConfigHash.Equals($configHashAtStart,
                 [System.StringComparison]::OrdinalIgnoreCase)
     }
-    if (-not (Test-Path -LiteralPath $targetJar -PathType Leaf)) {
-        throw "Owned native bridge JAR is missing: $targetJar"
+    if (-not (Test-Path -LiteralPath $existingBridgeJar -PathType Leaf)) {
+        throw "Owned native bridge JAR is missing: $existingBridgeJar"
     }
-    $currentJarHash = Get-HashOrEmpty $targetJar
+    $currentJarHash = Get-HashOrEmpty $existingBridgeJar
     if ([string]$existingManifest.bridgeSha256 -ne $currentJarHash) {
         throw 'Owned native bridge JAR hash no longer matches its manifest; refusing update.'
     }
@@ -305,7 +326,7 @@ $buildOutput = $null
 if ([string]::IsNullOrWhiteSpace($PrebuiltBridgeJar)) {
     $builder = Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1'
     $buildOutput = & $builder -ProjectRoot $ProjectRoot -InstallIntoPayload
-    $builtJar = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
+    $builtJar = Join-Path $ProjectRoot 'build\native-bridge\LivingFellowsBridge.jar'
     if (-not (Test-Path -LiteralPath $builtJar -PathType Leaf)) {
         throw 'Native bridge build did not produce the expected JAR.'
     }
@@ -338,7 +359,7 @@ $backupPath = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalConfigBackup
 } else {
     $suffix = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N')).Substring(0, 8)
-    Join-Path $ConfigBackupRoot ("ProjectZomboid64.before-SurvivorCompanion.$suffix.json")
+    Join-Path $ConfigBackupRoot ("ProjectZomboid64.before-LivingFellows.$suffix.json")
 }
 $originalMainClass = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalMainClass
@@ -358,6 +379,7 @@ $originalConfigHash = if ($migratedExternalLauncher) {
 
 $reuseCurrentConfig = $existingManifest -and -not $recoveredGameReinstall -and
     $previousMode -eq $launchMode -and
+    ($launchMode -ne 'wrapper' -or $config.mainClass -ceq $WrapperMain) -and
     $classpathMatches.Count -eq 1 -and
     ([string]$classpathMatches[0]).Replace('\', '/').Equals($launcherJarArgument,
         [System.StringComparison]::OrdinalIgnoreCase)
@@ -381,19 +403,19 @@ $priorRoot = Join-Path $transactionRoot 'prior'
 $stagedRoot = Join-Path $transactionRoot 'staged'
 New-Item -ItemType Directory -Path $priorRoot, $stagedRoot -Force | Out-Null
 $priorConfig = Join-Path $priorRoot 'ProjectZomboid64.json'
-$priorJar = Join-Path $priorRoot 'SurvivorCompanionBridge.jar'
+$priorJar = Join-Path $priorRoot 'stored-bridge.jar'
 $priorLauncherJar = Join-Path $priorRoot $launcherJarArgument
 $priorManifest = Join-Path $priorRoot 'install-manifest.json'
 $stagedConfig = Join-Path $stagedRoot 'ProjectZomboid64.json'
-$stagedJar = Join-Path $stagedRoot 'SurvivorCompanionBridge.jar'
+$stagedJar = Join-Path $stagedRoot 'stored-bridge.jar'
 $stagedLauncherJar = Join-Path $stagedRoot $launcherJarArgument
 $stagedManifest = Join-Path $stagedRoot 'install-manifest.json'
 Copy-Item -LiteralPath $configPath -Destination $priorConfig
-$priorJarExisted = Test-Path -LiteralPath $targetJar -PathType Leaf
+$priorJarExisted = Test-Path -LiteralPath $existingBridgeJar -PathType Leaf
 $priorLauncherJarExisted = Test-Path -LiteralPath $launcherJar -PathType Leaf
 $priorManifestExisted = Test-Path -LiteralPath $manifestPath -PathType Leaf
 $priorBackupExisted = Test-Path -LiteralPath $backupPath -PathType Leaf
-if ($priorJarExisted) { Copy-Item -LiteralPath $targetJar -Destination $priorJar }
+if ($priorJarExisted) { Copy-Item -LiteralPath $existingBridgeJar -Destination $priorJar }
 if ($priorLauncherJarExisted) {
     Copy-Item -LiteralPath $launcherJar -Destination $priorLauncherJar
 }
@@ -467,12 +489,14 @@ try {
     Invoke-Fault 'native-config-replace'
     Copy-Item -LiteralPath $stagedJar -Destination $targetJar -Force
     Copy-Item -LiteralPath $stagedLauncherJar -Destination $launcherJar -Force
+    if ($renamingStoredJar) { Remove-Item -LiteralPath $existingBridgeJar -Force }
     Invoke-Fault 'native-jar-replace'
     Copy-Item -LiteralPath $stagedManifest -Destination $manifestPath -Force
     Invoke-Fault 'native-manifest-write'
 
     if ((Get-HashOrEmpty $configPath) -ne $installedConfigHash -or
         (Get-HashOrEmpty $targetJar) -ne $stagedJarHash -or
+        ($renamingStoredJar -and (Test-Path -LiteralPath $existingBridgeJar)) -or
         (Get-HashOrEmpty $launcherJar) -ne $stagedJarHash -or
         (Get-HashOrEmpty $manifestPath) -ne (Get-HashOrEmpty $stagedManifest)) {
         throw 'Native bridge install postcondition hash mismatch.'
@@ -485,8 +509,10 @@ catch {
     try { if ($configPublished) { Copy-Item -LiteralPath $priorConfig -Destination $configPath -Force } }
     catch { $rollbackFailures += "config restore: $($_.Exception.Message)" }
     try {
-        if ($priorJarExisted) { Copy-Item -LiteralPath $priorJar -Destination $targetJar -Force }
-        elseif (Test-Path -LiteralPath $targetJar) { Remove-Item -LiteralPath $targetJar -Force }
+        if ($priorJarExisted) { Copy-Item -LiteralPath $priorJar -Destination $existingBridgeJar -Force }
+        if (($renamingStoredJar -or -not $priorJarExisted) -and (Test-Path -LiteralPath $targetJar)) {
+            Remove-Item -LiteralPath $targetJar -Force
+        }
     } catch { $rollbackFailures += "JAR restore: $($_.Exception.Message)" }
     try {
         if ($priorLauncherJarExisted) {
@@ -508,8 +534,9 @@ catch {
     if ($configPublished -and (Get-HashOrEmpty $configPath) -ne $priorConfigHash) {
         $rollbackFailures += 'config rollback hash mismatch'
     }
-    if ($priorJarExisted -ne (Test-Path -LiteralPath $targetJar -PathType Leaf) -or
-        ($priorJarExisted -and (Get-HashOrEmpty $targetJar) -ne $priorJarHash)) {
+    if ($priorJarExisted -ne (Test-Path -LiteralPath $existingBridgeJar -PathType Leaf) -or
+        ($priorJarExisted -and (Get-HashOrEmpty $existingBridgeJar) -ne $priorJarHash) -or
+        ($renamingStoredJar -and (Test-Path -LiteralPath $targetJar))) {
         $rollbackFailures += 'JAR rollback presence/hash mismatch'
     }
     if ($priorLauncherJarExisted -ne (Test-Path -LiteralPath $launcherJar -PathType Leaf) -or

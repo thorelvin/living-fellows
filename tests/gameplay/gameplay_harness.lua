@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production follow dispatch, bounded obstacle routing and verified door access.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local follower = f.actor("essential-follower", 0, 0, {})
 f.registry[follower.id] = follower

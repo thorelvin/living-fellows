@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
 # Must match the stable ownership id written by every managed local build.
 $Owner = 'LivingFellows.Companion.cleanroom.0.9.0'
 $bridgeRootWasExplicit = $PSBoundParameters.ContainsKey('BridgeRoot')
@@ -30,7 +31,7 @@ if (($ModsRoot.StartsWith($liveCachePrefix, [System.StringComparison]::OrdinalIg
     (Get-Process -Name 'ProjectZomboid*' -ErrorAction SilentlyContinue)) {
     throw 'Close Project Zomboid before uninstalling.'
 }
-$Target = Join-Path $ModsRoot 'SurvivorCompanion'
+$Target = Get-LivingFellowsInstalledTarget $ModsRoot
 $rootPrefix = $ModsRoot.TrimEnd('\') + '\'
 if (-not ([System.IO.Path]::GetFullPath($Target)).StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Invalid uninstall target: $Target"
@@ -41,6 +42,10 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
 if ($manifest.owner -ne $Owner) { throw "Refusing to remove target owned by $($manifest.owner)" }
+$targetModId = Get-LivingFellowsGenerationId $Target $manifest
+if ($targetModId -cne (Split-Path -Leaf $Target)) {
+    throw "Managed mod ID does not match its live directory: $Target"
+}
 $manifestBridgeRoot = [string]$manifest.bridgeRoot
 if ([string]::IsNullOrWhiteSpace($manifestBridgeRoot)) {
     throw 'Owned mod manifest has no bridgeRoot; refusing uninstall before mutation.'
@@ -75,6 +80,7 @@ if ($changed.Count -gt 0 -and -not $Force) {
 }
 
 $backup = [string]$manifest.backupPath
+$backupTarget = $null
 if ($backup) {
     $backup = [System.IO.Path]::GetFullPath($backup)
     $backupRoot = [string]$manifest.backupRoot
@@ -85,8 +91,8 @@ if ($backup) {
     $backupPrefix = $backupRoot.TrimEnd('\') + '\'
     $backupInRoot = $backup.StartsWith($backupPrefix, [System.StringComparison]::OrdinalIgnoreCase)
     $backupLeaf = Split-Path -Leaf $backup
-    $backupOwnedName = $backupLeaf.StartsWith('SurvivorCompanion-managed-backup-')
-    if (-not $backupInRoot -or -not $backupOwnedName) {
+    if (-not $backupInRoot -or -not (Test-LivingFellowsBackupName $backupLeaf) -or
+        -not (Test-SamePath (Split-Path -Parent $backup) $backupRoot)) {
         throw "Manifest contains an unsafe backup path: $backup"
     }
     $normalizedBackupRoot = $backupRoot.TrimEnd('\')
@@ -109,6 +115,17 @@ if ($backup) {
     if ($backupManifest.owner -ne $Owner) {
         throw "Managed backup has unexpected owner: $($backupManifest.owner)"
     }
+    $backupId = Get-LivingFellowsGenerationId $backup $backupManifest
+    if ($manifest.backupModId -and [string]$manifest.backupModId -cne $backupId) {
+        throw "Managed backup ID differs from its recorded identity: $backup"
+    }
+    if (-not $KeepNativeBridge -and $backupId -cne $targetModId) {
+        throw 'The previous generation uses a different mod ID and launcher. Run Uninstall.bat to remove the managed generations together.'
+    }
+    $backupTarget = Join-Path $ModsRoot $backupId
+    if (-not (Test-SamePath $backupTarget $Target) -and (Test-Path -LiteralPath $backupTarget)) {
+        throw "Prior managed mod directory already exists: $backupTarget"
+    }
 }
 $isFinalGeneration = [string]::IsNullOrWhiteSpace($backup)
 $nativeUninstaller = Join-Path $PSScriptRoot 'Uninstall-NativeBridge.ps1'
@@ -121,12 +138,12 @@ if ($isFinalGeneration) {
     # canonical bridge paths before moving even the first mod file.
     & $nativeUninstaller -BridgeRoot $BridgeRoot -PreflightOnly | Out-Null
 }
-$quarantine = Join-Path $ModsRoot ('.SurvivorCompanion.uninstall.' + [guid]::NewGuid().ToString('N'))
+$quarantine = Join-Path $ModsRoot ('.LivingFellows.uninstall.' + [guid]::NewGuid().ToString('N'))
 $restoredBackup = $false
 try {
     Move-Item -LiteralPath $Target -Destination $quarantine
     if ($backup) {
-        Move-Item -LiteralPath $backup -Destination $Target
+        Move-Item -LiteralPath $backup -Destination $backupTarget
         $restoredBackup = $true
     }
     if ($isFinalGeneration -and -not $KeepNativeBridge) {
@@ -137,10 +154,9 @@ try {
     }
 }
 catch {
-    $targetExists = Test-Path -LiteralPath $Target
     $backupMissing = $backup -and -not (Test-Path -LiteralPath $backup)
-    if ($restoredBackup -and $targetExists -and $backupMissing) {
-        Move-Item -LiteralPath $Target -Destination $backup
+    if ($restoredBackup -and $backupMissing -and (Test-Path -LiteralPath $backupTarget)) {
+        Move-Item -LiteralPath $backupTarget -Destination $backup
     }
     $quarantineExists = Test-Path -LiteralPath $quarantine -PathType Container
     $targetMissing = -not (Test-Path -LiteralPath $Target)

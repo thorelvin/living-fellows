@@ -350,7 +350,7 @@ beginTrial = function(H, SC, f, current, check, result, setPhase)
     setPhase("firestation_rest_spawn", current)
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local SC, U = LivingFellows, LivingFellows.GameplayUtil
     if H.phase == "firestation_rest_setup" then
         if current - H.phaseStartedAt < 3000 then return end
         if H.config.reliability_pass ~= "true" then SC.Scheduler.unregister("decision") end

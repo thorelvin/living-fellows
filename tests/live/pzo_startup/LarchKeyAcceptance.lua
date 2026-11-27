@@ -2,7 +2,7 @@
 -- Production LARCH/KEY native acceptance in a disposable world. No gameplay APIs
 -- are mocked. Native UI callbacks, real inventory items and real disk reloads.
 require 'ISUI/ISContextMenu'
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={'probe_revision=larch-key-production-native-stable-compact-r5'}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={'probe_revision=larch-key-production-native-stable-compact-r5'}}
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function read(name) local r=getFileReader(name,false);if not r then return end;local v=r:readLine();r:close();return v end
 local mode=read('pzo-larch-key-mode.txt') or 'acceptance'

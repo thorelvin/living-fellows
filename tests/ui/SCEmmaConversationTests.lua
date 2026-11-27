@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Stateful production replies and native-shaped entry points, not a second parser.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local B,C=SC.TerminalBrain,SC.EmmaCare
 local check,before=T.check,T.checks
 check(SC.Terminal.entryText({javaObject={getInternalText=function() return "new input" end},

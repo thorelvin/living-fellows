@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local actor = { id = "sc-nickname-display" }
 local descriptor = {}
 function descriptor:getForename() return "Sarah" end

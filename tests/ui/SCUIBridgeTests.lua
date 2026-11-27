@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local Bridge = SurvivorCompanion and SurvivorCompanion.UIBridge
+local Bridge = LivingFellows and LivingFellows.UIBridge
 assert(Bridge, "SCUIBridge must be loaded before this test")
 
 local inventory = { marker = "companion-inventory" }
@@ -39,7 +39,7 @@ local invalidActor = {
     getModData = actor.getModData,
 }
 
-SurvivorCompanion.Actor = {
+LivingFellows.Actor = {
     isCompanion = function(subject)
         return subject ~= invalidActor
     end,
@@ -47,7 +47,7 @@ SurvivorCompanion.Actor = {
 
 local stayBegins = 0
 local stayEnds = 0
-SurvivorCompanion.Commands = {
+LivingFellows.Commands = {
     beginTemporaryStay = function(subject, reason)
         assert(subject == actor and reason == "companion_inventory")
         stayBegins = stayBegins + 1
@@ -175,7 +175,7 @@ assert(stayBegins == 3 and stayEnds == 3,
     "closing the vanilla pane releases the temporary Stay hold")
 
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local savedUI = SC.UI
     SC.UI = { isOpen = function() return false end }
     assert(Bridge.openInventory(actor, player) == true)
@@ -199,7 +199,7 @@ local companionSquare = { x = 11, y = 11, z = 0,
     getX = square.getX, getY = square.getY, getZ = square.getZ }
 local originalGetSquare = actor.getSquare
 function actor:getSquare() return companionSquare end
-SurvivorCompanion.Registry = {
+LivingFellows.Registry = {
     snapshot = function()
         return { { id = "sc-bridge-test", actor = actor, recruited = true } }
     end,
@@ -214,11 +214,11 @@ companionSquare.x = 11
 companionSquare.z = 1
 assert(#Bridge.nearbyInventories(player) == 0, "another floor is excluded")
 companionSquare.z = 0
-SurvivorCompanion.Registry.snapshot = function()
+LivingFellows.Registry.snapshot = function()
     return { { id = "sc-bridge-test", actor = actor, recruited = false } }
 end
 assert(#Bridge.nearbyInventories(player) == 0, "unrecruited NPCs stay private")
-SurvivorCompanion.Registry.snapshot = function()
+LivingFellows.Registry.snapshot = function()
     return { { id = "sc-bridge-test", actor = actor, recruited = true } }
 end
 local refreshes = 0

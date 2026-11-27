@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Read paths can run before the bounded migration reaches a dead resident.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local B, W = SC.BaseLife, SC.BaseWork
 local checks = 0
 local function check(value, message)

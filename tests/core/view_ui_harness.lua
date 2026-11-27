@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local function check(value, message) checks=checks+1; assert(value,message) end
 local primary, companion, dead, foreign = {}, {}, {}, {}
 local secondary = companion

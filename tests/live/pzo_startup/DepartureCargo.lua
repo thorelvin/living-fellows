@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Focused native departure test, not a complete wood collection trip. Seed a
 -- cold sorting receipt using real native objects, then dispatch two recruits.
-local SC, s = SurvivorCompanion, { phase='menu', checks=0, crew={}, items={} }
+local SC, s = LivingFellows, { phase='menu', checks=0, crew={}, items={} }
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function check(ok,why) s.checks=s.checks+1;assert(ok,'departure cargo '..s.checks..': '..tostring(why)) end
 local function phase(name) s.phase,s.at=name,getTimestampMs();write('pzo-departure-cargo-progress.txt',name..'\n') end

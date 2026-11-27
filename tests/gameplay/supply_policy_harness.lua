@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- A stocked expedition carrier gathers requested camp supplies without
 -- changing opportunistic scavenging or the native capacity/safety admission.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local Logistics = SC.Logistics
 local function check(value, message)
     checks = checks + 1

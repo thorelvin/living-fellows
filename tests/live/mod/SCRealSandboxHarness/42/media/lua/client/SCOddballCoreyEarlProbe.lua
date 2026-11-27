@@ -219,7 +219,7 @@ local function itemAtPost(U, post, groupId, index)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     if H.phase == "oddball_corey_setup" then
         local isolated, isolationReason = clearExistingOddball(SC,

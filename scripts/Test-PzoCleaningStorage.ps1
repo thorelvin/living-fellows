@@ -45,16 +45,16 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'Loading-gate compilation failed.'}
     $manifest=Join-Path $output 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes livingfellows
     if($LASTEXITCODE -ne 0){throw 'Loading-gate packaging failed.'}
     $run=& (Join-Path $fixtures 'PrepareFixture.ps1') -Scenario approved -PayloadProjectRoot $project `
         -GameRoot $GameRoot -OutputRoot $output -MediaSnapshotRoot $MediaSnapshotRoot -PzoJar $PzoJar
     if($run -is [array]){throw 'Unexpected fixture path output.'}
     $fixture=Get-Content -LiteralPath (Join-Path $run 'run.json') -Raw|ConvertFrom-Json
     if($RevertClassification){
-        $clientLua=Join-Path $fixture.cache 'mods\SurvivorCompanion\42\media\lua\client'
+        $clientLua=Join-Path $fixture.cache 'mods\LivingFellows\42\media\lua\client'
         $sortPath=Join-Path $clientLua 'SCBaseWork.lua'
         $sort=Get-Content -LiteralPath $sortPath -Raw
         $from='if SC.CleaningSupplies and (SC.CleaningSupplies.isTool(item)'+"`n"+'        or SC.CleaningSupplies.containsCleaner(item)) then return "tools", true end'
@@ -69,7 +69,7 @@ try {
         [IO.File]::WriteAllText($logisticsPath,$logistics.Replace($from,''),$utf8)
     }
     if($RevertRepaymentPacing){
-        $lua=Join-Path $fixture.cache 'mods\SurvivorCompanion\42\media\lua\client\SCBaseWork.lua'
+        $lua=Join-Path $fixture.cache 'mods\LivingFellows\42\media\lua\client\SCBaseWork.lua'
         $source=(Get-Content -LiteralPath $lua -Raw).Replace("`r`n","`n")
         $from='                    if not direct and SC.NativeActions and SC.NativeActions.pacingStatus'+"`n"+
             '                        and SC.NativeActions.pacingStatus(actor) == true then'+"`n"+
@@ -98,7 +98,7 @@ try {
     Write-Output $receiptText
     if($receiptText -notmatch '(?m)^result=PASS\r?$'){throw 'Native cleaning regression failed; see the captured receipt.'}
     $pzo=Get-Content -LiteralPath (Join-Path $fixture.cache 'Lua\pzo_engine.log') -Raw
-    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
         throw 'PZO did not load the production bridge.'
     }
     Write-Output "NATIVE_PZO_CLEANING_PASS evidence=$output"

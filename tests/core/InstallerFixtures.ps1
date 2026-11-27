@@ -57,7 +57,7 @@ function New-InstallFixture([string]$Sandbox, [string]$Name, [string]$OriginalCo
     return [ordered]@{
         root = $root; mods = $mods; game = $game; backups = $backups
         bridge = $bridge; configBackups = $configBackups; config = $configPath
-        target = (Join-Path $mods 'SurvivorCompanion')
+        target = (Join-Path $mods 'LivingFellows')
     }
 }
 
@@ -76,7 +76,7 @@ function New-StandaloneInstallFixture([string]$Sandbox, [string]$Name, [string]$
     return [ordered]@{
         root = $root; mods = $mods; game = $game; data = $data
         backups = $backups; bridge = $bridge; configBackups = $configBackups
-        config = $configPath; target = (Join-Path $mods 'SurvivorCompanion')
+        config = $configPath; target = (Join-Path $mods 'LivingFellows')
     }
 }
 
@@ -105,12 +105,62 @@ function Set-ScPzoLauncherFixture($Fixture) {
 }
 
 function Install-StandaloneFixture([string]$ProjectRoot, $Fixture,
-        [string]$PreparedPayload, [string]$PrebuiltJar) {
+        [string]$PreparedPayload, [string]$PrebuiltJar, [string]$Fault = '') {
     & (Join-Path $ProjectRoot 'scripts\Install-Local.ps1') `
         -ProjectRoot $ProjectRoot -ModsRoot $Fixture.mods -GameRoot $Fixture.game `
         -BackupRoot $Fixture.backups -BridgeRoot $Fixture.bridge `
         -ConfigBackupRoot $Fixture.configBackups -PreparedPayloadRoot $PreparedPayload `
-        -PrebuiltBridgeJar $PrebuiltJar -Standalone | Out-Null
+        -PrebuiltBridgeJar $PrebuiltJar -Standalone -FailAfter $Fault | Out-Null
+}
+
+function Set-LegacyBrandFixture($Fixture) {
+    $localManifestPath = Join-Path $Fixture.target '.sc-install-manifest.json'
+    $localManifest = Get-Content -LiteralPath $localManifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    $localManifest.PSObject.Properties.Remove('modId')
+    $localManifest.PSObject.Properties.Remove('backupModId')
+    $localManifest.version = '0.27.101-standalone-native'
+    foreach ($relative in @('mod.info', '42\mod.info')) {
+        $path = Join-Path $Fixture.target $relative
+        $info = Get-Content -LiteralPath $path -Raw -Encoding utf8
+        $previous = $info.Replace('id=LivingFellows', 'id=SurvivorCompanion').
+            Replace('modversion=0.27.102', 'modversion=0.27.101')
+        [System.IO.File]::WriteAllText($path, $previous)
+    }
+    $modJar = Join-Path $Fixture.target '42\media\java\LivingFellowsBridge.jar'
+    Move-Item -LiteralPath $modJar -Destination (
+        Join-Path (Split-Path -Parent $modJar) 'SurvivorCompanionBridge.jar')
+    $modPrefix = $Fixture.target + '\'
+    $files = [ordered]@{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $Fixture.target -Recurse -File |
+        Where-Object { $_.FullName -ne $localManifestPath })) {
+        $relative = $file.FullName.Substring($modPrefix.Length).Replace('\', '/')
+        $files[$relative] = (Get-FileHash -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+    }
+    $localManifest.files = $files
+    $localManifest | ConvertTo-Json -Depth 12 |
+        Set-Content -LiteralPath $localManifestPath -Encoding utf8
+    Move-Item -LiteralPath $Fixture.target -Destination (Join-Path $Fixture.mods 'SurvivorCompanion')
+
+    $nativeManifestPath = Join-Path $Fixture.bridge 'install-manifest.json'
+    $nativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    $previousJar = Join-Path $Fixture.bridge 'SurvivorCompanionBridge.jar'
+    Move-Item -LiteralPath $nativeManifest.bridgeJar -Destination $previousJar
+    $nativeManifest.bridgeJar = $previousJar
+    $nativeManifest.owner = 'SurvivorCompanion.NativeBridge'
+    $nativeManifest.bridgeProtocol = '42.22-isocompanion-37'
+    $nativeManifest.wrapperMainClass = 'survivorcompanion/bridge/SCLauncher'
+    if ($nativeManifest.launchMode -eq 'wrapper') {
+        $config = Get-Content -LiteralPath $Fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+        $config.mainClass = $nativeManifest.wrapperMainClass
+        $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $Fixture.config -Encoding utf8
+        $nativeManifest.installedMainClass = $config.mainClass
+        $nativeManifest.installedConfigSha256 = (Get-FileHash -LiteralPath $Fixture.config).Hash.
+            ToLowerInvariant()
+    }
+    $nativeManifest | ConvertTo-Json -Depth 12 |
+        Set-Content -LiteralPath $nativeManifestPath -Encoding utf8
 }
 
 function Get-InstallFixtureSnapshot($Fixture) {
@@ -120,6 +170,8 @@ function Get-InstallFixtureSnapshot($Fixture) {
         foreignPzoJar = (Join-Path $Fixture.game 'pzoptimizer.jar')
         bridge = $Fixture.bridge
         target = $Fixture.target
+        legacyTarget = (Join-Path $Fixture.mods 'SurvivorCompanion')
+        profile = (Join-Path $Fixture.mods 'default.txt')
         managedBackups = $Fixture.backups
         configBackups = $Fixture.configBackups
     }
@@ -131,6 +183,8 @@ function Get-StandaloneFixtureSnapshot($Fixture) {
         launcherJar = (Join-Path $Fixture.game 'LivingFellowsBridge.jar')
         foreignPzoJar = (Join-Path $Fixture.game 'pzoptimizer.jar')
         target = $Fixture.target
+        legacyTarget = (Join-Path $Fixture.mods 'SurvivorCompanion')
+        profile = (Join-Path $Fixture.mods 'default.txt')
         installData = $Fixture.data
     }
 }

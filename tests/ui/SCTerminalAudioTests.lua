@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Terminal, check, before = SC.Terminal, T.check, T.checks
 local previousManager = getSoundManager
 local manager = { next = 1000, plays = {}, stops = {}, active = { [777] = true } }

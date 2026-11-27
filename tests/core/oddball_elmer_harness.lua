@@ -3,7 +3,7 @@
 -- spoken either way, and the clean telling must carry no profanity at all,
 -- whichever position a line holds.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(condition, message)
     checks = checks + 1

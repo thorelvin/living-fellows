@@ -10,7 +10,7 @@ local function photo(H,label)
     H.farmServicesShot={label=label,at=getTimestampMs()+1800,zoomAt=0}
 end
 local function finish(H,current,setPhase)
-    if H.farmServices and H.farmServices.decision then SurvivorCompanion.Decision.update=H.farmServices.decision end
+    if H.farmServices and H.farmServices.decision then LivingFellows.Decision.update=H.farmServices.decision end
     setPhase("finish",current)
 end
 local function block(H,current,check,setPhase,label,reason)
@@ -25,7 +25,7 @@ local function crate(square,category)
     o:setIsContainer(true) o:setContainer(ItemContainer.new("crate",square,o)) o:getContainer():setCapacity(50)
     o:getContainer():setExplored(true)
     square:AddSpecialObject(o)
-    local okay,row=SurvivorCompanion.BaseLife.registerStorage(o,category) assert(okay,tostring(row))
+    local okay,row=LivingFellows.BaseLife.registerStorage(o,category) assert(okay,tostring(row))
     return o,row
 end
 local function barrel(square,capacity)
@@ -35,7 +35,7 @@ local function barrel(square,capacity)
     GameEntityFactory.CreateIsoObjectEntity(o,info:getScript():getParent(),true)
     square:AddSpecialObject(o)
     o:getFluidContainer():Empty() o:getFluidContainer():setCapacity(capacity)
-    local okay,row=SurvivorCompanion.BaseLife.registerStorage(o,"milk") assert(okay,tostring(row))
+    local okay,row=LivingFellows.BaseLife.registerStorage(o,"milk") assert(okay,tostring(row))
     return o,row
 end
 local function feeder(square,water)
@@ -49,13 +49,13 @@ local function feeder(square,water)
     return o
 end
 local function enqueue(f,target)
-    local okay,job=SurvivorCompanion.BaseLife.enqueueJob({type="farm",priority=1,target=target})
+    local okay,job=LivingFellows.BaseLife.enqueueJob({type="farm",priority=1,target=target})
     assert(okay and type(job)=="table",tostring(job))
     job.reservedBy=f.id job.state="active"
     return job
 end
 local function setup(H,current)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local record
     for _,r in ipairs(SC.Registry.snapshot()) do if r.actor and r.recruited and not U.isDead(r.actor) then record=r break end end
     if not record then return nil end
@@ -119,7 +119,7 @@ function P.step(H,current,check,result,setPhase)
         require "SCFarmSoakProbe"
         return SCRealSandboxHarnessProbes.SCFarmSoakProbe.step(H,current,check,result,setPhase)
     end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local U,B=SC.GameplayUtil,SC.BaseLife
     if H.farmServicesShot then
         local now=getTimestampMs()

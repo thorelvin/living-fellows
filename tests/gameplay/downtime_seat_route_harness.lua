@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real Downtime + Supervisor, with deterministic furniture and route adapters.
-local SC, D, S = SurvivorCompanion, SurvivorCompanion.Downtime, SurvivorCompanion.ActionSupervisor
+local SC, D, S = LivingFellows, LivingFellows.Downtime, LivingFellows.ActionSupervisor
 local U, checks, routes, cancelled = SC.GameplayUtil, 0, {}, 0
 local _, _, _, begin, _, _, _, _, _, _, _, stateFor = D._furnitureForTests()
 local quiet = { snapshot = { indoors=true, threatCount=0, immediateCount=0 } }

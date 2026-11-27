@@ -50,8 +50,8 @@ $BanditsVehicleLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\
 $BanditsLaneLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsProtectedLaneAcceptance.lua'
 $BanditsVehicleFireLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsVehicleFireEvidence.lua'
 $BanditsWallLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCBanditsWallAcceptance.lua'
-$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
-$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'LivingFellows\42\media\lua\client'
 
 if (-not (Test-Path -LiteralPath $Jar -PathType Leaf) -or
     -not (Test-Path -LiteralPath $GameJava -PathType Leaf)) {

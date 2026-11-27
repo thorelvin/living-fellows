@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, fixture = SurvivorCompanion, BasePolicyFixture
+local SC, fixture = LivingFellows, BasePolicyFixture
 local UI, A, B = SC.UI, SC.UIAttention, SC.UIBounds
 local saved = { crisis = SC.InfectionCrisis, base = SC.BaseLife, open = UI.open,
     font = fixture.fontHeight, review = UI.reviewAttention }

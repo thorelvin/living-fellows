@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 
 local function event(name)
     local value = { name = name, handlers = {}, failAdd = false }

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable native lifecycle proof: real death, stock admission and disk reopen.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local s={phase='menu',checks=0,notes={}}
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function read(name) local r=getFileReader(name,false);if not r then return end;local v=r:readLine();r:close();return v end

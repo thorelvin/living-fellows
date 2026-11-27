@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC_TEST_PRIMARY={}
 function getSpecificPlayer(index) if index==0 then return SC_TEST_PRIMARY end end
 

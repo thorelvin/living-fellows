@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Hotwire = SC.VehicleHotwire
 local function check(value, label) assert(value, label) end
 check(Hotwire.canHotwire(actor), "electrical 1 and mechanics 2 qualifies")

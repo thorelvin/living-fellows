@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Driving receipts are read-only; observation moves only after measurements end.
 local Recorder = {}
-local ROOT = "SurvivorCompanionHarness/"
+local ROOT = "LivingFellowsHarness/"
 local COLUMNS = {"ms","x","y","fx","fy","speed_kmh","mode","along","remaining",
     "lateral","offset","laneOffset","corners","cornersSharp","cornerFallbacks",
     "laneError","maxLaneError","activeCornerStart","activeCornerEnd","activeCornerAngle",
@@ -81,7 +81,7 @@ function Recorder.sample(H,test,current,status)
         for key,value in pairs(status) do lines[#lines+1]=tostring(key).."="..tostring(value) end
         local x,y=tonumber(status.obstacleX),tonumber(status.obstacleY)
         if x and y then for sx=x-2,x+2 do for sy=y-2,y+2 do
-            local tile=SurvivorCompanion.GameplayUtil.gridSquare(sx,sy,0)
+            local tile=LivingFellows.GameplayUtil.gridSquare(sx,sy,0)
             if tile then
                 local props=tile:getProperties()
                 lines[#lines+1]="cell="..sx..","..sy.." solid="..tostring(tile:isSolid())
@@ -156,7 +156,7 @@ function Recorder.finish(H,test,current,status,check,result)
     result("PASS","turn_receipts_saved","side="..H.config.driving_turn_side
         .." seconds="..((current-receipt.at)/1000).." peak="..receipt.maxSpeed
         .." lane="..receipt.maxError.." files=turn-track-csv.txt,turn-route-tsv.txt")
-    check("turn_photo_observer",Recorder.photoObserver(H,SurvivorCompanion,test.vehicle,test.vehicle,result),
+    check("turn_photo_observer",Recorder.photoObserver(H,LivingFellows,test.vehicle,test.vehicle,result),
         "observation only, after final timed pose and health checks")
 end
 return Recorder

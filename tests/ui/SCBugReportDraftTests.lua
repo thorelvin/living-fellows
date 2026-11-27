@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local report, diagnostic = SC.BugReport, SC.Diagnostics
 local calls, checks = 0, 0
 local function check(value, message)

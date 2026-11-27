@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Booking, Cab, Fare, X = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares, assert(SC.TaxiTestFixture)
 local check, player, radio, car = X.check, X.player, X.radio, X.vehicle
 check(Booking.request(player, radio), "booking records one request")

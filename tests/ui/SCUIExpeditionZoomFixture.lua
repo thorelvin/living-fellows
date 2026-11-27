@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Small game-UI stand-ins for the active-expedition zoom control.
 function require() return true end
-SurvivorCompanion = {
+LivingFellows = {
     UI = {
         text = function(key, value)
             if key == "UI_SC_Info_Message" then return tostring(value) end
@@ -50,7 +50,7 @@ ExpeditionZoomFixture = {
     setPendingReports = function(value) pendingReports = value end,
 }
 
-SurvivorCompanion.ViewSession = {
+LivingFellows.ViewSession = {
     owner = function() return viewOwner end,
 }
 
@@ -59,7 +59,7 @@ getSpecificPlayer = function(index)
     if index == 1 then return slot end
 end
 
-SurvivorCompanion.ExpeditionPrototype = {
+LivingFellows.ExpeditionPrototype = {
     current = function() return mission end,
     lastDebrief = function() return debrief end,
     pendingDeliveryReports = function() return pendingReports or {} end,
@@ -69,10 +69,10 @@ SurvivorCompanion.ExpeditionPrototype = {
     end,
 }
 
-SurvivorCompanion.ExpeditionIntegration = {
+LivingFellows.ExpeditionIntegration = {
     summary = function(record) return record.summary end,
 }
-SurvivorCompanion.UI.baseFailureReason = function(reason) return reason end
+LivingFellows.UI.baseFailureReason = function(reason) return reason end
 
 SCBridge = {
     readExpeditionZoom = function(out)

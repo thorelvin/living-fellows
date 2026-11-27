@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Canonical synthetic controls only. Never print inputs or private replies.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B=SC.TerminalBrain
 local counts={care=0,caught=0,negative=0,falseCare=0}
 local world={camp=function() return {configured=false,inside=false} end}

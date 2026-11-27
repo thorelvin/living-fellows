@@ -30,7 +30,7 @@ local segmentHalf = SEGMENT_HALF
 -- Kahlua's tonumber would otherwise take as a number base.
 local function call(object, method, ...)
     if object == nil then return nil end
-    local value = SurvivorCompanion.GameplayUtil.call(object, method, ...)
+    local value = LivingFellows.GameplayUtil.call(object, method, ...)
     return value
 end
 
@@ -263,7 +263,7 @@ end
 local function telemetry(H, test, current, extra)
     if current < (test.nextTraceAt or 0) then return end
     test.nextTraceAt = current + 250
-    local status = SurvivorCompanion.Driving.status(test.actor) or {}
+    local status = LivingFellows.Driving.status(test.actor) or {}
     local vehicle = test.vehicle
     local speedOk, gameSpeed = pcall(getGameSpeed)
     print("SC_REAL_SANDBOX|DRIVE|" .. tostring(H.phase)
@@ -278,7 +278,7 @@ local function telemetry(H, test, current, extra)
         .. ":" .. fmt(status.obstacleDistance)
         .. "|blocked_point=" .. fmt(status.blockedX) .. "," .. fmt(status.blockedY)
         .. "|game_speed=" .. tostring(speedOk and gameSpeed or "?")
-        .. "|diag=" .. driveDiagnosis(SurvivorCompanion, test.actor, status)
+        .. "|diag=" .. driveDiagnosis(LivingFellows, test.actor, status)
         .. (status.following and ("|mode=" .. tostring(status.mode) .. "|along="
             .. fmt(status.along) .. "/" .. fmt(status.routeLength) .. "|lateral="
             .. fmt(status.lateral) .. "|offset=" .. fmt(status.offset) .. "|swerves="
@@ -534,7 +534,7 @@ local function saveStep(H, SC, current, check, result, setPhase, test)
                 setPhase("finish", current) return
             end
             local signalled = H.drivingSignals.write(
-                "SurvivorCompanionHarness/driving-save-stage.txt", {
+                "LivingFellowsHarness/driving-save-stage.txt", {
                     "SC_DRIVING_STAGE_V1",
                     "actor_id=" .. id,
                     "sql_id=" .. tostring(sqlId),
@@ -825,7 +825,7 @@ end
 
 failTo = function(H, test, setPhase, result, current, name, detail)
     result("FAIL", name, detail)
-    if test and test.actor then SurvivorCompanion.Driving.release(test.actor) end
+    if test and test.actor then LivingFellows.Driving.release(test.actor) end
     setPhase("finish", current)
 end
 
@@ -856,7 +856,7 @@ local function bodyHealth(actor)
 end
 
 local function shotFile(name, state)
-    return "SurvivorCompanionHarness/driving-" .. name .. "-" .. state .. ".txt"
+    return "LivingFellowsHarness/driving-" .. name .. "-" .. state .. ".txt"
 end
 
 -- Asks the runner for one screenshot, only when the run asked for them.
@@ -877,7 +877,7 @@ end
 -- The cruise shot: at speed, close enough to the observer to be on screen.
 local function maybeCruiseShot(H, test, speed, result)
     if speed < 8 or test.shots.cruise then return end
-    local px, py = SurvivorCompanion.GameplayUtil.position(H.player)
+    local px, py = LivingFellows.GameplayUtil.position(H.player)
     local distance = math.sqrt((test.vehicle:getX() - px) ^ 2 + (test.vehicle:getY() - py) ^ 2)
     if distance <= 12 then
         requestShot(H, test, "cruise", result, "speed=" .. fmt(speed) .. " km/h, "
@@ -2067,7 +2067,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
             setPhase("finish", current) return
         end
         local signalled = H.drivingSignals.write(
-            "SurvivorCompanionHarness/team-drive-stage.txt", {
+            "LivingFellowsHarness/team-drive-stage.txt", {
                 "SC_TEAM_DRIVE_STAGE_V1",
                 "sql_id=" .. tostring(car:getSqlId()),
                 "leader_id=" .. tostring(test.team[1].id),
@@ -2849,7 +2849,7 @@ local function taxiStep(H, SC, current, check, result, setPhase, test)
                 setPhase("finish", current) return
             end
             local signalled = H.drivingSignals.write(
-                "SurvivorCompanionHarness/taxi-save-stage.txt", {
+                "LivingFellowsHarness/taxi-save-stage.txt", {
                     "SC_TAXI_STAGE_V1",
                     "sql_id=" .. tostring(car:getSqlId()),
                     "ring_id=" .. tostring(ringId),
@@ -3426,7 +3426,7 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
                 setPhase("finish", current) return
             end
             local signalled = H.drivingSignals.write(
-                "SurvivorCompanionHarness/taxi-call-stage.txt", {
+                "LivingFellowsHarness/taxi-call-stage.txt", {
                     "SC_TAXI_CALL_STAGE_V1",
                     "sql_id=" .. tostring(car:getSqlId()),
                     "driver_id=" .. tostring(SC.Registry.idOf(test.actor)),
@@ -3897,7 +3897,7 @@ end
 
 function Probe.step(H, current, check, result, setPhase)
     if H.config.team_drive_stop_screenshot=="true" then
-        require("SCIntersectionExpeditionFixture").savedStopScreenshot(H,SurvivorCompanion,current,check,result,setPhase)
+        require("SCIntersectionExpeditionFixture").savedStopScreenshot(H,LivingFellows,current,check,result,setPhase)
         return
     end
     if H.config.companion_convoy_probe=="true" then
@@ -3908,7 +3908,7 @@ function Probe.step(H, current, check, result, setPhase)
         require("SCIntersectionPhase0Probe").step(H, current, check, result, setPhase)
         return
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "drive_setup" then
         if H.config.pickup_service_probe=="true" and H.config.pickup_resume=="true" then
             H.driveTest=H.driveTest or {}

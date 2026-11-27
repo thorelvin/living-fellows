@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exact scavenging cancellation and native visual handoff, in isolation.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Encounter = SC.Encounter
 local checks = 0
 local function check(value, message)

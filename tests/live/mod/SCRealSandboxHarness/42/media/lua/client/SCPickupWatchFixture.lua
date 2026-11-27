@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 local W={}
-local function call(o,name,...) return (SurvivorCompanion.GameplayUtil.call(o,name,...)) end
+local function call(o,name,...) return (LivingFellows.GameplayUtil.call(o,name,...)) end
 function W.prepare(H,t,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local x,y=math.floor(t.vehicle:getX()),math.floor(t.vehicle:getY())
     local best,gap
     for dx=-35,10 do for dy=-35,35 do
@@ -27,7 +27,7 @@ function W.prepare(H,t,check)
     return true
 end
 function W.join(H,t,current,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if not SC.BaseWatch.current() then
         local started,reason=SC.BaseWatch.start(t.pickupWatcher.id)
         if not started then t.pickupWatchReason=reason return nil end

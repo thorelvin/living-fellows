@@ -1,7 +1,7 @@
-name=Survivor Companion Real Sandbox Harness
+name=Living Fellows Real Sandbox Harness
 id=SCRealSandboxHarness
 description=Private disposable in-game integration harness. Never ship with the release mod.
 modversion=0.1.0
 versionMin=42.22.2
 versionMax=42.22.2
-require=SurvivorCompanion
+require=LivingFellows

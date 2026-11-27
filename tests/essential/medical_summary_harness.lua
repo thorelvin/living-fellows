@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Commands must retain cosmetic attachments without leaking another viewer's skill.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local patient = f.actor("medical-summary-patient", 2, 1, {})
 f.registry[patient.id] = patient

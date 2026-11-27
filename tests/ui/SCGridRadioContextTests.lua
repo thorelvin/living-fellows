@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,MEDICAL_CONTEXT_TEST
+local SC,T=LivingFellows,MEDICAL_CONTEXT_TEST
 local check=T.check
 local restoreNative=T.installNativeMenus()
 local inventory={}

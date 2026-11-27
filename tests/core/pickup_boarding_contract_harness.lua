@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise both production boarding layers. Stop at the final revalidation;
 -- no mock entry can conceal a lost exact-passenger permission.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local driver,caller,car={},{},{}
 local checks,calls,expected=0,0,caller
 local function check(value,message)

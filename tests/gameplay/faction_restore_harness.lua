@@ -1,14 +1,14 @@
 -- SPDX-License-Identifier: MIT
 -- Distinct subject regressions retained from the former gameplay monolith.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject
 local makeSquare, squares, movementLog, squareKey = f.makeSquare, f.squares, f.movementLog, f.squareKey
-function SurvivorCompanion.__testFactionRestoreTransactions()
-local Factions = SurvivorCompanion.Factions
-local World = SurvivorCompanion.FactionWorld
-local Actor = SurvivorCompanion.Actor
+function LivingFellows.__testFactionRestoreTransactions()
+local Factions = LivingFellows.Factions
+local World = LivingFellows.FactionWorld
+local Actor = LivingFellows.Actor
 -- Earlier gameplay cases leave a marked store on this shared test square.
 -- The transaction fixture needs a genuinely clear tile for its spawn ticket.
 local fixtureSquare = cell:getGridSquare(2, 2, 0)
@@ -41,10 +41,10 @@ local baseline = {
 }
 
 local function candidateDocument()
-    local candidate = SurvivorCompanion.StableValue.copyStrict(baseline, {
+    local candidate = LivingFellows.StableValue.copyStrict(baseline, {
         maxDepth = 16, maxEntries = 131072, path = "$.transactionCandidate",
     })
-    local second = SurvivorCompanion.StableValue.copyStrict(
+    local second = LivingFellows.StableValue.copyStrict(
         baseline.groups["faction-transaction-a"], {
             maxDepth = 16, maxEntries = 131072, path = "$.transactionGroup",
         })
@@ -172,7 +172,7 @@ end
 
 do
     local beforeWorld = World.export()
-    local replacement = SurvivorCompanion.StableValue.copyStrict(beforeWorld, {
+    local replacement = LivingFellows.StableValue.copyStrict(beforeWorld, {
         maxDepth = 8, maxEntries = 8192, path = "$.worldReplacement",
     })
     replacement.serial, replacement.version = 41, 73
@@ -243,7 +243,7 @@ end
 -- A resident's distance-based wake must restore the same snapshot as a save
 -- load before publishing the new native actor, or it wakes naked and empty.
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local originalPersistence, originalBegin, originalPoll = SC.Persistence, Actor.beginSpawn, Actor.pollSpawn
     local clockBefore = f.clock
     check(Factions.restore(baseline), "wake fixture restores one household")
@@ -399,11 +399,11 @@ Factions.reset()
 fixtureSquare.objects, fixtureSquare.specialObjects =
     fixtureObjects, fixtureSpecialObjects
 end
-SurvivorCompanion.__testFactionRestoreTransactions()
-SurvivorCompanion.__testFactionRestoreTransactions = nil
+LivingFellows.__testFactionRestoreTransactions()
+LivingFellows.__testFactionRestoreTransactions = nil
 
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local factions, utility, api = SC.Factions, SC.GameplayUtil, SC.Registry
     local observer = actor("roster-observer-a", 2, 2)
     local other = actor("roster-observer-b", 2, 2)

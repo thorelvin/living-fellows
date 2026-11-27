@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F,D=SC.EmmaTalkPolishFixture,SC.EmmaTalkPolishData
 local baseline=SC.EmmaTalkPolishBaseline or {passed={}}
 local results,counts,regressions,wrong={},{},{},{}

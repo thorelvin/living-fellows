@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the shipped native handcraft Lua body and the yard controller.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local U, Yard, N = SC.GameplayUtil, SC.LogYard, SC.NativeActions
 local realBaseLife=SC.BaseLife
 local checks = 0

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U, Angling = SC.GameplayUtil, SC.Fishing
 local checks = 0
 local function check(condition, message)

@@ -2,7 +2,7 @@
 -- Full native catalogue, real destination selectors and optional physical sort.
 -- Only disposable LF fixture actors receive work; zombie navigation is untouched.
 require "SCStorageCategoryCases"
-local SC, s = SurvivorCompanion, { phase='menu', index=0, count=0, errors=0, skipped=0,
+local SC, s = LivingFellows, { phase='menu', index=0, count=0, errors=0, skipped=0,
     checks=0, cases=0, roles=0, routes=0, refused=0, modItems=0 }
 local function field(v) return tostring(v == nil and '' or v):gsub('[\t\r\n]', ' ') end
 local function write(name, value)

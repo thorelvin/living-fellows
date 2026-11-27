@@ -31,8 +31,8 @@ local MODULES = {
 local ROOMS = { bitten = "bathroom", bittenkill = "bathroom", dads = "livingroom",
     gunshop = "gunstore" }
 
-local function SCX() return SurvivorCompanion end
-local function U() return SurvivorCompanion.GameplayUtil end
+local function SCX() return LivingFellows end
+local function U() return LivingFellows.GameplayUtil end
 
 local function call(object, method, ...)
     if not object then return nil end

@@ -138,7 +138,7 @@ SC.Oddballs.definition = function(id)
     if id == currentDefinition then return { id = id } end
 end
 SC.OddballMilli = { siteFor = function() end }
-SurvivorCompanion = SC
+LivingFellows = SC
 local phase, isolatedCheck
 MilliProbe.step({ phase = "milli_prepare", phaseStartedAt = 0,
     config = { milli_site_x = 0, milli_site_y = 0 }, player = {} },

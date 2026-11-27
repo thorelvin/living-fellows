@@ -3,7 +3,7 @@
 -- load and pure terminal reference; no UI, save, actor or world mutation.
 local function run()
     local passed,detail=pcall(function()
-        local SC=SurvivorCompanion
+        local SC=LivingFellows
         assert(SC and SC.EmmaReference and SC.EmmaUnderstand,"reference loaded by native module loader")
         local R,B=SC.EmmaReference,SC.TerminalBrain
         assert(R.size>200 and R.size<=1800,"bounded noun index")

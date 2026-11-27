@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise a resumed mission with a saved casualty and a pending distant team.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local expedition = SC.ExpeditionPrototype
 local renderHook, restorePolls = nil, 0
 local postRenderEvent = {

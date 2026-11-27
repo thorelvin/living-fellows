@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Click the production callback after selection changes, retaining exact payload.
-local SC, UI = SurvivorCompanion, SurvivorCompanion.UI
+local SC, UI = LivingFellows, LivingFellows.UI
 local saved = { commands = SC.Commands, interaction = SC.Interaction, refresh = UI.refresh }
 local issued = {}
 SC.Commands = { issue = function(id, command, payload, player)

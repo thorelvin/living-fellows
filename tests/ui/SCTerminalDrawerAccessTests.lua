@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- A drawer held by a locked computer must not stay shut while EMMA is off:
 -- the computer cannot be used then, so the furniture behaves normally.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local D,L,S=SC.TerminalDrawers,SC.TerminalLocks,SC.TerminalSystem
 local check=T.check
 local book={} ModData={getOrCreate=function() return book end}

@@ -20,17 +20,17 @@ def capture(pattern: str, text: str, label: str) -> str:
     return match.group(1)
 
 
-namespace = (ROOT / "SurvivorCompanion/42/media/lua/shared/SCNamespace.lua").read_text(
+namespace = (ROOT / "LivingFellows/42/media/lua/shared/SCNamespace.lua").read_text(
     encoding="utf-8"
 )
-bridge = (ROOT / "bridge/src/main/java/survivorcompanion/bridge/SCBridge.java").read_text(
+bridge = (ROOT / "bridge/src/main/java/livingfellows/bridge/SCBridge.java").read_text(
     encoding="utf-8"
 )
 manifest = (ROOT / "bridge/native/MANIFEST.MF").read_text(encoding="utf-8")
 architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
 version = (ROOT / "VERSION.txt").read_text(encoding="utf-8").strip()
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
-payload_readme = (ROOT / "SurvivorCompanion/README.txt").read_text(encoding="utf-8")
+payload_readme = (ROOT / "LivingFellows/README.txt").read_text(encoding="utf-8")
 changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 native_installer = (ROOT / "scripts/Install-NativeBridge.ps1").read_text(
     encoding="utf-8"
@@ -39,6 +39,7 @@ runtime_manifest = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(
     encoding="utf-8"))
 
 lua_release = capture(r'release\s*=\s*"([^"]+)"', namespace, "Lua release")
+lua_mod_id = capture(r'modId\s*=\s*"([^"]+)"', namespace, "Lua mod ID")
 lua_game = capture(r'gameVersion\s*=\s*"([^"]+)"', namespace, "Lua game version")
 lua_protocol = capture(r'bridgeProtocol\s*=\s*"([^"]+)"', namespace, "Lua protocol")
 save_key = capture(r'worldSaveKey\s*=\s*"([^"]+)"', namespace, "world save key")
@@ -64,6 +65,7 @@ installer_compiled_game = capture(
 
 require(version == lua_release, "VERSION.txt and SC.Identity.release disagree")
 require(version == jar_release, "source JAR release disagrees with VERSION.txt")
+require(lua_mod_id == "LivingFellows", "unexpected Lua mod ID")
 require(f"release-{version}-blue.svg" in readme,
         "README release badge disagrees with VERSION.txt")
 require(payload_readme.startswith(f"Living Fellows {version} - release"),
@@ -78,10 +80,16 @@ current_entry = re.search(
     changelog, re.MULTILINE | re.DOTALL)
 require(current_entry is not None and lua_protocol in current_entry.group(1),
         f"the CHANGELOG entry for {version} must name bridge protocol {lua_protocol}")
-for info_path in (ROOT / "SurvivorCompanion/mod.info", ROOT / "SurvivorCompanion/42/mod.info"):
+for info_path in (ROOT / "LivingFellows/mod.info", ROOT / "LivingFellows/42/mod.info"):
     info = info_path.read_text(encoding="utf-8")
     require(capture(r'^modversion=(\S+)', info, str(info_path)) == version,
             f"{info_path} version disagrees")
+    require(capture(r'^id=(\S+)', info, str(info_path)) == lua_mod_id
+            and capture(r'^name=(.+)$', info, str(info_path)) == "Living Fellows",
+            f"{info_path} must expose the Living Fellows identity")
+    require(capture(r'^javaJarFile=(\S+)', info, str(info_path)) == "media/java/LivingFellowsBridge.jar"
+            and capture(r'^javaPkgName=(\S+)', info, str(info_path)) == "livingfellows.bridge",
+            f"{info_path} names a different bridge for Java loaders")
 require(lua_protocol == java_protocol == jar_protocol == installer_protocol,
         "Lua, Java, source JAR, and installer protocols disagree")
 require(lua_game == java_game == jar_game == installer_compiled_game,
@@ -98,9 +106,12 @@ require(lua_protocol in architecture and "42.20-isocompanion-4" not in architect
 require(save_key == "SC_WorldV1" and save_schema == "3"
         and "Global ModData key `SC_WorldV1` with document schema 3" in architecture,
         "stable save key/schema documentation drifted")
-payload_jar = ROOT / "SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar"
+payload_jar = ROOT / "LivingFellows/42/media/java/LivingFellowsBridge.jar"
 with zipfile.ZipFile(payload_jar) as archive:
     packaged_manifest = archive.read("META-INF/MANIFEST.MF").decode("utf-8")
+    require("livingfellows/bridge/SCBridge.class" in archive.namelist()
+            and all("survivorcompanion" not in entry.lower() for entry in archive.namelist()),
+            "packaged bridge classes must use the Living Fellows package")
 require(capture(r'^SC-Bridge-Protocol:\s*(\S+)', packaged_manifest, "packaged JAR protocol") == lua_protocol
         and capture(r'^SC-Compiled-Game-Version:\s*(\S+)', packaged_manifest, "packaged JAR game") == lua_game
         and capture(r'^Implementation-Version:\s*(\S+)', packaged_manifest, "packaged JAR release") == version,

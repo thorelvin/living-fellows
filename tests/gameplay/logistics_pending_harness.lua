@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real logistics and route jobs; only the planner's supported clock boundary
 -- is slowed down to model a slice that expires before it can expand a node.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local L, N, P, U = SC.Logistics, SC.Navigation, SC.PathSearch, SC.GameplayUtil
 local checks, mode = 0, SC_PENDING_CASE or "stalled"
 local function check(value, why)

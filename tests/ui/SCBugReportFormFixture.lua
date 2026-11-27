@@ -74,4 +74,4 @@ function SC_TEST_REPORT_SCREEN(inGame)
     screen.onJoypadDown = function() screen.stockJoypad = true end
     return screen
 end
-SurvivorCompanion = {BugReport={}}
+LivingFellows = {BugReport={}}

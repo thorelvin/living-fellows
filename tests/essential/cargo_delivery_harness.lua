@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production Integration owns every transfer; only native containers/poses are fixtures.
-local SC, T = SurvivorCompanion, INTEGRATION_TEST
+local SC, T = LivingFellows, INTEGRATION_TEST
 local I, X = SC.ExpeditionIntegration, assert(T.WoodDelivery)
 local check = X.check
 

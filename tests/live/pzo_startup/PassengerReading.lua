@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable world only: real PZO, native seats, native driving and a complete
 -- native reading action. No zombie navigation or actor pose/velocity writes.
-local SC, state = SurvivorCompanion, {phase='menu',distance=0,maxGap=0}
+local SC, state = LivingFellows, {phase='menu',distance=0,maxGap=0}
 local function write(name,text)
     local w=assert(getFileWriter(name,true,false),'fixture writer unavailable')
     w:write(text);w:close()

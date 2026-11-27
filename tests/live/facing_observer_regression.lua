@@ -5,7 +5,7 @@ local function expect(value, why)
     checks = checks + 1
     assert(value, "facing observer " .. checks .. ": " .. why)
 end
-SurvivorCompanion = { Call = { resolve = function(actor, key)
+LivingFellows = { Call = { resolve = function(actor, key)
     return actor ~= nil and type(actor[key]) == "function", actor and actor[key]
 end } }
 local x, y, fx, fy, angle, logical, model = 1, 0, 1, 0, 180, 0, true

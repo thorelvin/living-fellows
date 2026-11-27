@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local now = 5000000
 local hours = 24 * 4 + 19
 local player = { id = "player", x = 40, y = 0, z = 0 }

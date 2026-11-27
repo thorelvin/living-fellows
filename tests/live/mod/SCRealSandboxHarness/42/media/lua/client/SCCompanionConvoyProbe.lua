@@ -56,12 +56,12 @@ local function overlap(SC,a,b)
     return true
 end
 local function write(text,append)
-    local writer=getFileWriter("SurvivorCompanionHarness/companion-convoy-tsv.txt",true,append==true)
+    local writer=getFileWriter("LivingFellowsHarness/companion-convoy-tsv.txt",true,append==true)
     if not writer then error("convoy trace unavailable") end
     writer:writeln(text) writer:close()
 end
 function Probe.step(H,current,check,result,phase)
-    local SC=SurvivorCompanion local U=SC.GameplayUtil
+    local SC=LivingFellows local U=SC.GameplayUtil
     if H.config.companion_convoy_photo_only=="true" then
         if not H.savedConvoyPhoto then
             H.savedConvoyPhoto={at=current}

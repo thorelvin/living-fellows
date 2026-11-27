@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- A real second slot is asynchronous; prove Base Watch survives the join,
 -- remote radio exchange, handoff, joined release, and cold session restore.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local watch, view = SC.BaseWatch, SC.ViewSession
 local checks = 0
 local function check(value, message)

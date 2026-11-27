@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local P=SC.Persistence
 local records,actors,removedOrder={}, {}, {}
 local generation,flushOkay,primaryLoaded,failRemoval,slot,owner=7,false,false,nil,nil,"expedition"

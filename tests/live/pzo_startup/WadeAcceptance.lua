@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Run in a disposable PZO save using the ordinary native actor and radio paths.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local ID = "wade_hensley"
 local state = { phase = "menu" }
 local ORIGINS = { { 6362, 6416 }, { 7475, 6692 }, { 6383, 7644 }, { 6680, 5227 },

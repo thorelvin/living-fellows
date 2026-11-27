@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- A restored queue may contain both live and permanently retired owners.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B = SC.BaseLife
 local dead, away = "sc-worker-gone", "sc-worker-away"
 local restoring, pending, lookups = false, false, 0

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise native filled buckets, warmed camp inventory discovery and the
 -- regular cleaning job in a disposable Project Zomboid world.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", notes = {}, modals = {} }
 
 local function write(name, value)

@@ -5,7 +5,7 @@
 -- decision work, zombie targeting, and incoming-attack resolution without using
 -- wall-clock timing, so regressions remain reproducible on every machine.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(value, message)
     checks = checks + 1

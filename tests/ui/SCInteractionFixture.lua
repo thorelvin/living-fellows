@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {
+LivingFellows = {
     UI = { text = function(key, argument)
         return argument and (key .. ":" .. tostring(argument)) or key
     end },

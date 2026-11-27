@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Read the production map overlay and the returned wood-trip preview in a
 -- disposable native world with a recruited companion and a powered camp PC.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = {phase="menu", notes={}, modals={}}
 
 local function write(name, value)

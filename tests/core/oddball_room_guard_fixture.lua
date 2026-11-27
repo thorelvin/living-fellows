@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Minimal native-shaped world for SCOddballRoomGuard's Kahlua regression.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.GameplayUtil = {}
 local U = SC.GameplayUtil
 

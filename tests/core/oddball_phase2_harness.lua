@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Focused behavior checks for the six remaining Phase 2 encounters.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local hour, now, nextAnimalId = 100, 1000, 0
 local animals, onlineAnimals, actors = {}, {}, {}
 local room = { getName = function() return "motelroom" end }

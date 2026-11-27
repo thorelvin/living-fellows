@@ -15,8 +15,8 @@ local function photo(H, label)
     end)
 end
 local function finish(H, current, setPhase)
-    if H.nativeCare and H.nativeCare.decision then SurvivorCompanion.Decision.update = H.nativeCare.decision end
-    if H.nativeCare and H.nativeCare.logisticsStatus then SurvivorCompanion.Logistics.status = H.nativeCare.logisticsStatus end
+    if H.nativeCare and H.nativeCare.decision then LivingFellows.Decision.update = H.nativeCare.decision end
+    if H.nativeCare and H.nativeCare.logisticsStatus then LivingFellows.Logistics.status = H.nativeCare.logisticsStatus end
     if H.config.hygiene_probe == "true" and H.nativeCare and H.nativeCare.finishedAt and not H.nativeCare.failed then
         setPhase("hygiene_setup", current)
         return
@@ -28,7 +28,7 @@ local function fail(H, current, check, setPhase, label, reason)
     photo(H, "blocked-" .. label); check(label, false, tostring(reason)); finish(H, current, setPhase)
 end
 local function sourceNear(H, actor, predicate)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local center = H.player:getCurrentSquare()
     for radius = 0, 16 do
         for dx = -radius, radius do for dy = -radius, radius do
@@ -52,7 +52,7 @@ local function sourceNear(H, actor, predicate)
     end
 end
 local function setupStep(f,H)
-    local SC, actor = SurvivorCompanion, f.actor
+    local SC, actor = LivingFellows, f.actor
     local inventory, C = actor:getInventory(), SC.NativeCareActions
     local function add(kind) return assert(inventory:AddItem(kind), kind .. " not found") end
     if f.step == 1 then
@@ -93,7 +93,7 @@ local function setupStep(f,H)
         f.towel:setCurrentUses(2)
         actor:getBodyDamage():increaseBodyWetness(80)
         f.wetness=actor:getStats():get(CharacterStat.WETNESS)
-        f.playerWetness=SurvivorCompanion.GameplayUtil.characterStatValue(getSpecificPlayer(0),"WETNESS",0)
+        f.playerWetness=LivingFellows.GameplayUtil.characterStatValue(getSpecificPlayer(0),"WETNESS",0)
         return {kind="weather_recovery",item=f.towel,square=actor:getCurrentSquare(),fact={activity="weather_recovery"}}
     elseif f.step>=10 then
         local site=assert(sourceNear(H,actor,function(object)
@@ -130,7 +130,7 @@ local function setupStep(f,H)
     end
 end
 local function clothingStep(H,f,current,check,result,setPhase)
-    local SC, actor=SurvivorCompanion,f.actor
+    local SC, actor=LivingFellows,f.actor
     if not f.wearItem then
         local kind=f.step==8 and "Base.Shirt_FormalWhite" or "Base.Bag_ALICEpack"
         f.wearItem=assert(f.bag:getInventory():AddItem(kind))
@@ -179,7 +179,7 @@ local function savedOutfitMatches(saved,rows)
     return true
 end
 local function cancelledShower(H,f,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if current-f.interruptAt>15000 then return fail(H,current,check,setPhase,"care_shower_cancel_timeout_"..f.step,"native action or clothing rollback still owned") end
     if SC.Downtime.peek(f.actor).active then SC.Downtime.cancel(f.actor,"live_shower_interruption"); return end
     check("care_shower_interrupted_"..f.step,not f.activity.nativeCompleted and not f.activity.showerClothes,"interrupted shower ended without replaying a washing effect")
@@ -199,7 +199,7 @@ function P.step(H,current,check,result,setPhase)
         H.nativeCareZoom=true
         for _=1,8 do if getCore():getZoom(0)<1.8 then getCore():doZoomScroll(0,1) end end
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U, D = SC.GameplayUtil, SC.Downtime
     local f = H.nativeCare
     if not f then

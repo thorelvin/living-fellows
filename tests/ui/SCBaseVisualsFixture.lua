@@ -235,7 +235,7 @@ fixture.summary = {
     },
 }
 
-SurvivorCompanion = {
+LivingFellows = {
     Config = {
         get = function(key) return fixture.config[key] end,
     },

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local F = { roofReady = true, carSqlId = 14 }
 SC.EvacuationFixture = F
 F.joy = { x = 1, y = 1, z = 0, items = {} }

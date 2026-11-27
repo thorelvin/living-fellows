@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local subject = T.patient
 local directCalls, sharedCalls = 0, 0
 local dialogueAccepts = false

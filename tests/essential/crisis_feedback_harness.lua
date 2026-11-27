@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Outcome, ownership and discovery checks in the existing gameplay fixture.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local C, B, S = SC.InfectionCrisis, SC.BaseLife, SC.ActionSupervisor
 local check, player = f.check, f.player
 getSpecificPlayer = function(index) return index == 0 and player or nil end

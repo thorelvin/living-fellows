@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         and Events.OnGameStart.count() == 1
         and Events.OnSave.count() == 1 and Events.OnMainMenuEnter.count() == 1,

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.Factions = {
     describeLocation = function(_point)
         return { nearestStreet = { name = "Oak St", distance = 7 } }

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local U = SurvivorCompanion.GameplayUtil
+local U = LivingFellows.GameplayUtil
 local checks = 0
 local function check(value, message)
     checks = checks + 1
@@ -71,8 +71,8 @@ local invalid = { hasRoomFor = function() return false end,
     getFreeCapacity = function() return math.huge end }
 check(select(2, U.containerHasRoom(invalid, actor, item)) == "capacity_unavailable",
     "invalid capacity cannot be reported as full")
-check(SurvivorCompanion.WorkTransport.hasRoom(unknown, actor, item) == false
-    and select(2, SurvivorCompanion.WorkTransport.hasRoom(unknown, actor, item)) == "capacity_unavailable",
+check(LivingFellows.WorkTransport.hasRoom(unknown, actor, item) == false
+    and select(2, LivingFellows.WorkTransport.hasRoom(unknown, actor, item)) == "capacity_unavailable",
     "work transport propagates unavailable reason")
 
 local source = { items = { item }, locked = true, removable = true }
@@ -94,7 +94,7 @@ function shelf:AddItem(what)
     self.items[1], what.owner = what, self
     return what
 end
-local transfer = SurvivorCompanion.WorkTransport.transferVerified
+local transfer = LivingFellows.WorkTransport.transferVerified
 check(select(2, transfer(source, shelf, item, actor)) == "source_storage_locked"
     and item.owner == source and #shelf.items == 0, "locked stock stays with the source")
 source.locked, source.removable = false, false

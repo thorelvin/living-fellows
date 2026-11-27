@@ -56,7 +56,7 @@ foreach ($script in @(
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\$script") -Destination $toolsRoot
 }
 
-$payload = Join-Path $stageRoot 'SurvivorCompanion'
+$payload = Join-Path $stageRoot 'LivingFellows'
 foreach ($metadataPath in @((Join-Path $payload 'mod.info'), (Join-Path $payload '42\mod.info'))) {
     $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding utf8
     if (($metadata -match '(?m)^require=\\ZombieBuddy$') -or ($metadata -match '(?m)^ZBVersionMin=')) {
@@ -64,7 +64,7 @@ foreach ($metadataPath in @((Join-Path $payload 'mod.info'), (Join-Path $payload
     }
 }
 $jars = @(Get-ChildItem -LiteralPath $payload -Recurse -File -Filter '*.jar')
-if ($jars.Count -ne 1 -or $jars[0].Name -ne 'SurvivorCompanionBridge.jar') {
+if ($jars.Count -ne 1 -or $jars[0].Name -ne 'LivingFellowsBridge.jar') {
     throw 'Offline package must contain exactly one owned native bridge JAR.'
 }
 if (Get-ChildItem -LiteralPath $payload -Recurse -File -Filter '*.class') {
@@ -94,12 +94,12 @@ $originalConfig = [ordered]@{
 [System.IO.File]::WriteAllText((Join-Path $gameRoot 'ProjectZomboid64.json'), $originalConfig,
     (New-Object System.Text.UTF8Encoding($false)))
 & (Join-Path $stageRoot 'Install.ps1') -GameRoot $gameRoot -ModsRoot $modsRoot -InstallDataRoot $dataRoot | Out-Null
-$installed = Join-Path $modsRoot 'SurvivorCompanion'
+$installed = Join-Path $modsRoot 'LivingFellows'
 if (-not (Test-Path -LiteralPath (Join-Path $installed '.sc-install-manifest.json') -PathType Leaf)) {
     throw 'Offline staged installer did not install an owned mod payload.'
 }
 $patched = Get-Content -LiteralPath (Join-Path $gameRoot 'ProjectZomboid64.json') -Raw -Encoding utf8 | ConvertFrom-Json
-if ($patched.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
+if ($patched.mainClass -ne 'livingfellows/bridge/SCLauncher') {
     throw 'Offline staged installer did not activate the native launcher.'
 }
 & (Join-Path $stageRoot 'Uninstall.ps1') -ModsRoot $modsRoot -InstallDataRoot $dataRoot | Out-Null
@@ -108,7 +108,7 @@ if ($restored.mainClass -ne 'zombie/gameStates/MainScreenState' -or (Test-Path -
     throw 'Offline staged uninstaller did not restore the isolated fixture.'
 }
 
-$zipName = "LivingFellowsCompanion-$Version-OFFLINE-PLAYTEST.zip"
+$zipName = "LivingFellows-$Version-OFFLINE-PLAYTEST.zip"
 $zipPath = Join-Path $OutputRoot $zipName
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path (Join-Path $stageRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal

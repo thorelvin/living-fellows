@@ -2,7 +2,7 @@
 // Test-only agent. The live harness loads this into its disposable game process.
 // Build 42 polls its own mouse state at the click-to-start gate, so posting a
 // desktop/window click from the runner cannot reliably advance an unattended run.
-package survivorcompanion.harness;
+package livingfellows.harness;
 
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;

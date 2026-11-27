@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local A, SC = SurvivorCompanion.BanditsAdapter, SurvivorCompanion
+local A, SC = LivingFellows.BanditsAdapter, LivingFellows
 local checks = 0
 local function check(value, message)
     checks = checks + 1

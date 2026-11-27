@@ -15,6 +15,15 @@ For **Project Zomboid Build 42.22.2, single-player**. The Windows standalone edi
 
 ZombieBuddy loads Living Fellows' Java bridge. Check its installation preview before approving the mod.
 
+### Updating an existing save to 0.27.102
+
+The game records mod IDs in each save. Select the save from **Load**, open
+**More… → Choose Mods…**, and enable **Living Fellows** before playing. Clear the
+unavailable entry from the earlier release if it is still listed. Workshop
+users should also keep **ZombieBuddy** enabled and approve **Living Fellows**
+when prompted. The saved companions, inventories and camp data will load
+from the same world.
+
 ## Standalone Windows
 
 1. Download the standalone Windows ZIP from the [latest GitHub release](https://github.com/thorelvin/living-fellows/releases/latest).
@@ -34,7 +43,7 @@ For a different Steam library, open a terminal in the extracted folder and run:
 .\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"
 ```
 
-The installer puts the mod in `%USERPROFILE%\Zomboid\mods\SurvivorCompanion` and its managed bridge data in `%LOCALAPPDATA%\LivingFellows`. It adds `LivingFellowsBridge.jar` beside the game executable and updates the launcher configuration. It keeps the original launcher configuration for uninstall and does not modify `projectzomboid.jar`.
+The installer puts the mod in `%USERPROFILE%\Zomboid\mods\LivingFellows` and its managed bridge data in `%LOCALAPPDATA%\LivingFellows`. It adds `LivingFellowsBridge.jar` beside the game executable and updates the launcher configuration. It keeps the original launcher configuration for uninstall and does not modify `projectzomboid.jar`.
 
 **Optional Debug menu:** `Install-Debug.bat` installs the same version with the in-game Debug tab and manual spawn controls enabled. Ordinary installation leaves those controls off. Both use the same `Uninstall.bat`.
 

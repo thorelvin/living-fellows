@@ -22,7 +22,7 @@ Run comparisons with `-LivingFellowsOnly -IsolatedSourceBridge -LowImpact
 the current test fixture. Static corpse removal requires all 2,025 cleanup
 squares loaded and reads the native static lists back before the next case.
 The result CSV and motion/contact traces are written as `solo-melee-*.txt`
-under the clone's `Lua/SurvivorCompanionHarness` directory. Recorder PASS means
+under the clone's `Lua/LivingFellowsHarness` directory. Recorder PASS means
 complete measurements; combat acceptance must separately inspect outcomes,
 health, retreat and spacing. Extended traces include the actual model skill,
 perk, weapon cost and lowest endurance; results also record breakage and the
@@ -98,7 +98,7 @@ unlocked explicitly for this measurement. Screenshots and raw reports stay
 in the isolated run. Neither mode belongs to the routine five-check gate.
 
 This is a private in-game integration harness for the real Project Zomboid
-42.22.2 single-player client. It is deliberately outside `SurvivorCompanion`
+42.22.2 single-player client. It is deliberately outside `LivingFellows`
 and is not copied into Workshop staging or release archives.
 
 The runner creates a unique directory under `build/live-sandbox-runs`, clones a
@@ -316,7 +316,7 @@ written; it does not imply a target survival rate.
     -SquadCombatSeconds 55 -LivingFellowsOnly -NoSteam -TimeoutSeconds 900
 ```
 
-Read `cache/Lua/SurvivorCompanionHarness/squad-combat-results.txt` in the
+Read `cache/Lua/LivingFellowsHarness/squad-combat-results.txt` in the
 retained run directory for individual trial results.
 
 The focused Arthur and Spiffo Pack probes each use a separate cloned-save run.
@@ -490,13 +490,13 @@ Use `-DrivingCalibrationBaseline curve_crossing` to repeat one road fixture.
 The roadside observer is centred over the route's complete bounds, keeping
 the native physics window loaded through the curve and final approach.
 Files are `phase0-tracks-csv.txt` and `phase0-{geometry,routes,trials,parts}-tsv.txt` under the
-clone's `Lua/SurvivorCompanionHarness`. These suffixes respect the game's file
+clone's `Lua/LivingFellowsHarness`. These suffixes respect the game's file
 extension allowlist. Keep measured cruise targets distinct from actual speeds
 and fit steady tracks separately from wheel easing. The probe changes no
 production driving code and never controls zombie navigation.
 
 Analyze the retained files with `python tests/live/analyze_intersection_phase0.py
-<clone-Lua/SurvivorCompanionHarness> --out <analysis-directory>` (NumPy and
+<clone-Lua/LivingFellowsHarness> --out <analysis-directory>` (NumPy and
 SciPy required). The output separates measured body-origin and rear-axle radii,
 the initial wheel response, fitted coefficients and opposite-direction checks.
 The empirical model is limited to the measured asphalt, roadworthy-car domain;

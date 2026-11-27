@@ -31,10 +31,10 @@ function Get-SeedFingerprint {
     try{return [BitConverter]::ToString($hash.ComputeHash($utf8.GetBytes(($rows -join "`n")))).Replace('-','')}
     finally{$hash.Dispose()}
 }
-$payloadRoot=Join-Path $project 'SurvivorCompanion'
+$payloadRoot=Join-Path $project 'LivingFellows'
 $payloadBefore=Get-SeedFingerprint $payloadRoot
 $seedBefore=Get-SeedFingerprint
-$installedMod=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid\mods\SurvivorCompanion'
+$installedMod=Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid\mods\LivingFellows'
 $installedModBefore=if(Test-Path -LiteralPath $installedMod){Get-SeedFingerprint $installedMod}else{'absent'}
 $protected=@{}
 foreach($name in @('ProjectZomboid64.json','LivingFellowsBridge.jar','projectzomboid.jar')){
@@ -59,9 +59,9 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'Loading-gate compilation failed.'}
     $manifest=Join-Path $output 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes livingfellows
     if($LASTEXITCODE -ne 0){throw 'Loading-gate packaging failed.'}
     $run=& (Join-Path $fixtures 'PrepareFixture.ps1') -Scenario approved -PayloadProjectRoot $project `
         -GameRoot $GameRoot -OutputRoot $output -MediaSnapshotRoot $MediaSnapshotRoot -PzoJar $PzoJar
@@ -71,11 +71,11 @@ try {
     # metadata. Compare against that exact public payload, including metadata.
     $expectedRoot=Join-Path $output 'expected-payload'
     & (Join-Path $PSScriptRoot 'New-StandalonePayload.ps1') -ProjectRoot $project -OutputRoot $expectedRoot | Out-Null
-    $expectedPayload=Join-Path $expectedRoot 'SurvivorCompanion'
+    $expectedPayload=Join-Path $expectedRoot 'LivingFellows'
     $sourceRows=@();$sourceFailures=@()
     foreach($file in Get-ChildItem -LiteralPath $expectedPayload -Recurse -File){
         $relative=$file.FullName.Substring($expectedPayload.Length).TrimStart([char[]]'\/')
-        $staged=Join-Path (Join-Path $fixture.cache 'mods\SurvivorCompanion') $relative
+        $staged=Join-Path (Join-Path $fixture.cache 'mods\LivingFellows') $relative
         $expected=(Get-FileHash -LiteralPath $file.FullName).Hash
         $actual=if(Test-Path -LiteralPath $staged){(Get-FileHash -LiteralPath $staged).Hash}else{'missing'}
         $sourceRows+=@{path=$relative;sha256=$expected}
@@ -122,7 +122,7 @@ try {
     Write-Output $receiptText
     if($receiptText -notmatch '(?m)^result=PASS\r?$'){throw 'Native medical capabilities regression failed; see the captured receipt.'}
     $pzo=Get-Content -LiteralPath (Join-Path $fixture.cache 'Lua\pzo_engine.log') -Raw
-    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
         throw 'PZO did not load the production bridge.'
     }
     Write-Output "NATIVE_PZO_MEDICAL_PROCEDURES_PASS evidence=$output"

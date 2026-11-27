@@ -120,7 +120,7 @@ function Invoke-WorldPhase([string]$Mode,[string]$InputRecord=''){
             if($pzo -notmatch 'is blocked by the user'){throw 'The real PZO loader did not exercise the fixture block.'}
             $text=Get-Content -LiteralPath $receipt -Raw
             if($text -notmatch 'F10 > JAVA'){throw 'PZO bridge absence did not expose actionable loader guidance.'}
-        } elseif($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+        } elseif($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
             throw 'PZO did not discover and invoke the production LF bridge entry.'
         }
         $results.Add(@{phase=$Mode;exitCode=0})
@@ -132,9 +132,9 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'PZO loading helper compilation failed.'}
     $manifest=Join-Path $tools 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $script:gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $script:gateJar --manifest $manifest -C $tools survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $script:gateJar --manifest $manifest -C $tools livingfellows
     if($LASTEXITCODE -ne 0){throw 'PZO loading helper packaging failed.'}
     $script:gateHash=(Get-FileHash -LiteralPath $script:gateJar -Algorithm SHA256).Hash.ToLowerInvariant()
     $script:run=& (Join-Path $fixtures 'PrepareFixture.ps1') -Scenario approved -PayloadProjectRoot $PayloadProjectRoot `

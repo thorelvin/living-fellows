@@ -1,5 +1,5 @@
-SurvivorCompanion = { GameplayUtil = {}, OddballAnimals = {} }
-local U = SurvivorCompanion.GameplayUtil
+LivingFellows = { GameplayUtil = {}, OddballAnimals = {} }
+local U = LivingFellows.GameplayUtil
 SC_ANIMAL_SPAWN_FIXTURE = { squares = {}, animals = {}, nextId = 1000 }
 local F = SC_ANIMAL_SPAWN_FIXTURE
 

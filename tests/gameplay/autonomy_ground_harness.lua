@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Standalone: partial furniture must not become a breakdown's ground seat.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local Autonomy = SC.Autonomy
 local function check(value, message)
     checks = checks + 1

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Supplied data, actual outcome function; no retuning to fit a target percentage.
-local SC=SurvivorCompanion local G=SC.TerminalLockStory
+local SC=LivingFellows local G=SC.TerminalLockStory
 local report={}
 for _,c in ipairs(SC.TerminalLockStoryData.classes) do
     for _,policy in ipairs({0,40,70}) do

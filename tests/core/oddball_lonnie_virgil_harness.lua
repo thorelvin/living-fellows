@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Focused, deterministic wedding and mail route contracts.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Lonnie, Virgil = SC.OddballLonnie, SC.OddballVirgil
 local checks = 0
 local now, hours = 1000, 24 * 9

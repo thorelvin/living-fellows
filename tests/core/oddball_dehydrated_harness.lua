@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, F = SurvivorCompanion, DehydratedFixture
+local SC, F = LivingFellows, DehydratedFixture
 local M = SC.OddballDehydrated
 local checks = 0
 local function check(ok, message)

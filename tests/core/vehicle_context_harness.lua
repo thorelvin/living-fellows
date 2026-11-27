@@ -67,7 +67,7 @@ T.generatorAnswer = { false, "base_missing" }
 T.preflight = { nil, "car_has_no_fuel" }
 T.living = {}
 
-SurvivorCompanion = {
+LivingFellows = {
     GameplayUtil = {
         isZombie = function() return false end,
         instanceOf = function() return false end,
@@ -105,6 +105,6 @@ SurvivorCompanion = {
         queue = function() return true end,
     },
 }
-SurvivorCompanion.UI.describeEntry = function(entry)
+LivingFellows.UI.describeEntry = function(entry)
     return { id = entry.id, name = entry.name, recruited = true, distance = 2 }
 end

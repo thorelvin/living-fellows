@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Invoke the real registered background callback with every terminal closed.
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local tasks, transmissions, tick = {}, 0, nil
 SC.Config = { get = function() return 1000 end }
 SC.State, SC.Identity = {}, { release = "fixture", bridgeProtocol = "fixture", gameVersion = "fixture" }

@@ -16,8 +16,8 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path $ProjectRoot 'build\standalone-payload'
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
-$payload = Join-Path $ProjectRoot 'SurvivorCompanion'
-$destination = Join-Path $OutputRoot 'SurvivorCompanion'
+$payload = Join-Path $ProjectRoot 'LivingFellows'
+$destination = Join-Path $OutputRoot 'LivingFellows'
 $projectPrefix = $ProjectRoot.TrimEnd('\') + '\'
 $outputIsProject = $OutputRoot.StartsWith($projectPrefix,
     [System.StringComparison]::OrdinalIgnoreCase)
@@ -70,7 +70,7 @@ foreach ($required in @(
 $marker = @'
 LIVING FELLOWS STANDALONE INSTALL
 
-This public copy uses the bundled, version-pinned SurvivorCompanionBridge.
+This public copy uses the bundled, version-pinned LivingFellowsBridge.
 Install.bat activates it through a reversible launcher entry and stores the
 original ProjectZomboid64.json configuration for Uninstall.bat to restore.
 
@@ -85,7 +85,7 @@ if (Get-ChildItem -LiteralPath $destination -Recurse -File -Filter '*.class') {
     throw 'Standalone payload contains forbidden loose Java classes.'
 }
 $jars = @(Get-ChildItem -LiteralPath $destination -Recurse -File -Filter '*.jar')
-$expectedJar = Join-Path $destination '42\media\java\SurvivorCompanionBridge.jar'
+$expectedJar = Join-Path $destination '42\media\java\LivingFellowsBridge.jar'
 if ($jars.Count -ne 1 -or $jars[0].FullName -ne $expectedJar) {
     throw 'Standalone payload must contain exactly one owned native bridge JAR.'
 }

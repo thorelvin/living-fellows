@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real decision arbitration must service a mission-owned native chop, and a
 -- preparation request must safely release the prior resident controller.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local D, checks = SC.Decision, 0
 local function check(value, label)
     checks = checks + 1

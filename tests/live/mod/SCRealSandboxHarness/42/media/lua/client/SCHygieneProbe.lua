@@ -43,7 +43,7 @@ end
 
 local function turnAndRecord(H, facing, result)
     local actor = H.hygieneActor
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local x, y, z = U.position(actor)
     if not x then return false end
@@ -62,7 +62,7 @@ end
 
 local function recordDirectionPhoto(H, facing, check, result)
     local actor = H.hygieneActor
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local x, y, z = U.position(actor)
     local bx = select(1, U.call(actor, "getCompanionPelvisWorldX"))
     local by = select(1, U.call(actor, "getCompanionPelvisWorldY"))
@@ -71,7 +71,7 @@ local function recordDirectionPhoto(H, facing, check, result)
     local fx = select(1, U.call(actor, "getForwardDirectionX"))
     local fy = select(1, U.call(actor, "getForwardDirectionY"))
     local angle = select(1, U.call(actor, "getAnimAngleRadians"))
-    local state = SurvivorCompanion.Needs.peek(actor)
+    local state = LivingFellows.Needs.peek(actor)
     local task = state and state.pee
     local alpha = select(1, U.call(actor, "getTargetAlpha", 0))
     local nativeSubmitted = select(1, U.call(actor,
@@ -81,12 +81,12 @@ local function recordDirectionPhoto(H, facing, check, result)
     local nativeFailure = select(1, U.call(actor,
         "getCompanionPeeStreamDepthFailure"))
     local turnSubmission = H.hygieneDirectionBaseSubmission or 0
-    local depthSuppressions = SurvivorCompanion.HygieneEffects
-        and SurvivorCompanion.HygieneEffects.nativeDepthSuppressions or 0
-    local uiFallbacks = SurvivorCompanion.HygieneEffects
-        and SurvivorCompanion.HygieneEffects.uiStreamFallbacks or 0
+    local depthSuppressions = LivingFellows.HygieneEffects
+        and LivingFellows.HygieneEffects.nativeDepthSuppressions or 0
+    local uiFallbacks = LivingFellows.HygieneEffects
+        and LivingFellows.HygieneEffects.uiStreamFallbacks or 0
     local listed = false
-    for _, item in ipairs(SurvivorCompanion.Registry.living()) do
+    for _, item in ipairs(LivingFellows.Registry.living()) do
         if item == actor then listed = true end
     end
     result("PASS", "hygiene_render_gate_" .. facing.name,
@@ -201,7 +201,7 @@ local function nearbyToilet(U, player)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local originalCheck, originalResult = check, result
     check = function(name, okay, detail)

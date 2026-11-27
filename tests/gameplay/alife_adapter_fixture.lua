@@ -22,7 +22,7 @@ for _, name in ipairs({ "ProjectALife_NpcSpawned", "ProjectALife_NpcDied", "Proj
         end,
     }
 end
-SurvivorCompanion = {
+LivingFellows = {
     State = { active = true },
     UserOptions = { get = function(key) return ALIFE_TEST_OPTIONS[key] end },
     Actor = { _isRegistryActor = function(actor) return actor.lf == true end },

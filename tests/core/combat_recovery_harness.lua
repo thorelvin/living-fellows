@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production native dispatch with a retained-input actor and native Hit semantics.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(value, message)
     checks = checks + 1

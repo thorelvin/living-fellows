@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Explicit posts use real command, topology, decision and combat boundaries.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local P, U, check = SC.GuardPost, SC.GameplayUtil, f.check
 local function square(x, y, z) return f.cell:getGridSquare(x, y, z or 0) end
 local function fighter(id, x, y, z)

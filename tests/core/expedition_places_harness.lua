@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-local Places = SurvivorCompanion.ExpeditionPlaces
-local fixture = SurvivorCompanion.ExpeditionPlacesFixture
+local Places = LivingFellows.ExpeditionPlaces
+local fixture = LivingFellows.ExpeditionPlacesFixture
 local checks = 0
 local function check(condition, message)
     checks = checks + 1
@@ -84,8 +84,8 @@ local interior = Places.loadedInteriorCandidates(nearby[1].id, entryActor)
 check(#interior > 0 and #interior <= 12 and interior[1].x >= 20,
     "arrival offers bounded loaded floor tiles within the selected building")
 do
-    local oldTopology = SurvivorCompanion.Topology
-    SurvivorCompanion.Topology = {classifyEdge = function(_, outside, inside)
+    local oldTopology = LivingFellows.Topology
+    LivingFellows.Topology = {classifyEdge = function(_, outside, inside)
         if outside:getX() == 19 and inside:getX() == 20 then
             if outside:getY() == 25 then return {affordance="door", reason="door_locked"} end
             if outside:getY() == 24 then return {affordance="window", traversable=true} end
@@ -96,10 +96,10 @@ do
     check(portals and #portals == 1 and portals[1].outside.x == 19
         and portals[1].outside.y == 24 and portals[1].inside.x == 20,
         "entry survey skips the locked door and pairs the alternate window stand with its landing")
-    SurvivorCompanion.Topology = oldTopology
+    LivingFellows.Topology = oldTopology
 end
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local topology, square = SC.Topology, fixture.cell.getGridSquare
     local gridSquare = SC.GameplayUtil.gridSquare
     local stationId = "8040:11137:8052:11164"
@@ -160,8 +160,8 @@ entryActor.getCurrentSquare = function()
 end
 check(Places.actorInsideSite(nearby[1].id, entryActor),
     "a room tile belonging to the selected building completes entry")
-local firstPath = SurvivorCompanion.Navigation.findPath
-SurvivorCompanion.Navigation.findPath = function(source, destination)
+local firstPath = LivingFellows.Navigation.findPath
+LivingFellows.Navigation.findPath = function(source, destination)
     if destination:getX() == 19 and destination:getY() == 23 then
         return { source, destination }
     end
@@ -171,9 +171,9 @@ local alternateFace = Places.loadedApproach(nearby[1], actor)
 check(alternateFace ~= nil and alternateFace.x == 19
         and alternateFace.y == 23,
     "a reachable fourth face square survives three blocked window approaches")
-SurvivorCompanion.Navigation.findPath = firstPath
+LivingFellows.Navigation.findPath = firstPath
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local nav, perf, getSquare = SC.Navigation, SC.Performance, fixture.cell.getGridSquare
     local geometryReads, edgeReads, resumes, polls = 0, 0, 0, 0
     local sharedQuota, quotaClaims = 0, 0
@@ -315,10 +315,10 @@ do
     Places._surveyPollLimit = pollLimit
     SC.Navigation, SC.Performance, fixture.cell.getGridSquare = nav, perf, getSquare
 end
-local originalPosition = SurvivorCompanion.GameplayUtil.position
+local originalPosition = LivingFellows.GameplayUtil.position
 local originalShelterSquare = fixture.cell.getGridSquare
-local originalShelterPath = SurvivorCompanion.Navigation.findPath
-SurvivorCompanion.GameplayUtil.position = function(value)
+local originalShelterPath = LivingFellows.Navigation.findPath
+LivingFellows.GameplayUtil.position = function(value)
     return value:getX(), value:getY(), 0
 end
 fixture.cell.getGridSquare = function(self, x, y, z)
@@ -328,7 +328,7 @@ fixture.cell.getGridSquare = function(self, x, y, z)
     end
     return square
 end
-SurvivorCompanion.Navigation.findPath = function(source, destination)
+LivingFellows.Navigation.findPath = function(source, destination)
     if destination:getX() >= 100 and destination:getX() <= 110 then
         return { source, destination }
     end
@@ -359,7 +359,7 @@ fixture.cell.getGridSquare=function(self,x,y,z)
     return square
 end
 local firstHouseChecks,secondHouseChecks=0,0
-SurvivorCompanion.Navigation.findPath=function(source,destination)
+LivingFellows.Navigation.findPath=function(source,destination)
     if destination:getX()<120 then firstHouseChecks=firstHouseChecks+1
     else secondHouseChecks=secondHouseChecks+1 end
     return {source,destination}
@@ -375,15 +375,15 @@ shelter,shelterReason=Places.nearestLoadedShelter(shelterActor,nil,excluded)
 check(not shelter and shelterReason=='shelter_no_loaded_path',
     'all failed houses yield no shelter rather than cycling their interior tiles')
 Places.nearby=shelterNearby
-SurvivorCompanion.Navigation.findPath = function() return nil end
+LivingFellows.Navigation.findPath = function() return nil end
 shelter, shelterReason = Places.nearestLoadedShelter(shelterActor)
 check(shelter == nil and shelterReason == "shelter_no_loaded_path",
     "an unreachable map house cannot be reported as shelter")
-SurvivorCompanion.Navigation.findPath = originalShelterPath
+LivingFellows.Navigation.findPath = originalShelterPath
 fixture.cell.getGridSquare = originalShelterSquare
-SurvivorCompanion.GameplayUtil.position = originalPosition
+LivingFellows.GameplayUtil.position = originalPosition
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local nav, perf = SC.Navigation, SC.Performance
     local position, gridSquare = SC.GameplayUtil.position, fixture.cell.getGridSquare
     local alternate = fixture.building(125, 22, 128, 27, { "bedroom", "kitchen" })
@@ -568,24 +568,24 @@ local sightActor = {
     getY = function() return 25 end,
     getZ = function() return 0 end,
 }
-SurvivorCompanion.GameplayUtil.canSee = function(_, square)
+LivingFellows.GameplayUtil.canSee = function(_, square)
     return square:getX() == 20 and square:getY() == 25
 end
 check(Places.visibleSiteSquare(nearby[1].id, sightActor)
         and not Places.visibleSiteSquare(nearby[2].id, sightActor),
     "a scout can confirm only a visible square in the selected building")
-SurvivorCompanion.GameplayUtil.canSee = function() return false end
+LivingFellows.GameplayUtil.canSee = function() return false end
 check(not Places.visibleSiteSquare(nearby[1].id, sightActor),
     "map metadata alone cannot confirm a building the scout cannot see")
-local originalFindPath = SurvivorCompanion.Navigation.findPath
-SurvivorCompanion.Navigation.findPath = function() return nil end
+local originalFindPath = LivingFellows.Navigation.findPath
+LivingFellows.Navigation.findPath = function() return nil end
 planned, plannedReason = Places.plannedApproach(nearby[1], actor)
 check(planned ~= nil and plannedReason == nil and planned.x == 19,
     "a distant place stays selectable when no complete loaded path exists")
 approach, approachReason = Places.loadedApproach(nearby[1], actor)
 check(approach == nil and approachReason == "approach_no_loaded_path",
     "an inaccessible exterior square does not become a destination")
-SurvivorCompanion.Navigation.findPath = originalFindPath
+LivingFellows.Navigation.findPath = originalFindPath
 local originalGetCell = fixture.world.getCell
 fixture.world.getCell = function() return {
     getGridSquare = function() return nil end,
@@ -628,7 +628,7 @@ check(known ~= nil and knownReason == nil and #known == 1
     "only a player-seen interior exposes its building label")
 check(known[1].rooms == nil and known[1].id == nearby[1].id,
     "player-facing candidate does not expose raw room metadata")
-check(SurvivorCompanion.Config.get("expeditionDestinationScope") == "all_nearby",
+check(LivingFellows.Config.get("expeditionDestinationScope") == "all_nearby",
     "all nearby buildings are the default destination scope")
 local selectable, selectableReason = Places.targetableNearby(20, 20, 120, 8)
 check(selectable ~= nil and selectableReason == nil and #selectable == 6,
@@ -637,21 +637,21 @@ check(selectable[2].kind == "fire"
         and selectable[2].knowledge == "map_metadata_unconfirmed"
         and selectable[2].rooms == nil and selectable[2].distance ~= nil,
     "map-derived candidates are marked unconfirmed and omit raw rooms")
-SurvivorCompanion.Config.refreshSandbox({ LivingFellows = {
+LivingFellows.Config.refreshSandbox({ LivingFellows = {
     ExpeditionDestinationScope = 2,
 } })
 selectable, selectableReason = Places.targetableNearby(20, 20, 120, 8)
-check(SurvivorCompanion.Config.get("expeditionDestinationScope") == "known_only"
+check(LivingFellows.Config.get("expeditionDestinationScope") == "known_only"
         and selectableReason == nil and #selectable == 1
         and selectable[1].knowledge == "player_seen_interior",
     "known-only option limits targets to player-seen interiors")
-SurvivorCompanion.Config.refreshSandbox({ LivingFellows = {
+LivingFellows.Config.refreshSandbox({ LivingFellows = {
     ExpeditionDestinationScope = 1,
 } })
 selectable = Places.targetableNearby(20, 20, 120, 8)
 check(#selectable == 6,
     "switching the sandbox option back restores all nearby targets")
-SurvivorCompanion.Config.refreshSandbox()
+LivingFellows.Config.refreshSandbox()
 local originalGetSquare = fixture.cell.getGridSquare
 fixture.cell.getGridSquare = function(self, x, y, z)
     local square = originalGetSquare(self, x, y, z)
@@ -736,8 +736,8 @@ local interior = {
 }
 local hallwaySquare = { getRoom = function() return hall end }
 local insideActor = { getCurrentSquare = function() return interior end }
-local originalHallPath = SurvivorCompanion.Navigation.findPath
-SurvivorCompanion.Navigation.findPath = function(start, destination)
+local originalHallPath = LivingFellows.Navigation.findPath
+LivingFellows.Navigation.findPath = function(start, destination)
     if destination:getX() == 19 and destination:getY() == 25 then
         return { start, hallwaySquare, destination }
     end
@@ -750,5 +750,5 @@ hall = { getBuilding = function() return fixture.buildings[2] end }
 local foreignHall, foreignReason = Places.loadedApproach(nearby[1], insideActor)
 check(foreignHall == nil and foreignReason == "approach_no_loaded_path",
     "a path through another building is not a valid exterior exit")
-SurvivorCompanion.Navigation.findPath = originalHallPath
+LivingFellows.Navigation.findPath = originalHallPath
 print("EXPEDITION_PLACES_PASS checks=" .. tostring(checks))

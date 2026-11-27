@@ -82,7 +82,7 @@ end
 Events.OnMainMenuEnter.Add(evidence)
 '@
 [IO.File]::WriteAllText((Join-Path $probe '42\media\lua\client\SCPzoStartupProbe.lua'),$lua,$utf8)
-[IO.File]::WriteAllText((Join-Path $cache 'mods\default.txt'),"VERSION = 1,`nmods {`n mod = \SurvivorCompanion,`n mod = \SCPzoStartupProbe,`n}`n",$utf8)
+[IO.File]::WriteAllText((Join-Path $cache 'mods\default.txt'),"VERSION = 1,`nmods {`n mod = \LivingFellows,`n mod = \SCPzoStartupProbe,`n}`n",$utf8)
 [IO.File]::WriteAllText((Join-Path $cache 'mods\reset-mods-42_00.txt'),'',$utf8)
 $manifest=[ordered]@{run=$run;game=$game;profile=$profile;cache=$cache;scenario=$Scenario;bridgeHash=$hash;pzoHash=(Get-FileHash -LiteralPath (Join-Path $game 'PZOptimEngine.jar') -Algorithm SHA256).Hash.ToLowerInvariant();payload=$PayloadProjectRoot}
 [IO.File]::WriteAllText((Join-Path $run 'run.json'),($manifest|ConvertTo-Json -Depth 4),$utf8)

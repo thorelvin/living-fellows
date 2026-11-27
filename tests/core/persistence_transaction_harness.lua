@@ -21,7 +21,7 @@ local function deepEqual(left, right, seen)
     return true
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local function playerFor(document)
     local data = SC_TEST_SET_WORLD_STORE({ document = document })
     return { getModData = function() return data end }, data

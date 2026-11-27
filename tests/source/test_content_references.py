@@ -11,7 +11,7 @@ import wave
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
-CLIENT = ROOT / "SurvivorCompanion/42/media/lua/client"
+CLIENT = ROOT / "LivingFellows/42/media/lua/client"
 
 
 def load_module(name, path):
@@ -41,9 +41,9 @@ class ContentReferences(unittest.TestCase):
 
     def test_registered_audio_payloads_are_valid(self):
         manifest = (ROOT / "ASSET-MANIFEST.md").read_text(encoding="utf-8-sig")
-        script = (ROOT / "SurvivorCompanion/42/media/scripts/sounds_LivingFellowsLocks.txt").read_text(encoding="utf-8-sig")
+        script = (ROOT / "LivingFellows/42/media/scripts/sounds_LivingFellowsLocks.txt").read_text(encoding="utf-8-sig")
         for name in ("LFPhoneRing", "LFPhoneAnswer", "LFNumbersTune", "LFDiceRoll", "LFSpiffyJingle"):
-            path = ROOT / f"SurvivorCompanion/42/media/sound/{name}.wav"
+            path = ROOT / f"LivingFellows/42/media/sound/{name}.wav"
             self.assertRegex(script, rf"\bsound\s+{name}\b")
             self.assertIn(hashlib.sha256(path.read_bytes()).hexdigest(), manifest)
             with wave.open(str(path)) as audio:

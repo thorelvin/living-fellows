@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Loaded only in a disposable native save. The disk phase runs in a new client.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B, U = SC.BaseLife, SC.GameplayUtil
 local s = {phase="menu",seen={},notes={}}
 local function read(file)

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Drive old resident rows through restoration and the normal maintenance pulse.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B, W, f = SC.BaseLife, SC.BaseWork, SC.TestFixture
 local checks = 0
 local function check(result, message)

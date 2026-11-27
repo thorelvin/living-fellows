@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 local square = { x = 10, y = 10, z = 0 }
 local trunk = { items = {} }
 local inventory = { items = {} }

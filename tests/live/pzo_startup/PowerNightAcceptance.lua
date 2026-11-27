@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Controlled native receivers/clock in a disposable save, actual LF actors/UI.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local s={phase='menu',checks=0,crew={},notes={}}
 local function write(name,text) local w=assert(getFileWriter(name,true,false));w:write(text);w:close() end
 local function read(name) local r=getFileReader(name,false);if not r then return end;local v=r:readLine();r:close();return v end

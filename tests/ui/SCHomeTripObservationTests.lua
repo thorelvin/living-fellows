@@ -2,7 +2,7 @@
 -- Uses real SCUI.describeEntry/projectExpeditionRow, loaded by the native UI
 -- fixture runner. The card's view knowledge must reach roster facts without
 -- becoming physical Follow/Regroup authority or revealing distant followers.
-local SC, UI = SurvivorCompanion, SurvivorCompanion.UI
+local SC, UI = LivingFellows, LivingFellows.UI
 local previous = { home = SC.HomeTrip, expedition = SC.ExpeditionPrototype,
     view = SC.ViewSession, commands = SC.Commands, registry = SC.Registry,
     names = SC.Names, players = getSpecificPlayer, homeUi = SC.UIHomeTrip,

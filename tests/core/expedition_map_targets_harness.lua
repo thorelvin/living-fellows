@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local T=SC.ExpeditionTargets
 local scope="all_nearby"
 local originalConfig=SC.Config.get

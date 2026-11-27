@@ -52,7 +52,7 @@ require "SCExpeditionPrototype"
 require "SCBaseWatch"
 require "SCFactionRecruitment"
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.Runtime = SC.Runtime or {}
 
 local runtime = SC.Runtime
@@ -155,7 +155,7 @@ local function notifyDisabled(reason)
     local message
     if multiplayerActive() then
         message = translated("UI_SC_RuntimeDisabled_Multiplayer",
-            "Living Fellows: Companion supports single-player only.")
+            "Living Fellows supports single-player only.")
     else
         message = translated("UI_SC_RuntimeDisabled_Provider",
             "Companion spawning is unavailable: " .. tostring(reason), tostring(reason))
@@ -166,7 +166,7 @@ local function notifyDisabled(reason)
         shown = invoke(currentPlayer, "setHaloNote", message, 255, 180, 80, 300)
         if not shown then shown = invoke(currentPlayer, "setHaloNote", message) end
     end
-    if not shown then print("[SurvivorCompanion] " .. message) end
+    if not shown then print("[LivingFellows] " .. message) end
     return shown
 end
 
@@ -684,7 +684,7 @@ local function repairNativeSchedule(record, current)
     local repairedOk, repaired = invoke(actor, "ensureScheduled")
     if repairedOk and repaired == true then
         record.runtime.nativeScheduleRepairReportedAt = nil
-        print("[SurvivorCompanion][recovery] repaired companion update scheduling actor="
+        print("[LivingFellows][recovery] repaired companion update scheduling actor="
             .. tostring(record.id))
         return true, "repaired"
     end
@@ -777,7 +777,7 @@ local function vitalsTask(current)
                     z = math.floor(anchor.z or 0),
                 }
             end
-            print("[SurvivorCompanion][recovery] companion released from an unloaded car actor="
+            print("[LivingFellows][recovery] companion released from an unloaded car actor="
                 .. tostring(record.id))
         elseif released == false and anchor ~= "not_seated" and anchor ~= "vehicle_loaded" then
             SC.Diagnostics.report("vehicle", record.id,
@@ -833,7 +833,7 @@ local function vitalsTask(current)
                     record.runtime.nativeSquareMissingAt = nil
                     record.runtime.vehicleRecoveryDeferred = nil
                     record.runtime.postedRecoveryDeferred = nil
-                    print("[SurvivorCompanion][recovery] repaired companion world membership in place.")
+                    print("[LivingFellows][recovery] repaired companion world membership in place.")
                 end
             end
         end
@@ -880,7 +880,7 @@ local function vitalsTask(current)
                             record.runtime.nativeSquareMissingAt = nil
                             record.runtime.postedRecoveryDeferred = nil
                             record.runtime.unloadedCar = nil
-                            print("[SurvivorCompanion][recovery] posted companion restored in place actor="
+                            print("[LivingFellows][recovery] posted companion restored in place actor="
                                 .. tostring(record.id))
                         end
                     elseif square ~= nil then
@@ -915,7 +915,7 @@ local function vitalsTask(current)
                         record.runtime.nativeSquareMissingAt = nil
                         record.runtime.vehicleRecoveryDeferred = nil
                         record.runtime.unloadedCar = nil
-                        print("[SurvivorCompanion][recovery] recruited companion rejoined actor="
+                        print("[LivingFellows][recovery] recruited companion rejoined actor="
                             .. tostring(record.id) .. " placement=" .. tostring(recoveryKind))
                     end
                 end
@@ -953,10 +953,10 @@ local function vitalsTask(current)
             else
                 if SC.FirstMeeting then SC.FirstMeeting.retired(record.id) end
                 if debugDescription ~= nil then
-                    print("[SurvivorCompanion][debug-spawn] event=removed " .. debugDescription
+                    print("[LivingFellows][debug-spawn] event=removed " .. debugDescription
                         .. " reason=unloaded_after_discovery")
                 else
-                    print("[SurvivorCompanion][encounter] unloaded neutral companion retired.")
+                    print("[LivingFellows][encounter] unloaded neutral companion retired.")
                 end
             end
             return
@@ -1053,7 +1053,7 @@ local function vitalsTask(current)
             SC.Diagnostics.report("actor-provider", record.id,
                 "unhealthy native companion cleanup failed", removeReason)
         elseif debugDescription ~= nil then
-            print("[SurvivorCompanion][debug-spawn] event=removed " .. debugDescription
+            print("[LivingFellows][debug-spawn] event=removed " .. debugDescription
                 .. " reason=native_health_gate:" .. tostring(healthReason):gsub("[\r\n]", " "))
         end
         return
@@ -1114,13 +1114,13 @@ local function spawnCompletionTask(current)
         if source == "debug" and SC.Spawn.debugLog("spawned", detail, player(), "deferred") then
             return
         end
-        print("[SurvivorCompanion][" .. tostring(source or "deferred-spawn")
+        print("[LivingFellows][" .. tostring(source or "deferred-spawn")
             .. "] companion spawned")
     elseif status == "failed" then
         local reason = tostring(detail or "unknown spawn rejection")
         lastDebugSpawnReportAt = current
         lastDebugSpawnReason = reason
-        print("[SurvivorCompanion][" .. tostring(source or "deferred-spawn")
+        print("[LivingFellows][" .. tostring(source or "deferred-spawn")
             .. "] rejected: " .. reason)
     end
 end

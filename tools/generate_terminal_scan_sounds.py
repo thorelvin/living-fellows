@@ -23,7 +23,7 @@ def generate():
                 envelope = min(1, t / .008) * (1 - i / samples) ** 2
                 value = amplitude * envelope * math.sin(2 * math.pi * frequency * t)
                 frames.append(struct.pack("<h", round(value * 32767)))
-        path = ROOT / "SurvivorCompanion/42/media/sound" / (name + ".wav")
+        path = ROOT / "LivingFellows/42/media/sound" / (name + ".wav")
         with wave.open(str(path), "wb") as out:
             out.setnchannels(1)
             out.setsampwidth(2)

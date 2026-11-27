@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Clinical fixture only. Native effect facts are verified in the PZO probe.
-local SC,F=SurvivorCompanion,SurvivorCompanion.TestFixture
+local SC,F=LivingFellows,LivingFellows.TestFixture
 local Fixture={serial=0}
 Perks.Doctor=Perks.Doctor or 'Doctor'
 function Fixture.part(options)

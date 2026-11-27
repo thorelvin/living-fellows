@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Loads after expedition_car_fixture.lua and SCExpeditionCar.lua. No native
 -- objects are constructed: these controls prove the read-only field contract.
-local SC,T=SurvivorCompanion,CAR_TEST
+local SC,T=LivingFellows,CAR_TEST
 local Car=SC.ExpeditionCar
 local checks=0
 local function check(value,label) checks=checks+1 assert(value,"home car "..checks..": "..label) end

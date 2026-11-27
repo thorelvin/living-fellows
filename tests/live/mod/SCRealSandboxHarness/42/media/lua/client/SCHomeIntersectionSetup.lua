@@ -2,7 +2,7 @@
 -- Clone-only preparation before the public Home review; no trial movement writes.
 local Setup={}
 function Setup.warm(H,t,result)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local state=H.homeCampGeometry
     if state and state.ready then return true end
     if not state then state={at=t,checked=0,stableAt=t};H.homeCampGeometry=state end
@@ -40,7 +40,7 @@ function Setup.arm(actor)
     if not weapon then return false,"native crowbar creation failed" end
     actor:setPrimaryHandItem(weapon)
     actor:setSecondaryHandItem(weapon)
-    return actor:getPrimaryHandItem()==weapon and SurvivorCompanion.GameplayUtil.inventoryContains(inventory,weapon),
+    return actor:getPrimaryHandItem()==weapon and LivingFellows.GameplayUtil.inventoryContains(inventory,weapon),
         "one actual crowbar before departure/inventory capture; no skill, health or zombie changes"
 end
 return Setup

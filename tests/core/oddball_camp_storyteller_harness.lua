@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Camp = SC.OddballCampStoryteller
 local F = CampFixture
 local checks = 0

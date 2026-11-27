@@ -6,7 +6,7 @@ import sys
 
 
 PROJECT = Path(__file__).resolve().parents[2]
-CLIENT = PROJECT / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
+CLIENT = PROJECT / "LivingFellows" / "42" / "media" / "lua" / "client"
 SHARED = CLIENT.parent / "shared"
 OWNED = [
     "SCGameplayUtil.lua",

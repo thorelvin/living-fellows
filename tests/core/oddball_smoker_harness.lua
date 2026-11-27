@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Smoker = SC.OddballSmoker
 local clock = 1000
 local room = {}

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- The church and theatre state machines, item ownership and death outcomes.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Silas, Rusty = SC.OddballSilas, SC.OddballRusty
 local checks, now = 0, 1000
 local records, groups, worldDrops, releases = {}, {}, {}, {}

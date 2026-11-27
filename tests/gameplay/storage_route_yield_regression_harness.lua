@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real planner/cache/traffic regressions from the Main Camp ten-minute soak.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local N, R, T, U = SC.Navigation, SC.WorkRoutes, SC.NavTraffic, SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, SC_VEHICLE_UNLOAD_TEST
+local SC, T = LivingFellows, SC_VEHICLE_UNLOAD_TEST
 local Unload = SC.VehicleUnload
 local checks = 0
 local function check(ok, message)

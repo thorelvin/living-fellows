@@ -8,7 +8,7 @@ require "SCRegistry"
 require "SCNativeActions"
 require "SCBackground"
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.Actor = SC.Actor or {}
 
 local actorService = SC.Actor
@@ -611,7 +611,7 @@ function actorService.checkBridge(force)
     cachedProvider = nil
     cachedReady = false
     if multiplayerActive() then
-        cachedReason = "Living Fellows: Companion is single-player only"
+        cachedReason = "Living Fellows is single-player only"
         return false, cachedReason
     end
     cachedProvider, cachedReason = resolveProvider()
@@ -694,13 +694,14 @@ end
 -- the standalone bridge is two editions mixed, whatever their versions.
 local editionCache, luaSourceCache, standaloneReleaseCache
 local luaSources = { Mods = "mods", Steam = "workshop", Workshop = "staging" }
+local standaloneIds = { livingfellows = "LivingFellows", survivorcompanion = "SurvivorCompanion" }
 
 local function luaSource()
     if luaSourceCache then return luaSourceCache end
     local lookup = globalValue("getModInfoByID")
     if type(lookup) ~= "function" then return "unknown" end
     local ok, source = pcall(function()
-        local info = lookup("SurvivorCompanion")
+        local info = lookup(SC.Identity.modId)
         return info and info:getSource() or nil
     end)
     local value = ok and source ~= nil and luaSources[tostring(source)] or nil
@@ -714,9 +715,11 @@ local function installedStandaloneRelease()
     if type(folders) ~= "function" or type(details) ~= "function" then return nil end
     local ok, release = pcall(function()
         for _, path in ipairs(folders()) do
-            if type(path) == "string" and path:lower():match("[/\\]survivorcompanion[/\\]?$") then
+            local leaf = type(path) == "string" and path:lower():match("[/\\]([^/\\]+)[/\\]?$")
+            local id = standaloneIds[leaf]
+            if id then
                 local info = details(path)
-                if info and info:getSource() == "Mods" and info:getId() == "SurvivorCompanion" then
+                if info and info:getSource() == "Mods" and info:getId() == id then
                     -- Both installers mark their local mod.info. Stock getModInfo
                     -- reads this exact folder while respecting the game's load order.
                     local description = info:getDescription()
@@ -1555,7 +1558,7 @@ function actorService.remove(actor)
         return true, result
     end
     if not actorService.isCompanion(actor) then
-        return false, "actor is not an active SurvivorCompanion actor"
+        return false, "actor is not an active Living Fellows actor"
     end
     local ready, reason = actorService.checkBridge(false)
     if not ready then
@@ -1609,7 +1612,7 @@ function actorService.retireDead(actor)
         return true, result
     end
     if not actorService.isCompanion(actor) then
-        return false, "actor is not an active SurvivorCompanion actor"
+        return false, "actor is not an active Living Fellows actor"
     end
     local deadOk, dead = invoke(actor, "isDead")
     if not deadOk or dead ~= true then return false, "actor is still alive" end

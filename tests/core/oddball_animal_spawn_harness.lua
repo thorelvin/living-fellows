@@ -1,4 +1,4 @@
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Animals = SC.OddballAnimals
 local F = SC_ANIMAL_SPAWN_FIXTURE
 local checks = 0

@@ -204,7 +204,7 @@ local function prepare(H, SC, check, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "floor_sort_setup" then
         return prepare(H, SC, check, result, setPhase, current)
     end

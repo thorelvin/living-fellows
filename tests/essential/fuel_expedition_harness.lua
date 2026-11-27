@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Native Lua action bodies plus physical, identity-preserving containers.
-local SC,F=SurvivorCompanion,SurvivorCompanion.ExpeditionFuel
+local SC,F=LivingFellows,LivingFellows.ExpeditionFuel
 function getText(key) return key end
 function sendItemStats() end
 local checks=0

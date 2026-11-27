@@ -4,7 +4,7 @@ local P={} SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCLockPhase3Probe=P
 local function send(w,text) w:setEntryText(text) w:submit() end
 local function open(H,f,kind,seed,saved)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     SC.TerminalDrawers.release(f.pc)
     local os=saved and SC.TerminalSystem.normalize(saved) or SC.TerminalSystem.create(seed,"police",false,false,"phase3-native:"..kind..":"..seed)
@@ -15,14 +15,14 @@ local function open(H,f,kind,seed,saved)
 end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-lock-phase3-"..name..".png") end
 local function finish(H,f,current,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if f.radioListener then Events.OnDeviceText.Remove(f.radioListener) f.radioListener=nil end
     SC.TerminalLockPhone.reset() SC.TerminalLockRadio.reset()
     if SC.Terminal.window then SC.Terminal.window:close() end
     setPhase("finish",current)
 end
 local function realRival(H,f)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local definition=SC.Oddballs.definition("fan_corey_biggs")
     for _,g in ipairs(SC.Factions.list(false)) do
         if g.oddball and g.oddball.id==definition.id and g.lifecycle~="destroyed" then
@@ -42,7 +42,7 @@ local function realRival(H,f)
     assert(g,reason) g.discovered=false return g
 end
 function P.step(H,current,check,result,setPhase)
-    local SC,f=SurvivorCompanion,H.lockProbe
+    local SC,f=LivingFellows,H.lockProbe
     if H.phase=="lock_probe_phase3_begin" then
         if H.config.lock_phase3_reload=="true" then
             f.progress=assert(f.pc:getModData().LF_LockPhase3,"no native saved progress")

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local Visuals = SurvivorCompanion and SurvivorCompanion.BaseVisuals
+local Visuals = LivingFellows and LivingFellows.BaseVisuals
 assert(Visuals, "SCBaseVisuals must be loaded before this test")
 local fixture = SCBaseVisualsFixture
 
@@ -40,7 +40,7 @@ assert(#fixture.labels == 2 and modeReads == 1,
 fixture.labels = {}
 active3D = true
 fixture.splitScreen = true
-SurvivorCompanion.UI = { instance = { selectedId = "sc-addy" } }
+LivingFellows.UI = { instance = { selectedId = "sc-addy" } }
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 0 and modeReads == 2,
     "active 3D must suppress selected and ordinary names in every viewport with one mode query")
@@ -57,7 +57,7 @@ assert(#fixture.labels == 0 and fixture.config.companionNameLabels == false,
     "camera toggles must never enable the player's disabled name setting")
 fixture.config.companionNameLabels = true
 fixture.splitScreen = false
-SurvivorCompanion.UI = nil
+LivingFellows.UI = nil
 SCBridge.isViewpoint3DActive = function() error("optional renderer unavailable") end
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 2, "an optional compatibility failure must not break ordinary labels")
@@ -65,7 +65,7 @@ fixture.labels = {}
 SCBridge = previousBridge
 
 fixture.splitScreen = true
-SurvivorCompanion.UI = { instance = { selectedId = "sc-addy" } }
+LivingFellows.UI = { instance = { selectedId = "sc-addy" } }
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 4 and fixture.labels[2].x == 318
         and fixture.labels[4].x == 1278
@@ -88,7 +88,7 @@ fixture.otherCompanion = setmetatable({ x = 13, y = 11, z = 0,
     { __index = fixture.companion })
 fixture.records[2] = { id = "sc-beth", actor = fixture.otherCompanion,
     recruited = true, identity = { forename = "Beth" }, runtime = {} }
-SurvivorCompanion.UI.instance.selectedId = "sc-beth"
+LivingFellows.UI.instance.selectedId = "sc-beth"
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
 assert(#fixture.labels == 6 and fixture.labels[2].value == "Addy"
@@ -118,7 +118,7 @@ fixture.records[2] = nil
 fixture.otherCompanion = nil
 fixture.secondPlayer = originalSecondPlayer
 fixture.splitScreen = false
-SurvivorCompanion.UI = nil
+LivingFellows.UI = nil
 fixture.labels = {}
 
 -- Panning the camera must not re-stack separated stationary names when a
@@ -423,7 +423,7 @@ getCell = function() return { getGridSquare = function(_, x, y, z)
     return nil
 end } end
 local ghosts, barricadeGhosts = 0, 0
-SurvivorCompanion.ConstructionPlanner = {
+LivingFellows.ConstructionPlanner = {
     renderBuildGhost = function(recipe, face, x, y, z)
         assert((recipe == "wood_wall" and face == 2
                 or recipe == "wood_floor" and face == 1)
@@ -488,7 +488,7 @@ assert(ghosts == 2 and barricadeGhosts == 1
     "hidden construction blueprints must stop rendering")
 assert(#fixture.reports == 0, "normal rendering must not emit diagnostics")
 fixture.summary.blueprints = true
-SurvivorCompanion.ConstructionPlanner.renderBarricadeGhost = function()
+LivingFellows.ConstructionPlanner.renderBarricadeGhost = function()
     error("test sprite failure")
 end
 fixture.clock = fixture.clock + 500
@@ -505,7 +505,7 @@ Events.OnPreUIDraw.callback()
 assert(#fixture.lines == 0 and #fixture.fills == 0 and ghosts == 4,
     "removing a saved plan must clear its persistent guide")
 fixture.reports = {}
-SurvivorCompanion.ConstructionPlanner = nil
+LivingFellows.ConstructionPlanner = nil
 getCell = previousCell
 local removed, removeReason = Visuals.remove()
 assert(removed == true and removeReason == "removed")

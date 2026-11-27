@@ -94,7 +94,7 @@ local function clearZombies(SC, center)
     return removed
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "field_work_setup" then
         if current - H.phaseStartedAt < 6000 then return end
         local worker

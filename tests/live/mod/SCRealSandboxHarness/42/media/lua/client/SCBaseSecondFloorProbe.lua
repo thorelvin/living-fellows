@@ -380,7 +380,7 @@ local function beginReturn(H, SC, fixture, current, check, setPhase)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "base_second_floor_setup" then
         if (not SC.BaseLife.active() or #(SC.Registry.snapshot() or {}) == 0)
             and current - H.phaseStartedAt < 12000 then return end

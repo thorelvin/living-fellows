@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, F = SurvivorCompanion, SC_TEST_WORK_TRANSPORT
+local SC, F = LivingFellows, SC_TEST_WORK_TRANSPORT
 local C, checks = SC.CleaningSupplies, 0
 local actualTransfer, actualFinish = SC.NativeActions.startCleaningFluidTransfer, SC.NativeActions.finishWork
 local function check(value, message)

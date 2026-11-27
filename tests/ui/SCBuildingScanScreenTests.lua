@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real terminal, real survey engine, real services and real scan page together.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local B,D,UI=SC.BuildingControls,SC.BuildingScan,SC.TerminalScanUI
 local check=T.check
 local world,chunk,panel,pc,player,w,definition,buckets

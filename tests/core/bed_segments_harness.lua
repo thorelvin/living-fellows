@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- One bed is one claim, whichever of its tiles a worker's survey found first.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local G, checks = SC.BedGeometry, 0
 local function check(value, message)
     checks = checks + 1

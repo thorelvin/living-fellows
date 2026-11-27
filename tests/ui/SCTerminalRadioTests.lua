@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local R,UI=SC.TerminalRadio,SC.TerminalRadioUI
 local check,before=T.check,T.checks
 local oldH,oldE,oldLife,oldMain,oldNow,oldRadio,oldEvents=SC.TerminalHardware,SC.ExpeditionPrototype,SC.BaseLife,getSpecificPlayer,SC.GameplayUtil.nowMs,getZomboidRadio,Events

@@ -166,7 +166,7 @@ function T.vanillaOption(menu, worldObjects, patient, requester, wrapped)
     option.toolTip = { description = getText("ContextMenu_GetCloser", patient:getDisplayName()) }
     return option
 end
-SurvivorCompanion = {
+LivingFellows = {
     Actor = { isCompanion = function(actor) return actor and actor.companion == true end },
     Registry = {
         idOf = function(actor) return actor.id end,

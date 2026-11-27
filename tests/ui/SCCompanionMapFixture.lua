@@ -45,7 +45,7 @@ getTextManager = function()
     }
 end
 
-SurvivorCompanion = {
+LivingFellows = {
     Factions = {
         list = function(discoveredOnly)
             assert(discoveredOnly == true)

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
-SurvivorCompanion = SurvivorCompanion or {}
-local SC = SurvivorCompanion
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
 local survivor = { id = "sc-survivor" }
 local stranger = { id = "sc-stranger" }
 SC_TEST_NICKNAME_SURVIVOR = survivor

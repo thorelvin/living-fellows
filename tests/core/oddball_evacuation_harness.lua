@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local F = SC.EvacuationFixture
 local E = SC.OddballEvacuation
 local group, story, player, joy, brock = F.group, F.story, F.player, F.joy, F.brock

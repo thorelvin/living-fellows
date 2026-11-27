@@ -36,7 +36,7 @@ local function trial(change)
         outgoing = 1, nativeBulletWounds = 1, combatAt = 0, nextTrace = math.huge,
         primary = { player = main, slots = { main }, size = 4, count = 1 } }
     local H = { banditsAcceptance = f, config = { run_id = "evidence-only", bandits_combat_scenario = "firearms" } }
-    SurvivorCompanion = {
+    LivingFellows = {
         Call = { resolve = function(value, key)
             local method = value and value[key]
             return type(method) == "function", method

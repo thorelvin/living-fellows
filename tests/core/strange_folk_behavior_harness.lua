@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local C = SC_TEST_CLOCK
 local red = SC_TEST_ACTOR(10, 10)
 red.inventory = {}

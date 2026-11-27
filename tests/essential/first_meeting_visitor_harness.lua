@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The first visitor's waiting state reaches the real independent-survivor routine.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local visitor = f.actor("essential-visitor", 8, 1, { recruited = false })
 f.registry[visitor.id] = visitor

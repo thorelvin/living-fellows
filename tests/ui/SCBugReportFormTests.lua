@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local calls = {made=0, opened=0, copied=0}
 local checked = 0
 local function check(value, message)

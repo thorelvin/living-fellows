@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local U, checks = SurvivorCompanion.GameplayUtil, 0
+local U, checks = LivingFellows.GameplayUtil, 0
 local function check(value, message)
     checks = checks + 1
     assert(value, "container visuals " .. checks .. ": " .. message)
@@ -106,7 +106,7 @@ check(U.consumeItem(pantryContainer, lastPill) == true and updates[1] == pantry,
 
 -- Needs and build paths move items with raw Remove/AddItem, not the verified
 -- transfer, and they empty shelves all the same.
-local Actions = SurvivorCompanion.NativeActions
+local Actions = LivingFellows.NativeActions
 local larder = { __class = "IsoObject" }
 local larderShelf, pack = container(larder), container({ __class = "IsoGameCharacter" })
 local snack = { getFullType = function() return "Base.Crisps" end }

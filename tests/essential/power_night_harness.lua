@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local N,C=SC.PowerNight,SC.PowerNightCatalog
 local check=PN.check
 for i,id in ipairs(C.starters) do PN.mediaRow(id,i<=3 and "Retail-VHS" or "CDs") end

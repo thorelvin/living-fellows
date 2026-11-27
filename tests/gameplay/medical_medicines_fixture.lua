@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Clinical-only fixture: native timer/eat facts are separately checked in PZO.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F,T=SC.TestMedicalProcedures,SC.TestFixture
 local Fixture={serial=97000}
 function Fixture.item(kind,options)

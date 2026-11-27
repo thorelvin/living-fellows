@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The intake worker must deliver its exact claim before generic packing.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks, current, moves = 0, 1000, 0
 local function check(okay, message)
     checks = checks + 1

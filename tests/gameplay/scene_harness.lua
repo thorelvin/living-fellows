@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local S,C,D,T,U=SC.Scenes,SC.Community,SC.Dialogue,SC.TestFixture,SC.GameplayUtil
 local checks,scenario,wall,game,paused=0,0,0,240*3600000,false
 local function check(value,message) checks=checks+1 assert(value,"scene check "..checks..": "..message) end

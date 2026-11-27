@@ -26,7 +26,7 @@ end
 function getSoundManager() return { playUISound = function() end } end
 local player = {}
 function getSpecificPlayer() return player end
-SurvivorCompanion = {
+LivingFellows = {
     UIBounds = { clamp = function(value, minimum, maximum)
         return math.max(minimum, math.min(maximum, value))
     end },

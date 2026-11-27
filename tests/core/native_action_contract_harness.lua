@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 -- review 3.4: the native target-coord contract. An explicit targetKind is
 -- authoritative; otherwise the caller's inference decides, so a tile centers on
 -- +0.5 while an exact world position is never shifted.
