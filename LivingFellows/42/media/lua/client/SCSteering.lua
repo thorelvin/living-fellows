@@ -102,6 +102,16 @@ local function actorPosition(actor)
     return nil
 end
 
+local function gridSquare(cell, x, y, z)
+    local okay, square = method(cell, "getGridSquare", x, y, z)
+    if okay then return square end
+end
+
+local function solidFloor(square)
+    local okay, solid = method(square, "TreatAsSolidFloor")
+    return okay and solid == true
+end
+
 local function cursorTarget(actor)
     if type(getMouseX) ~= "function" or type(getMouseY) ~= "function"
         or type(screenToIsoX) ~= "function" or type(screenToIsoY) ~= "function" then
@@ -122,14 +132,91 @@ local function cursorTarget(actor)
         local cellOk, value = pcall(getCell)
         if cellOk then cell = value end
     end
-    local squareOk, square = method(cell, "getGridSquare",
-        math.floor(worldX), math.floor(worldY), math.floor(az))
-    if not squareOk or square == nil then return nil, "cursor_unavailable" end
+    if cell == nil then return nil, "cursor_unavailable" end
     return {
         x = tonumber(worldX), y = tonumber(worldY), z = az,
-        dx = tonumber(worldX) - ax, dy = tonumber(worldY) - ay,
-        square = square,
+        dx = tonumber(worldX) - ax, dy = tonumber(worldY) - ay, cell = cell,
+        square = gridSquare(cell, math.floor(worldX), math.floor(worldY), math.floor(az)),
     }
+end
+
+-- The polygon map blocks leaving a native top tread on its own floor.
+-- Only a cursor aimed past that tread's uphill edge may select the adjoining
+-- upper landing. A cursor over an arbitrary floor cannot request a crossing.
+local function uphill(square)
+    local north, topNorth = method(square, "HasStairTopNorth")
+    if north and topNorth == true then return 0, -1 end
+    local west, topWest = method(square, "HasStairTopWest")
+    if west and topWest == true then return -1, 0 end
+end
+
+local function stairLanding(target)
+    local x = math.floor(target.x - target.dx)
+    local y = math.floor(target.y - target.dy)
+    local z = math.floor(target.z)
+    local tread = gridSquare(target.cell, x, y, z)
+    local dx, dy = uphill(tread)
+    if dx == nil and target.z - z < 0.05 and not solidFloor(tread) then
+        -- The actor can already be at upper height over the open stair mouth.
+        -- In that case the real top tread is still directly beneath it.
+        z = z - 1
+        dx, dy = uphill(gridSquare(target.cell, x, y, z))
+    end
+    if dx == nil then return nil end
+    local forward = target.dx * dx + target.dy * dy
+    local sideways = math.abs(target.dx * dy - target.dy * dx)
+    if forward > sideways and (target.x - x) * dx + (target.y - y) * dy > 0 then
+        return { x = x + dx, y = y + dy, z = z + 1, dx = dx, dy = dy, cell = target.cell }
+    end
+end
+
+local function freeFloor(actor, cell, x, y, z)
+    local square = gridSquare(cell, x, y, z)
+    local utility = SC.GameplayUtil
+    if solidFloor(square) and utility and utility.isSquareFree(square)
+        and not utility.movingBlocker(square, actor) and not utility.safehouseBlocker(square, actor) then
+        return square
+    end
+end
+
+local function freeLanding(actor, landing)
+    local treadX, treadY = landing.x - landing.dx, landing.y - landing.dy
+    local x, y, z = actorPosition(actor)
+    if x == nil or z < landing.z - 1 or z > landing.z + 0.05 then return nil end
+    local treadZ = landing.z - 1
+    local top = gridSquare(landing.cell, treadX, treadY, treadZ)
+    local dx, dy = uphill(top)
+    if dx ~= landing.dx or dy ~= landing.dy then return nil end
+    x, y = math.floor(x), math.floor(y)
+    local offset = (x - treadX) * dx + (y - treadY) * dy
+    if offset < -3 or offset > 1 or (x - treadX) * dy ~= (y - treadY) * dx then return nil end
+    -- A native route from a partial stair height can back onto the lower
+    -- approach before starting up. Verify each tread between us and the top.
+    for step = 1, math.min(-offset, 2) do
+        local lowerX, lowerY = treadX - dx * step, treadY - dy * step
+        local lower = gridSquare(landing.cell, lowerX, lowerY, treadZ)
+        local matched, same = method(top, "isSameStaircase", lowerX, lowerY, treadZ)
+        local aligned, hasStairs = method(lower, dx == 0 and "HasStairsNorth" or "HasStairsWest")
+        if not matched or same ~= true or not aligned or hasStairs ~= true then return nil end
+    end
+    if offset == -3 and (math.floor(z) ~= treadZ
+        or not freeFloor(actor, landing.cell, x, y, treadZ)) then
+        return nil
+    end
+    return freeFloor(actor, landing.cell, landing.x, landing.y, landing.z)
+end
+
+local function reachedLanding(actor, landing)
+    local x, y, z = actorPosition(actor)
+    return x ~= nil and math.floor(z) == landing.z and z - landing.z <= 0.05
+        and (x - landing.x - 0.5)^2 + (y - landing.y - 0.5)^2 <= 0.35^2
+end
+
+local function aimsDownhill(target, landing)
+    if not target or not target.square then return false end
+    local downhill = -target.dx * landing.dx - target.dy * landing.dy
+    local sideways = math.abs(target.dx * landing.dy - target.dy * landing.dx)
+    return downhill > 0.35 and downhill > sideways
 end
 
 local function stopActor(actor)
@@ -140,6 +227,12 @@ local function stopActor(actor)
             or "steering_stop_rejected"
     end
     return false, "actor_stop_unavailable"
+end
+
+local function clearLanding(active)
+    local stopped, why = stopActor(active.actor)
+    if stopped then active.landing = nil end
+    return stopped, why
 end
 
 local function onCancelled(actor)
@@ -217,25 +310,32 @@ local function acquire(actor)
     return session, acquireReason
 end
 
-local function drive(current, target)
+local function drive(current, target, landingSquare)
     if SC.Actor == nil or type(SC.Actor.setMovement) ~= "function" then
         return false, "actor_movement_unavailable"
     end
+    local intent
+    if landingSquare then
+        intent = { action = "steer", targetSquare = landingSquare, enginePath = true,
+            supervisorToken = current.token }
+    else
+        intent = {
+            action = "steer",
+            dx = target.dx,
+            dy = target.dy,
+            targetPosition = { x = target.x, y = target.y, z = target.z },
+            targetSquare = target.square,
+            movementTarget = true,
+            movementArrivalTolerance = tonumber(SC.Config and SC.Config.get
+                and SC.Config.get("steeringArrivalDistance")) or 0.25,
+            movementTargetTtlMs = tonumber(SC.Config and SC.Config.get
+                and SC.Config.get("steeringTargetTtlMs")) or 250,
+            continuousSteering = true,
+            supervisorToken = current.token,
+        }
+    end
     local called, accepted, movementReason = pcall(SC.Actor.setMovement,
-        current.actor, "walk", {
-        action = "steer",
-        dx = target.dx,
-        dy = target.dy,
-        targetPosition = { x = target.x, y = target.y, z = target.z },
-        targetSquare = target.square,
-        movementTarget = true,
-        movementArrivalTolerance = tonumber(SC.Config and SC.Config.get
-            and SC.Config.get("steeringArrivalDistance")) or 0.25,
-        movementTargetTtlMs = tonumber(SC.Config and SC.Config.get
-            and SC.Config.get("steeringTargetTtlMs")) or 250,
-        continuousSteering = true,
-        supervisorToken = current.token,
-    })
+        current.actor, "walk", intent)
     if not called then return false, tostring(accepted) end
     local supervisor = SC.ActionSupervisor
     if accepted == true and supervisor and type(supervisor.progress) == "function" then
@@ -245,6 +345,23 @@ local function drive(current, target)
             })
     end
     return accepted == true, movementReason
+end
+
+local function driveLanding(active, landing, current)
+    local square = freeLanding(active.actor, landing)
+    if not square or current >= (landing.expires or math.huge) then
+        local failure = square and "steer_stair_landing_timed_out" or "steer_stair_landing_blocked"
+        local stopped, why = clearLanding(active)
+        reason = stopped and failure or why
+        Steering._reason = reason
+        return false, reason
+    end
+    landing.expires = landing.expires or current + 8000
+    active.landing = landing
+    local accepted, why = drive(active, landing, square)
+    reason = accepted and "active" or tostring(why or "movement_rejected")
+    Steering._reason = reason
+    return accepted, why
 end
 
 function Steering.update()
@@ -291,14 +408,28 @@ function Steering.update()
     nextUpdateAt = current + math.max(25, math.min(250, interval))
     Steering._nextUpdateAt = nextUpdateAt
     local target, targetReason = cursorTarget(actor)
-    if target == nil then
+    if session and session.landing then
+        if reachedLanding(actor, session.landing) then
+            session.landing = nil
+        elseif aimsDownhill(target, session.landing) then
+            local stopped, why = clearLanding(session)
+            if not stopped then
+                reason, Steering._reason = why, why
+                return false, why
+            end
+        else
+            return driveLanding(session, session.landing, current)
+        end
+    end
+    local landing = target and stairLanding(target)
+    if target == nil or not target.square and not landing then
         if not cursorNotified then showFailure("cursor_unavailable") end
         cursorNotified = true
         Steering._cursorNotified = true
         if session ~= nil then release("cursor_unavailable", true) end
         reason = "cursor_unavailable"
         Steering._reason = reason
-        return false, targetReason
+        return false, targetReason or "cursor_unavailable"
     end
     cursorNotified = false
     Steering._cursorNotified = false
@@ -319,6 +450,7 @@ function Steering.update()
         Steering._busyNotified = false
     end
 
+    if landing then return driveLanding(session, landing, current) end
     local accepted, movementReason = drive(session, target)
     reason = accepted and "active" or tostring(movementReason or "movement_rejected")
     Steering._reason = reason

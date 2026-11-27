@@ -142,5 +142,79 @@ do
     end
     SC.Navigation.request = navigation
 end
+do
+    local downtime, navigation, actorService = SC.Downtime, SC.Navigation, SC.Actor
+    local oldPeek, oldUpdate, oldAccess, oldStop = downtime.peek, downtime.update,
+        navigation.conversationAccess, actorService.stop
+    local sitter = f.actor("talk-seated-ruth", 24, 20, {})
+    f.registry[sitter.id] = sitter
+    player.square = f.cell:getGridSquare(22, 20, 0)
+    sitter.worldX = player:getX() + 2.5
+    function sitter:isSittingOnFurniture() return true end
+    local commands = SC.Commands.peek(sitter)
+    local token = assert(SC.ActionSupervisor.begin(sitter, {
+        owner = "downtime", action = "sit", priority = SC.ActionSupervisor.Priority.WORK,
+        phase = "waiting", deadlines = { waiting = 60000 }, ignoreRetry = true,
+        onCancel = function() return true end,
+        metadata = { commandSerial = commands.commandSerial or 0 },
+    }))
+    local activity = { kind = "sit", startedAt = f.clock, furnitureEntered = true }
+    local polls, stops, blocked = 0, 0, false
+    downtime.peek = function(actor)
+        if actor == sitter then return { active = activity } end
+        return oldPeek(actor)
+    end
+    downtime.update = function(actor, ...)
+        if actor ~= sitter then return oldUpdate(actor, ...) end
+        polls = polls + 1
+        return true, "sitting_on_furniture"
+    end
+    navigation.conversationAccess = function(actor, partner)
+        return not (actor == sitter and blocked) and oldAccess(actor, partner)
+    end
+    actorService.stop = function(actor)
+        if actor == sitter then stops = stops + 1 end
+        return oldStop(actor)
+    end
+    local quiet = { allies = {}, threats = {}, threatCount = 0, immediateCount = 0 }
+    local function poll()
+        return SC.Decision._holdOwnedActivityOrPacingForTests(sitter, player, quiet,
+            { health = 100, bleedingCount = 0 }, {}, SC.Commands.peek(sitter), {}, f.clock, {})
+    end
+    local function ask()
+        local accepted, why = SC.Commands.issue(sitter.id, "memory", nil, player)
+        check(accepted and SC.Interaction.state(sitter.id).state == "approaching",
+            "Talk about memories is staged while seated: " .. tostring(why))
+    end
+
+    ask()
+    local firstMove = #f.movementLog
+    check(poll() and polls == 1, "the seated companion still polls her downtime controller")
+    local reply = SC.Interaction.state(sitter.id)
+    check(reply.state == "replied" and #reply.lines == 2
+            and reply.lines[2].speaker == "companion" and reply.lines[2].text ~= "",
+        "a settled companion answers Talk about memories from her chair at 2.5 metres")
+    check(poll() and #reply.lines == 2 and not SC.Positioning.activeConversation(sitter)
+            and SC.ActionSupervisor.isCurrent(token) and stops == 0 and #f.movementLog == firstMove,
+        "the reply completes once without movement, a standing pose or loss of the seat owner")
+
+    ask()
+    sitter.asleep = true
+    check(poll() and reply.state == "approaching", "a sleeping companion does not answer")
+    sitter.asleep, blocked = false, true
+    check(poll() and reply.state == "approaching" and #f.movementLog == firstMove,
+        "a seated companion does not answer or approach through blocked access")
+    blocked, sitter.worldX = false, player:getX() + 3
+    check(poll() and reply.state == "approaching" and #f.movementLog == firstMove,
+        "a seated companion waits when the player is outside speaking range")
+    f.clock = f.clock + 30001
+    check(poll() and reply.state == "interrupted" and reply.action == nil
+            and not SC.Positioning.activeConversation(sitter),
+        "an unanswered Talk request expires while the companion keeps sitting")
+
+    downtime.peek, downtime.update = oldPeek, oldUpdate
+    navigation.conversationAccess, actorService.stop = oldAccess, oldStop
+    SC.ActionSupervisor.reset(sitter)
+end
 player.square = startingSquare
 print("BEHAVIOUR_NAVIGATION_PASS checks=" .. tostring(f.checks()))

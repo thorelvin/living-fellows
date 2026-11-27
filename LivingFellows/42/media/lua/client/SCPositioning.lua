@@ -1462,6 +1462,7 @@ function Positioning.beginConversation(actor, partner, options)
         expires = current + (type(options) == "table" and tonumber(options.timeoutMs)
             or utility.config("conversationHoldMs") or 5000),
         posed = false,
+        allowSeatedReply = type(options) == "table" and options.allowSeatedReply == true,
         onReady = type(options) == "table" and options.onReady or nil,
         onCancel = type(options) == "table" and options.onCancel or nil,
         exchangeId = type(options) == "table" and options.exchangeId or nil,
@@ -1496,12 +1497,17 @@ function Positioning.cancelConversation(actor, reason)
     return true
 end
 
-function Positioning.updateConversation(actor, snapshot)
+local function updateConversation(actor, snapshot, seated)
     local utility = U()
     local conversation = Positioning.activeConversation(actor)
     if not conversation then return false, "no_conversation" end
+    if seated and (not conversation.allowSeatedReply or not conversation.onReady
+        or utility.call(actor, "isSittingOnFurniture") ~= true
+        or utility.isSleeping(actor) or utility.call(actor, "isMoving") == true) then
+        return false, "conversation_waiting"
+    end
     if type(snapshot) == "table" and ((tonumber(snapshot.threatCount) or 0) > 0
-        or (tonumber(snapshot.immediateCount) or 0) > 0) then
+        or (tonumber(snapshot.immediateCount) or 0) > 0 or snapshot.humanThreat ~= nil) then
         Positioning.cancelConversation(actor, "conversation_interrupted_by_danger")
         return false, "conversation_interrupted_by_danger"
     end
@@ -1524,6 +1530,7 @@ function Positioning.updateConversation(actor, snapshot)
     -- already beside the player can answer even when there is no room to step
     -- back, which is common near shelves, vehicles and other companions.
     if partnerDistance > maximum or accessBlocked then
+        if seated then return false, "conversation_waiting" end
         if not SC.Navigation or type(SC.Navigation.request) ~= "function"
             or type(SC.Navigation.conversationStandAccessible) ~= "function" then
             Positioning.cancelConversation(actor, "conversation_navigation_unavailable")
@@ -1554,9 +1561,9 @@ function Positioning.updateConversation(actor, snapshot)
         return false, "conversation_access_blocked"
     end
 
-    -- Native stop must accept ownership before dialogue commits any speech or
-    -- relationship change. A refused stop leaves the request pending.
-    if not utility.stop(actor) then return false, "conversation_stop_rejected" end
+    -- A standing reply needs a native stop before it commits speech or
+    -- relationship changes. For seated replies, downtime still owns the pose.
+    if not seated and not utility.stop(actor) then return false, "conversation_stop_rejected" end
     if conversation.onReady then
         local callback = conversation.onReady
         conversation.onReady = nil
@@ -1568,6 +1575,11 @@ function Positioning.updateConversation(actor, snapshot)
         conversation.expires = utility.nowMs()
             + (utility.config("conversationHoldMs") or 5000)
         conversation.onCancel = nil
+        if seated then
+            local state = stateFor(actor)
+            if state.conversation == conversation then state.conversation = nil end
+            return true, "conversation_replied"
+        end
     end
     local action = conversation.posed and "face_conversation" or "conversation_pose"
     local emote = conversation.emote
@@ -1587,6 +1599,14 @@ function Positioning.updateConversation(actor, snapshot)
     })
     if accepted then conversation.posed = true end
     return accepted == true, reason or (accepted and "conversation_facing" or "conversation_pose_rejected")
+end
+
+function Positioning.updateConversation(actor, snapshot)
+    return updateConversation(actor, snapshot, false)
+end
+
+function Positioning.replyWhileSeated(actor, snapshot)
+    return updateConversation(actor, snapshot, true)
 end
 
 function Positioning.debug(actor)

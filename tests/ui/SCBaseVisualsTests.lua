@@ -25,6 +25,24 @@ assert(fixture.labels[2].x == 321 - fixture.companion.renderOffsetX / fixture.zo
     "companion names must project through the player's explicit camera")
 assert(fixture.labels[2].red == 0.84 and fixture.labels[2].green == 0.92,
     "unselected companion names must keep their usual blue color")
+local baseLabelY = fixture.labels[2].y
+local originalIsoToScreenY = isoToScreenY
+isoToScreenY = function(index, x, y, z)
+    return originalIsoToScreenY(index, x, y, z) - 96 * z
+end
+for _, stairHeight in ipairs({ 0.25, 0.75 }) do
+    fixture.companion.z = stairHeight
+    fixture.labels = {}
+    Events.OnPreUIDraw.callback()
+    assert(#fixture.labels == 2 and fixture.labels[2].y == baseLabelY - 96 * stairHeight,
+        "the companion name follows the character's fractional height on stairs")
+end
+fixture.companion.z = 1
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 0, "name projection must still respect the viewing player's floor")
+fixture.companion.z = 0
+isoToScreenY = originalIsoToScreenY
 fixture.labels = {}
 
 local previousBridge = SCBridge

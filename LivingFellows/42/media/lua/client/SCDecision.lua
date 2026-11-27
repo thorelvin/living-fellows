@@ -3341,6 +3341,13 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     -- A controller that cannot release its resources yet
                     -- still needs its ordinary poll to finish that cleanup.
                 end
+                local positioning = SC.Positioning
+                if activity and (activity.kind == "sit" or activity.kind == "read")
+                    and positioning and type(positioning.replyWhileSeated) == "function"
+                    and positioning.activeConversation(actor) and activity.startedAt
+                    and (activity.kind ~= "sit" or activity.furnitureEntered == true) then
+                    U().safeSubsystem("conversation", actor, positioning.replyWhileSeated, actor, snapshot)
+                end
                 -- Downtime owns a controller, not just an animation.  Poll it
                 -- while its supervisor token is live so approaches, bed entry,
                 -- washing and their completion proofs advance to a terminal

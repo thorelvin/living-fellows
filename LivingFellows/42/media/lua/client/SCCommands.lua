@@ -2290,7 +2290,7 @@ local function showConversation(actor, entry, state, id, action, player)
         if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
     end
     local accepted, reason = SC.Positioning.beginConversation(actor, player, {
-        action = action, stress = state.stress, timeoutMs = 30000,
+        action = action, stress = state.stress, timeoutMs = 30000, allowSeatedReply = true,
         onReady = onReady, onCancel = onCancel,
     })
     if accepted ~= true then return false, reason end

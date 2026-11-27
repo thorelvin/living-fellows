@@ -1024,6 +1024,14 @@ local function directPath(actor, target, mode, intent)
     invoke(actor, "setSneaking", mode == "sneak")
     local retainedOk, retained = invoke(behavior, "isTargetLocation", x, y, z)
     local activeOk, active = invoke(behavior, "shouldBeMoving")
+    if type(intent) == "table" and intent.action == "steer" then
+        -- PFB can retain coordinates and report shouldBeMoving after a stop.
+        -- The bridge owns the definitive lifecycle of a steered stair path.
+        local statusOk, status = invoke(actor, "getCompanionPathStatus")
+        if statusOk and type(status) == "string" then
+            activeOk, active = true, status ~= "none"
+        end
+    end
     if retainedOk and retained == true and activeOk and active == true then
         return true, "path_continues"
     end

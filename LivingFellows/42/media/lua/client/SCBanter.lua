@@ -579,7 +579,6 @@ local POOLS = {
             "I'll keep looking. You keep watch.",
             "No need to rush into a bad surprise.",
             "If we split up, keep your voice low and close.",
-            "Funny how a room can feel crowded with nobody in it.",
             "Remember, folks: idle hands get eaten.",
             "Another productive day in scenic Knox County.",
             "Nothing like routine to keep the screaming on the inside.",
@@ -596,27 +595,167 @@ local POOLS = {
             "Hard to picture a Derby with nobody in the stands.",
             "Kentucky weather never cared who was left to complain about it.",
             "I'd trade every dollar in this county for cold sweet tea.",
+            "I still pat my pocket for house keys before I go anywhere.",
+            "A grocery list used to start with milk. Now it starts with a pencil.",
+            "I keep thinking I'll get home in time to take something out of the freezer.",
+            "My favorite radio station had a fellow who read the school lunch menu.",
+            "I used to let the answering machine pick up if I was eating.",
+            "Somebody always wanted exact change at the laundromat.",
+            "There was a bakery that gave you the bent rolls if you got there late.",
+            "I'd like a sandwich somebody else made. They can even cut it wrong.",
+            "I can remember my old phone number better than what day it is.",
+            "I used to put off going to the dentist. I feel downright vindicated.",
+            "I could waste a whole Saturday at a yard sale with five dollars.",
+            "I miss falling asleep to a ballgame I didn't care about.",
+            "Used to be a treat getting the house to myself for an hour.",
+            "We used to argue about whether the thermostat ought to be on seventy or seventy-two.",
+            "There was always one good pen in the house, and nobody knew where it was.",
+            "I miss getting somewhere early and having nothing to do about it.",
+            "I never did learn who won that bowling league.",
+            "I used to peel the address labels off magazines before I threw them out.",
+            "Sometimes I swear I can remember the smell of the school library.",
+            "I wouldn't mind hearing an ice cream truck from two streets over.",
+            "The first hot day of the year used to smell like new garden hose.",
+            "I'd settle for an orange that still smells like an orange.",
+            "We used to let a pie cool by the window. Nobody had much patience for that.",
+            "Fresh laundry in cold air is worth getting up early for.",
+            "I miss the little clunk a screen door makes when somebody forgets to catch it.",
+            "Some mornings I miss traffic reports. All those people on their way somewhere.",
+            "I used to make coffee for the smell and forget to drink it.",
+            "I'd like one more rainy afternoon with a book and nowhere I have to be.",
+            "I still hear that weather jingle whenever I think about rain.",
+            "I wonder if my old alarm clock is still set for six.",
+            "I have enough loose buttons in my pockets to start a small business.",
+            "If we find a good pencil sharpener, I get first turn.",
+            "My handwriting's getting worse. I didn't think that was possible.",
+            "I used to save nice wrapping paper. It was usually still in the drawer next Christmas.",
+            "What's the first thing you'd put in a real fridge again? Mine's butter.",
+            "I might spend a whole afternoon picking out work gloves if we ever get the choice.",
+            "One day I'd like a drawer full of spoons that all match.",
+            "I miss borrowing things and being embarrassed when I forgot to bring them back.",
+            "I can make a list if somebody else has the patience to read it.",
+            "I never gave a decent pair of socks the respect it deserved.",
+            "I still start a job by picking a place to set things down. Half the job is finding them again.",
+            "I'll go a little easier on my hands this time. I need them again tomorrow.",
+            "Wouldn't say no to a clean chair and ten minutes to use it.",
+            "I think better when I've got one small job in front of me.",
+            "I don't need a plan for the whole week. Next hour will do.",
+            "I'll take another ordinary day. I don't need to earn it.",
+            "Good company is somebody you can be tired around.",
+            "You can just carry on. I only wanted to hear my own voice for a second.",
+            "Still getting used to having other people around. In a good way.",
+            "If I go quiet, I'm probably counting something I've already counted.",
+            "I'll tell you when I've got a story with an ending.",
+            "I used to hum while I worked. Still catch myself starting.",
+            "It takes me a while to notice when I'm having a decent day.",
+            "The small jobs are still worth doing. Somebody gets to use what you made.",
+            "I'd like to get good enough at something to show somebody else how.",
+            "I hope we get far enough that we can disagree about dinner.",
+            "When I get a spare minute, I want to write down the things we're doing right.",
+            "There's no reason we can't have a day off someday. We'll just have to be annoying about it.",
+            "Someone'll have to teach the next lot how to mend a hem.",
+            "I'd like to give somebody a present that isn't medicine or ammunition.",
+            "I'd keep a calendar if we had anything to mark besides birthdays and how long beans take.",
+            "I still make a point of looking up when I hear birds.",
+            "If you offered me a soft bed and a hard pillow, I'd manage somehow.",
+            "It's been a while since anybody asked me what I do for fun.",
+            "I used to call my biggest pot the Sunday pot. Nice if it got that name back.",
+            "I can't whistle quiet. Believe me, I've tried.",
+            "I finally learned how to fold a fitted sheet right before it stopped mattering.",
+            "I never did get the hang of sewing a straight line.",
+            "I used to drag my feet about putting the kettle on. Now I'd enjoy the whole business.",
+            "If you think of something that'll make tomorrow easier, tell me while I'm listening.",
+            "Some days I want to hear a song I already know all the words to.",
+            "I remember restocking shelves before opening. I liked that hour.",
+            "If somebody starts a lending library, I'm bringing back every book on time.",
+            "I used to keep a few dollars in my coat for emergencies. Funny what I meant by emergencies.",
+            "If we ever get cherries, I want to eat them one at a time.",
+            "I picked out nice curtains once. Never learned to get the bottom even.",
         },
         brave = { "I'm still here. Whatever comes through, we'll handle it.",
             "World ended and I'm still on shift. Figures.",
-            "Keep it coming. I've had worse jobs." },
+            "Keep it coming. I've had worse jobs.",
+            "If a job needs two people, say so. I can put down what I'm doing.",
+            "We could get this done without making a production of it.",
+            "I reckon I can manage one more thing before I quit for the day.",
+            "Give me the part you don't want. We'll trade off next time.",
+            "I'd rather fix a thing badly once than spend a week afraid to touch it.",
+            "I used to jump off the high dive just to quit thinking about it.",
+            "I'm saving my nerves for something worth the trouble.",
+            "You ever get tired of feeling brave? Some days I just want to be handy.",
+            "I'll feel better after I've got something to show for today." },
         cautious = { "I keep checking the exits. Habit now.",
             "Work quiet when we can. Noise draws them like hogs to a bucket.",
-            "Every creak takes a year off my life." },
+            "Every creak takes a year off my life.",
+            "I leave a little room around my feet now. Saves tripping if I have to get up.",
+            "I like to know who's close before I get too wrapped up in a job.",
+            "Give me a second to listen once in a while. Then I can get back to it.",
+            "I put the useful things back in the same pockets. Less fumbling that way.",
+            "I breathe easier when everybody knows where to meet if we get split up.",
+            "I try to stop before I'm too tired to look where I'm stepping.",
+            "If I stop in the middle of a sentence, odds are I heard something.",
+            "I'll ask a stupid question if it saves us having the answer the hard way.",
+            "I prefer doing one noisy job at a time. Easier to hear when it stops." },
         caring = { "You holding up? You don't have to answer right away.",
             "Remember to drink some water when you can.",
-            "Take a breath if you need one. I'll keep going." },
+            "Take a breath if you need one. I'll keep going.",
+            "Tell me if I've got the easy end. We can switch.",
+            "I won't mind if you need a minute with nobody talking at you.",
+            "Come get me before you wear yourself out trying to do it alone.",
+            "I never know what to say when somebody's had a hard day. I can still sit with them.",
+            "We ought to keep a little something good for whoever comes in last.",
+            "I'd like to know what you did for fun before all this, whenever you feel like telling me.",
+            "I used to bring an extra lunch in case somebody forgot theirs.",
+            "Try to eat something before you start on the next thing.",
+            "We can call it a day when the work starts making us mean." },
         practical = { "We should count what we carry before moving on.",
             "Busy hands, full shelves. That's the whole plan.",
-            "We keep going, then we eat. That's the deal." },
+            "We keep going, then we eat. That's the deal.",
+            "Put the stuff we use every day where we won't have to dig for it.",
+            "Old cloth still has some use. I keep the sound pieces.",
+            "I'd rather do fewer jobs and finish the ones we start.",
+            "If we can finish the small part today, the big part can wait.",
+            "There's always one thing you think you can carry that ought to be two trips.",
+            "Save the last bit of string. It's the last bit until we find more.",
+            "I'm starting to write lists short enough to finish.",
+            "If I need the same tool again tomorrow, it deserves a regular spot.",
+            "A good pair of scissors is worth bringing back twice if somebody leaves it behind." },
         steady = { "Nothing moving nearby. Let's keep it that way.",
-            "Quiet enough to hear myself think. Almost." },
+            "Quiet enough to hear myself think. Almost.",
+            "I can keep this up awhile. You manage your own pace.",
+            "At least I know what I'm doing for the next few minutes.",
+            "I'm getting the hang of days that don't have much of a name.",
+            "I'm glad for the dull bits. They give me a chance to catch up.",
+            "It's good to get into the part of a job where your hands know what to do.",
+            "A little talk and then back to it. Suits me fine.",
+            "I think I'll leave worrying until I've finished this much." },
         stressed = { "Keep talking. The quiet's got teeth today.",
-            "I'm wound tight today. Work helps. A little." },
+            "I'm wound tight today. Work helps. A little.",
+            "I put things down too hard when I can't settle. If I do that, tell me.",
+            "I keep losing my place halfway through counting. Let me start again.",
+            "It's taking me longer to get my hands to do what I tell them.",
+            "I know we're all right this minute. Just waiting for the rest of me to catch on.",
+            "Sorry if I'm short with you. I haven't been able to let my shoulders down.",
+            "The first thing I think of is still the worst thing that could happen.",
+            "I'll stick to this bit until my head clears." },
         low = { "Some days I forget why we bother. Then I keep working anyway.",
-            "Used to think somebody would come for us. Now I just fix things." },
+            "Used to think somebody would come for us. Now I just fix things.",
+            "Funny how a room can feel crowded with nobody in it.",
+            "I still think of people when I see something I would've bought for them.",
+            "Sometimes I can remember the little things from before, but I can't put the days in order.",
+            "I had a whole list of things I'd do when I had more time.",
+            "I still feel the urge to phone home when it's been a long day.",
+            "I can do the work today. That's about as far ahead as I can see.",
+            "Some days I miss people I barely talked to." },
         hopeful = { "Give it a year, maybe we'll have the only porch light in Kentucky.",
-            "Feels almost like an ordinary day. Don't tell anybody." },
+            "Feels almost like an ordinary day. Don't tell anybody.",
+            "I want to get far enough ahead to make something nice just because we can.",
+            "I like thinking somebody might eat fruit off a tree we planted.",
+            "Maybe next time we can teach somebody how to do this instead of rushing through it.",
+            "I'd like to get to the point where a visitor means finding another cup.",
+            "I'm looking forward to having a favorite day of the week again.",
+            "One day we'll put a thing aside because it's pretty. I'd like that day.",
+            "I can picture us getting better at this without getting harder on each other." },
     },
     -- Walking with the player. Followers have no owned task, so routine
     -- banter never picks them and the idle jokes wait for a long stop.
@@ -1495,6 +1634,8 @@ local function freshParty()
         lastIntrusiveAt = -math.huge,
         intrusiveRecent = {},
         intrusiveRecentSet = {},
+        routineRecent = {},
+        routineRecentSet = {},
         lastMovedAt = -math.huge,
         idle = nil,
         placeKeys = {},
@@ -2266,13 +2407,16 @@ local function intrusiveRoll(percent, actor, current, tag)
     return math.abs(tonumber(U().stableHash(seed)) or 0) % 100 < percent
 end
 
-intrusiveRemember = function(key)
+local function rememberPartyLine(recent, lookup, key, limit)
     if type(key) ~= "string" or key == "" then return end
-    local recent, lookup = party.intrusiveRecent, party.intrusiveRecentSet
     if lookup[key] then return end
     recent[#recent + 1], lookup[key] = key, true
-    local limit = math.max(0, math.floor(config("intrusiveRecentLimit", 60)))
     while #recent > limit do lookup[table.remove(recent, 1)] = nil end
+end
+
+intrusiveRemember = function(key)
+    rememberPartyLine(party.intrusiveRecent, party.intrusiveRecentSet, key,
+        math.max(0, math.floor(config("intrusiveRecentLimit", 60))))
 end
 
 function Banter.noteKill(actor, current)
@@ -3025,8 +3169,15 @@ local function routinePulse(player, records, current)
     end
     if best == nil then return false, "routine_no_speaker" end
     local intrusive, topic = intrusivePulse(best, bestCommands, records, current, "camp")
-    if not intrusive and not speak(best, "banter.routine", bestCommands) then
-        return false, "routine_speech_rejected"
+    if not intrusive then
+        local spoken, _, detail = speak(best, "banter.routine", bestCommands, nil, {
+            excludedLines = party.routineRecentSet,
+        })
+        if not spoken then return false, "routine_speech_rejected" end
+        -- Rotation is by listener as well as speaker. A different companion
+        -- should not repeat a line the same player just heard.
+        rememberPartyLine(party.routineRecent, party.routineRecentSet,
+            type(detail) == "table" and detail.lineKey, 24)
     end
     party.lastRoutineAt = current
     party.lastFlavorAt = current
@@ -3171,5 +3322,6 @@ end
 
 function Banter._sceneStartForTests(...) return sceneStartPulse(...) end
 function Banter._sceneHostForTests() return sceneHost() end
+function Banter._routineForTests(...) return routinePulse(...) end
 
 return Banter

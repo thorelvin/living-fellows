@@ -123,7 +123,7 @@ local function playerPosition(subject)
     local y = numberMethod(subject, "getY")
     local z = numberMethod(subject, "getZ")
     if x == nil or y == nil or z == nil then return nil, nil, nil end
-    return x, y, math.floor(z)
+    return x, y, math.floor(z), z
 end
 
 local function colorFor(colors, key)
@@ -765,8 +765,8 @@ local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
     if deadOk and dead == true then return nil end
     local vehicle, vehicleOk = safeMethod(actor, "getVehicle")
     if vehicleOk and vehicle ~= nil then return nil end
-    local x, y, z = playerPosition(actor)
-    if x == nil or z ~= pz then return nil end
+    local x, y, floor, z = playerPosition(actor)
+    if x == nil or floor ~= pz then return nil end
     local dx, dy = x - px, y - py
     local distanceSq = dx * dx + dy * dy
     local maximum = math.max(1,

@@ -312,9 +312,16 @@
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Shared 'SCSpeechColors.lua'),
     (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
     (Join-Path $Shared 'SCConfig.lua'),
     (Join-Path $Shared 'SCDiagnostics.lua'),
     (Join-Path $Client 'SCActionSupervisor.lua'),
+    (Join-Path $Client 'SCNativeTraversalActions.lua'),
+    (Join-Path $Client 'SCNativeVisualActions.lua'),
+    (Join-Path $Client 'SCNativeCombatActions.lua'),
+    (Join-Path $Client 'SCNativeWorkActions.lua'),
+    (Join-Path $Client 'SCNativeMovementActions.lua'),
+    (Join-Path $Client 'SCNativeActions.lua'),
     (Join-Path $Client 'SCSteering.lua'),
     (Join-Path $Core 'steering_harness.lua')) }
 @{ Name = 'ground-finisher'; Extended = $true; Files = @(

@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.103 - Camp conversation and stair steering
+
+- Companions can answer Talk from their chairs when the player is close and has a clear line of conversation.
+- NumPad 3 steering can carry a companion over the top step onto the landing. The overhead name follows their height on the staircase.
+- Expand routine banter from 46 to 185 lines and share recent-line history across companions.
+- Native bridge protocol 42.22-isocompanion-38.
+
 ## 0.27.102 - Living Fellows identity
 
 - Use Living Fellows in the mod list and ZombieBuddy approval. The mod ID is `LivingFellows` and the native bridge is `LivingFellowsBridge.jar`.

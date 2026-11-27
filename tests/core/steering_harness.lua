@@ -22,7 +22,9 @@ local player = actorAt("player", 0, 0, 0)
 local selected = actor
 local held = false
 local cursorX, cursorY = 15.25, 13.75
+local cursorFloor
 local squareLoaded = true
+local fixedSquares
 local moves = {}
 local stops = 0
 local stopMode = "success"
@@ -36,14 +38,15 @@ end
 function getSpecificPlayer(index) return index == 0 and player or nil end
 function getMouseX() return 100 end
 function getMouseY() return 200 end
-function screenToIsoX() return cursorX end
-function screenToIsoY() return cursorY end
+function screenToIsoX(_, _, _, z) return cursorX + (cursorFloor and (z - cursorFloor) * 1.5 or 0) end
+function screenToIsoY(_, _, _, z) return cursorY + (cursorFloor and (z - cursorFloor) * 1.5 or 0) end
 function isKeyDown(key) return key == 27 and held end
 function getText(key) return key end
 function getCell()
     return {
         getGridSquare = function(_, x, y, z)
             if not squareLoaded then return nil end
+            if fixedSquares then return fixedSquares[x .. ":" .. y .. ":" .. z] end
             return { x = x, y = y, z = z }
         end,
     }
@@ -225,5 +228,168 @@ SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 Steering.update()
 check(player.halo == "UI_SC_Steer_NoSelection" and Steering.status().reason == "no_selection",
     "holding steer without a selected companion gives one explicit refusal")
+
+local function stairSquare(x, y, z, kind, solid)
+    local square = { x = x, y = y, z = z }
+    function square:HasStairTopNorth() return kind == "north" end
+    function square:HasStairTopWest() return kind == "west" end
+    function square:HasStairsNorth() return kind == "north" or kind == "north-lower" end
+    function square:HasStairsWest() return kind == "west" or kind == "west-lower" end
+    function square:isSameStaircase(otherX, otherY, otherZ)
+        local other = fixedSquares[otherX .. ":" .. otherY .. ":" .. otherZ]
+        return other ~= nil and otherZ == z and (kind == "north" and otherX == x
+            and otherY >= y and otherY <= y + 2 and other:HasStairsNorth()
+            or kind == "west" and otherY == y and otherX >= x and otherX <= x + 2
+            and other:HasStairsWest())
+    end
+    function square:TreatAsSolidFloor() return solid == true end
+    fixedSquares[x .. ":" .. y .. ":" .. z] = square
+    return square
+end
+
+local function tick()
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+    return Steering.update()
+end
+
+SC.GameplayUtil = SC.GameplayUtil or {}
+SC.GameplayUtil.isSquareFree = function(square) return square.blocked ~= true end
+SC.GameplayUtil.movingBlocker = function(square) return square.occupant end
+SC.GameplayUtil.safehouseBlocker = function() return false end
+fixedSquares = {}
+stairSquare(10, 10, 0, "north")
+stairSquare(10, 11, 0, "north-lower")
+stairSquare(10, 12, 0, "north-lower")
+stairSquare(10, 13, 0, nil, true)
+local upper = stairSquare(10, 9, 1, nil, true)
+local hall = stairSquare(10, 8, 1, nil, true)
+selected, actor.x, actor.y, actor.z = actor, 10.5, 10.4, 0.84
+cursorX, cursorY, cursorFloor = 10.70, 8.65, 1
+check(tick() == true and Steering.status().active,
+    "a cursor projected at the fractional tread reaches the upper landing with no planar destination")
+local climbing = SC.ActionSupervisor.current(actor)
+local climb = moves[#moves].intent
+check(climb.enginePath == true and climb.targetSquare == upper
+        and climb.movementTarget == nil and climb.supervisorToken == climbing,
+    "the exact steering owner gives the native route only the adjacent solid upper landing")
+
+local beforeAlignmentStops = stops
+actor.y, actor.z = 11.05, 0.75
+check(tick() and moves[#moves].intent.targetSquare == upper,
+    "the engine may back onto the same middle tread before resuming its ascent")
+actor.y, actor.z = 12.1, 0.35
+check(tick() and moves[#moves].intent.targetSquare == upper and stops == beforeAlignmentStops,
+    "native alignment may use the contiguous bottom tread under the same lease")
+actor.y, actor.z, cursorX, cursorY = 10.05, 0.98, 17, 15
+check(tick() and moves[#moves].intent.targetSquare == upper
+        and SC.ActionSupervisor.current(actor) == climbing,
+    "changing cursor projection during ascent leaves the verified native crossing in charge")
+actor.y, actor.z = 9.5, 0.99
+check(tick() and moves[#moves].intent.targetSquare == upper,
+    "the destination tile does not complete the crossing below its floor height")
+actor.z, cursorX, cursorY = 1, 10.6, 8.5
+check(tick() and moves[#moves].intent.movementTarget == true
+        and moves[#moves].intent.targetSquare == hall and SC.ActionSupervisor.current(actor) == climbing,
+    "upright at the upper landing restores ordinary cursor steering under the same token")
+cursorFloor = nil
+
+actor.y, actor.z, cursorY = 10.5, 0.83, 8.7
+check(tick() and moves[#moves].intent.targetSquare == upper,
+    "the existing lease can start a later crossing")
+actor.y, actor.z = 13.1, 0
+check(tick() and moves[#moves].intent.targetSquare == upper and stops == beforeAlignmentStops,
+    "all three matching treads admit the single clear lower approach tile for native alignment")
+actor.y = 14.1
+local afterDetourMoves = #moves
+local detour, detourReason = tick()
+check(not detour and detourReason == "steer_stair_landing_blocked" and #moves == afterDetourMoves
+        and SC.ActionSupervisor.current(actor) == climbing,
+    "leaving the exact stair footprint stops the native route without dropping steering ownership")
+
+held = false
+tick()
+local before = #moves
+held, actor.y, actor.z, cursorX, cursorY = true, 10.5, 0.82, 11.4, 10.3
+local side = stairSquare(11, 10, 0, nil, true)
+check(tick() and #moves == before + 1 and moves[#moves].intent.targetSquare == side
+        and moves[#moves].intent.enginePath == nil,
+    "a sideways cursor on the last stair uses ordinary planar rules")
+upper.occupant = {}
+before = #moves
+cursorX, cursorY = 10.55, 8.65
+local heldAtStair = SC.ActionSupervisor.current(actor)
+local crowded, crowdedReason = tick()
+check(not crowded and crowdedReason == "steer_stair_landing_blocked" and #moves == before
+        and SC.ActionSupervisor.current(actor) == heldAtStair,
+    "a crowded landing cannot take over movement or detach the held steering lease")
+upper.occupant = nil
+check(tick() and moves[#moves].intent.targetSquare == upper,
+    "a held cursor can start the native crossing once the landing clears")
+upper.blocked = true
+local crossingStops = stops
+before = #moves
+local unsafe, unsafeReason = tick()
+check(not unsafe and unsafeReason == "steer_stair_landing_blocked"
+        and #moves == before and stops == crossingStops + 1
+        and SC.ActionSupervisor.current(actor) == heldAtStair,
+    "an obstruction during a crossing stops the native path before discarding its target")
+upper.blocked = nil
+check(tick() and moves[#moves].intent.enginePath == true, "the verified landing is available again")
+local downhill = stairSquare(10, 11, 0, nil, true)
+cursorX, cursorY = 10.6, 11.6
+stopMode = "reject"
+before = #moves
+local reversing, reversingReason = tick()
+check(not reversing and reversingReason == "steering_stop_rejected" and #moves == before
+        and SC.ActionSupervisor.current(actor) == heldAtStair,
+    "a rejected uphill stop does not issue competing downhill movement")
+stopMode = "success"
+check(tick() and moves[#moves].intent.targetSquare == downhill
+        and moves[#moves].intent.enginePath == nil and SC.ActionSupervisor.current(actor) == heldAtStair,
+    "deliberate loaded downhill aim cancels the native crossing and resumes manual motion")
+
+stairSquare(20, 20, -1, "west")
+local basementExit = stairSquare(19, 20, 0, nil, true)
+actor.x, actor.y, actor.z, cursorX, cursorY = 20.52, 20.51, 0, 18.5, 20.6
+check(tick() and moves[#moves].intent.targetSquare == basementExit
+        and moves[#moves].intent.enginePath == true,
+    "a west basement stair can finish when the body already reaches upper height over the open mouth")
+local stopsDuringCrossing = stops
+held = false
+check(tick() and SC.ActionSupervisor.current(actor) == nil and stops == stopsDuringCrossing + 1,
+    "releasing the key on the stair uses the same verified native stop")
+
+held, actor.x, actor.y, actor.z = true, 21.5, 20.5, 0
+before = #moves
+local missing, missingReason = tick()
+check(not missing and missingReason == "cursor_unavailable" and #moves == before
+        and SC.ActionSupervisor.current(actor) == nil,
+    "an upper floor near a non-stair tile cannot manufacture a native crossing")
+held = false
+tick()
+
+local pathActor = actorAt("path", 10.5, 10.5, 0.8)
+local nativePath = { starts = 0, status = "none", shouldMove = true }
+function nativePath:isTargetLocation(x, y, z)
+    return x == 10.5 and y == 9.5 and z == 1
+end
+function nativePath:shouldBeMoving() return self.shouldMove end
+function pathActor:getPathFindBehavior2() return nativePath end
+function pathActor:getCompanionPathStatus() return nativePath.status end
+function pathActor:setIsAiming() end
+function pathActor:pathToLocationF()
+    nativePath.starts = nativePath.starts + 1
+    nativePath.status = "pending"
+    nativePath.shouldMove = false
+end
+
+local nativeIntent = { action = "steer", enginePath = true, targetSquare = upper }
+local provider = { directNative = true }
+local reissued, reissueReason = SC.NativeActions.dispatch(pathActor, "walk", nativeIntent, provider)
+check(reissued and reissueReason == "path_started" and nativePath.starts == 1,
+    "a stopped stair path can restart even when PFB retains the target and reports motion")
+local pending, pendingReason = SC.NativeActions.dispatch(pathActor, "walk", nativeIntent, provider)
+check(pending and pendingReason == "path_continues" and nativePath.starts == 1,
+    "a pending native stair path stays in progress while PFB reports no motion")
 
 print("STEERING_KAHLUA_PASS checks=" .. tostring(checks))

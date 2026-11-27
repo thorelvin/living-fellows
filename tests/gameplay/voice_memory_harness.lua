@@ -83,4 +83,65 @@ local urgent={}
 for n=1,8 do urgent[n]="Immediate warning "..n end
 D.register("banter.refusal.test",{common=urgent})
 for n=1,16 do check(D.say(actor,"banter.refusal.test"),"live withdrawal explanations cannot be exhausted by optional variety") end
+
+do
+    local banter, utility = SC.Banter, SC.GameplayUtil
+    local pools = banter._poolsForTests()
+    local routine = pools["banter.routine"]
+    local crowded = "Funny how a room can feel crowded with nobody in it."
+    check(#routine.common >= 100, "the routine pool has room for different speakers")
+    local lowOnly = false
+    for voice, pool in pairs(routine) do
+        for _, line in ipairs(pool) do
+            if line == crowded then
+                check(voice == "low", "the empty-room reflection belongs to low mood")
+                lowOnly = true
+            end
+        end
+    end
+    check(lowOnly, "the empty-room reflection remains available in context")
+
+    C.reset()
+    D.reset()
+    V.reset()
+    banter.reset()
+    local party = banter._partyForTests()
+    party.lastIntrusiveAt = math.huge
+    local other = T.actor("sc-voice-partner", 1, 1, { recruited=true })
+    function other:isAsleep() return false end
+    local records = { { actor=actor }, { actor=other } }
+    for _, record in ipairs(records) do
+        local state = SC.Commands.peek(record.actor)
+        state.recruited, state.personality = true, "practical"
+    end
+    local priorToken, priorHash = SC.ActionSupervisor.current, utility.stableHash
+    local priorEmit = D.emitResolved
+    SC.ActionSupervisor.current = function() return { owner="downtime", action="read" } end
+    utility.stableHash = function() return 0 end
+    utility.say = function() return false end
+    check(not banter._routineForTests(T.player, records, clock) and #party.routineRecent == 0,
+        "an unheard attempt does not advance party rotation")
+    utility.say = saveSay
+    D.reset()
+    local spokenLines, speakers = {}, {}
+    D.emitResolved = function(speaker, topic, line, options)
+        local spoken, result, receipt = priorEmit(speaker, topic, line, options)
+        if spoken and topic == "banter.routine" then
+            spokenLines[#spokenLines + 1], speakers[#speakers + 1] = line, speaker
+        end
+        return spoken, result, receipt
+    end
+    for n=1,26 do
+        clock, age = clock + 150000, age + 0.5
+        check(banter._routineForTests(T.player, records, clock), "routine stays available in the shared rotation")
+        for previous=math.max(1,n-24),n-1 do
+            check(spokenLines[previous] ~= spokenLines[n], "a different companion cannot echo a recent routine line")
+        end
+    end
+    check(speakers[1] == actor and speakers[2] == other, "the two companions still take turns")
+    check(#party.routineRecent == 24 and party.routineRecent[1] == spokenLines[3]
+        and not party.routineRecentSet[spokenLines[2]],
+        "shared memory expires its oldest line at the fixed limit")
+    SC.ActionSupervisor.current, utility.stableHash, D.emitResolved = priorToken, priorHash, priorEmit
+end
 SC_TEST_REPORT="VARIETY_PASS checks="..checks.." max_companion_bytes="..maxBytes
