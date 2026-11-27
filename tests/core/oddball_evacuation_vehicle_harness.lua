@@ -5,7 +5,7 @@ local joy, brock, player = { id = "joy", x = 0.5, y = 0.5, z = 0 }, { id = "broc
 local group = { id = "evac", house = { anchor = { x = 0, y = 0, z = 0 } },
     oddball = { stage = "waiting" } }
 local calls, claim, active, outside = {}, nil, nil, false
-local database, saveReady, failFlush = "present", false, false
+local database, saveReady, failFlush, roadClosed = "present", false, false, false
 local function record(value) calls[#calls + 1] = value end
 
 local function newCar(id, distance)
@@ -92,7 +92,7 @@ SC.Navigation = {
 }
 SC.ExpeditionCar = {
     planRoadAccess = function(car)
-        if car ~= near then return {} end
+        if car ~= near and not roadClosed then return {} end
     end,
     displayName = function() return "Car" end,
     accessBetween = function() return true end,
@@ -170,25 +170,35 @@ assert(Vehicle.pulse(group, player, 300) == "pending" and calls[#calls] == "boar
 assert(Vehicle.pulse(group, player, 600) == "pending" and calls[#calls] == "board-joy")
 assert(Vehicle.pulse(group, player, 900) == "pending" and group.oddball.stage == "driving")
 assert(Vehicle.pulse(group, player, 1200) == "pending" and calls[#calls] == "drive")
+active.result, roadClosed = "failed", true
+local status, reason = Vehicle.pulse(group, player, 4200)
+assert(status == "pending" and reason == "evacuation_road_wait" and not active
+    and group.oddball.stage == "driving" and not farther.removed,
+    "a blocked route must hold the crew and car")
+roadClosed = false
+assert(Vehicle.pulse(group, player, 7100) == "pending" and not active,
+    "the road retry must honor its cooldown")
+assert(Vehicle.pulse(group, player, 7200) == "pending" and active and calls[#calls] == "drive",
+    "the same crew retries driving when the road opens")
 farther.x = 48
-assert(Vehicle.pulse(group, player, 1350) == "pending" and group.oddball.stage == "driving",
+assert(Vehicle.pulse(group, player, 7350) == "pending" and group.oddball.stage == "driving",
     "visible travel entered retirement")
 outside = true
-assert(Vehicle.pulse(group, player, 1500) == "pending" and group.oddball.stage == "retiring")
-assert(Vehicle.pulse(group, player, 2000) == "pending" and not farther.engine)
-assert(Vehicle.pulse(group, player, 2500) == "pending")
-assert(Vehicle.pulse(group, player, 3000) == "pending" and not farther.removed)
+assert(Vehicle.pulse(group, player, 7500) == "pending" and group.oddball.stage == "retiring")
+assert(Vehicle.pulse(group, player, 8000) == "pending" and not farther.engine)
+assert(Vehicle.pulse(group, player, 8500) == "pending")
+assert(Vehicle.pulse(group, player, 9000) == "pending" and not farther.removed)
 saveReady = true
-assert(Vehicle.pulse(group, player, 3500) == "pending" and not farther.removed)
+assert(Vehicle.pulse(group, player, 9500) == "pending" and not farther.removed)
 failFlush = true
-assert(Vehicle.pulse(group, player, 4000) == "pending" and not farther.removed, "failed intent flush deleted car")
+assert(Vehicle.pulse(group, player, 10000) == "pending" and not farther.removed, "failed intent flush deleted car")
 failFlush = false
-assert(Vehicle.pulse(group, player, 4500) == "pending" and farther.removed and calls[#calls] == "remove")
-assert(Vehicle.pulse(group, player, 5000) == "pending", "unloaded car passed as deleted")
+assert(Vehicle.pulse(group, player, 10500) == "pending" and farther.removed and calls[#calls] == "remove")
+assert(Vehicle.pulse(group, player, 11000) == "pending", "unloaded car passed as deleted")
 database = "unknown"
-assert(Vehicle.pulse(group, player, 5500) == "pending", "unknown database passed as deleted")
+assert(Vehicle.pulse(group, player, 11500) == "pending", "unknown database passed as deleted")
 database = "absent"
-assert(Vehicle.pulse(group, player, 6000) == "departed" and not claim)
-assert(Vehicle.pulse(group, player, 6500) == "departed" and not Vehicle.cancel(group),
+assert(Vehicle.pulse(group, player, 12000) == "departed" and not claim)
+assert(Vehicle.pulse(group, player, 12500) == "departed" and not Vehicle.cancel(group),
     "terminal removal could not be replayed")
 print("EVACUATION_VEHICLE_PASS")
