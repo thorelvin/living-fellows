@@ -1873,10 +1873,6 @@ function actorService.ownershipSnapshot()
     }
 end
 
-function actorService.providerKind()
-    return cachedProvider and cachedProvider.kind or nil
-end
-
 function actorService._setProviderForTests(provider)
     if type(provider) ~= "table" or provider.testOnly ~= true then
         return false

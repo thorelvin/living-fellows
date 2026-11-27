@@ -491,5 +491,4 @@ function S.reset()
     if SC.Recall then SC.Recall.reset() end
 end
 function S._startForTests(...) return start(...) end
-function S._pendingForTests() return pending end
 return S

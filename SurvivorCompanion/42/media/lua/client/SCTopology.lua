@@ -72,10 +72,6 @@ Topology.OBSTACLE_CATALOG = {
     { id = "safehouse_boundary", passage = "policy_block" },
 }
 
-function Topology.obstacleTypeCount()
-    return #Topology.OBSTACLE_CATALOG
-end
-
 local function U()
     return SC.GameplayUtil
 end
@@ -531,11 +527,6 @@ function Topology.squareHasStairs(square)
             "stairs", 1, true) then found = true return false end
     end, 24)
     return found
-end
-
-function Topology.squareHasLevelTransition(square)
-    return Topology.squareHasStairs(square) or Topology.squareHasSlope(square)
-        or Topology.squareHasSheetRope(square)
 end
 
 local function cardinalDirection(fromSquare, toSquare)

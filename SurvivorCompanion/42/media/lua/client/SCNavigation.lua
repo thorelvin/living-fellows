@@ -1767,12 +1767,6 @@ Navigation._adjacentStepForWorkRoutes = adjacentStep
 Navigation.workRouteStats = function()
     return SC.WorkRoutes and SC.WorkRoutes.snapshot() or { entries = 0 }
 end
-Navigation._workRouteForTests = function(...)
-    return SC.WorkRoutes.lookup(...)
-end
-Navigation._recordWorkRouteForTests = function(...)
-    return SC.WorkRoutes.record(...)
-end
 local function finalizeWorkRouteSuccess(state, requestedKey, now)
     if requestedKey == nil or type(state) ~= "table"
         or state.workRouteKey ~= requestedKey or type(state.path) ~= "table"
@@ -1794,9 +1788,6 @@ local function finalizeWorkRouteSuccess(state, requestedKey, now)
     return true
 end
 Navigation._finalizeWorkRouteSuccess = finalizeWorkRouteSuccess
-Navigation._resetWorkRoutesForTests = function()
-    return SC.WorkRoutes.reset()
-end
 local function followTrackRouteWithinBatch(startSquare, goalSquare, track, options)
     if type(track) ~= "table" or track[1] == nil then return nil, "track_unavailable" end
     options = type(options) == "table" and options or {}
@@ -4830,16 +4821,6 @@ function Navigation.dragEdgeAllowed(actor, fromSquare, toSquare, now)
         allowOccupiedGoal = true,
     })
     return permitted == true, reason
-end
-
--- Test seams (heap A*, review 3.3): the open-set min-heap must drain in exact
--- (f, h, seq) order so the search keeps producing the same paths as the old scan.
-function Navigation._heapPushForTests(heap, entry)
-    return P().heapPush(heap, entry)
-end
-
-function Navigation._heapPopForTests(heap)
-    return P().heapPop(heap)
 end
 
 -- Test seams (stealth danger overlay, review 3.5): a long search's overlay prunes
@@ -9815,12 +9796,6 @@ function Navigation.evaluateRoutes(sourceSquare, destinationSquare, snapshot, op
     return report
 end
 
-function Navigation.findOutdoorPath(sourceSquare, options)
-    local scale = type(options) == "table" and options.vegetationScale or nil
-    local actor = type(options) == "table" and options.actor or nil
-    return boundedOutdoorPath(sourceSquare, scale, actor)
-end
-
 -- Indoor encounters remain possible, but a native-safe floor is not enough:
 -- a bank room behind locked shutters can have several walkable neighbours and
 -- no usable route outside. Check only shortlisted spawn candidates, never
@@ -9834,14 +9809,6 @@ function Navigation.spawnAccessible(square, actor)
     local path = boundedOutdoorPath(square, 1, actor)
     return type(path) == "table" and #path > 1
         and squareIsOutdoor(path[#path])
-end
-
-function Navigation.rememberPosition(actor)
-    local utility = U()
-    if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
-    local state = stateFor(actor)
-    observeSquare(state, utility.squareOf(actor))
-    return true, state.wasIndoor and "indoors" or "outdoors"
 end
 
 function Navigation.retreatTarget(actor, snapshot)

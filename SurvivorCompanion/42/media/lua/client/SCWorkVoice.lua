@@ -681,9 +681,5 @@ end
 -- Test seams.
 function Voice._stateForTests() return state end
 function Voice._eventsForTests() return EVENTS, JOB_GROUPS, RETURN_CLASSES end
-function Voice._registerForTests()
-    registered = false
-    return registerPools()
-end
 
 return Voice

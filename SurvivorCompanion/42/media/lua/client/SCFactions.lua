@@ -2163,22 +2163,6 @@ local function belongsToInventory(container, root, depth)
     return belongsToInventory(parent, root, (depth or 0) + 1)
 end
 
-local function playerReceivedObservedItems(observation, prior, currentPrint)
-    if observation.player == nil then return 0 end
-    local inventoryOk, inventory = invoke(observation.player, "getInventory")
-    if not inventoryOk or inventory == nil then return 0 end
-    local received = 0
-    for item in pairs(prior.items or {}) do
-        if currentPrint.items[item] == nil then
-            local ownerOk, owner = invoke(item, "getContainer")
-            if ownerOk and belongsToInventory(owner, inventory, 0) then
-                received = received + 1
-            end
-        end
-    end
-    return received
-end
-
 function Factions.observeContainerOpened(container, player)
     if container == nil then return false, "container_unavailable" end
     local squareOk, square = invoke(container, "getSourceGrid")
@@ -4758,10 +4742,6 @@ function Factions.reset()
     end
     restored = false
     if SC.FactionLife and type(SC.FactionLife.reset) == "function" then SC.FactionLife.reset() end
-end
-
-function Factions.wasRestored()
-    return restored
 end
 
 return Factions

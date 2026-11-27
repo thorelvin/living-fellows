@@ -99,16 +99,6 @@ local function protected(item, data)
         or data.LF_CarUnloadJob ~= nil
 end
 
-function Fare.registerValue(fullType, value)
-    if type(fullType) ~= "string" or not fullType:match("^[%w_]+%.[%w_]+$")
-        or fullType:sub(1, 5) == "Base."
-        or not integer(value) or value < 1 or value > 100 then
-        return false, "invalid_fare_type"
-    end
-    values[fullType] = value
-    return true
-end
-
 function Fare.valueFor(item)
     return values[call(item, "getFullType")]
 end

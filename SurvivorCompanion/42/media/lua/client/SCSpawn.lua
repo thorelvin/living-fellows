@@ -977,10 +977,6 @@ function spawn.pollPending()
     return "failed", result, source
 end
 
-function spawn.hasPending()
-    return pendingSpawn ~= nil
-end
-
 function spawn.debugPulse(player, runtime, current)
     if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug spawning disabled" end
     if type(runtime) == "table" and runtime.active == false then

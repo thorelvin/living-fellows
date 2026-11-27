@@ -840,10 +840,6 @@ function Gestures._partyForTests()
     return party
 end
 
-function Gestures._actorStateForTests(actor)
-    return actorState(actor)
-end
-
 function Gestures._poolsForTests()
     return POOLS
 end

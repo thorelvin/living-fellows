@@ -704,7 +704,6 @@ local function arguments(first, count, guest, name, weapon)
 end
 
 Tales._argumentsForTests = arguments
-function Tales._placesForTests() return { room = ROOM_PLACES, zone = ZONE_PLACES } end
 
 -- The beats of one telling. The numbers grow with each telling; the second
 -- is suddenly pitch dark, the third gains an absurd guest, the fourth an
@@ -907,9 +906,6 @@ function Tales.reset(actor)
 end
 
 -- Test seams.
-function Tales._episodesForTests()
-    return episodes
-end
 
 function Tales._partyForTests()
     return party

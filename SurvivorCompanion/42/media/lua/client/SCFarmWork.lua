@@ -234,10 +234,6 @@ local function fillableWaterContainer(item)
     return tonumber(capacity) ~= nil and (tonumber(amount) or 0) + 0.19 < tonumber(capacity)
 end
 
-local function currentUses(item)
-    return math.max(waterUses(item), drainableUses(item))
-end
-
 local function marker(item)
     local data = item and U().modData(item) or nil
     return type(data) == "table" and data[FarmWork.ITEM_MARKER] or nil

@@ -2400,8 +2400,6 @@ function Medical.releasePatient(helper, patient)
     end
 end
 
-Medical._patientClaimsForTests = function() return patientClaims end
-
 local function beginTreatmentState(helper, patient, capability)
     local wound = capability.wound
     local action = capability.medicineKind and (helper~=patient and "give_medicine" or capability.medicineKind)
@@ -3136,12 +3134,6 @@ function Medical.replaceDirtyBandage(actor)
     return Medical.treat(actor, actor, nil, {
         dirtyOnly = true, visualAction = "replace_bandage",
     })
-end
-
-function Medical.replaceDirtyBandageAfterVisual(actor)
-    -- Kept as a compatibility entry point, but it no longer commits after a
-    -- foreign downtime visual. Medical owns selection, animation and commit.
-    return Medical.replaceDirtyBandage(actor)
 end
 
 function Medical.cancelCare(helper,patient,key,reason,force)

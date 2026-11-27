@@ -1539,14 +1539,6 @@ end
 
 Decision._resolveWorkObjectForTests = resolveWorkObject
 
-local function barricadePlanks(object, actor)
-    local barricade, ok = U().call(object, "getBarricadeForCharacter", actor)
-    if not ok or not barricade then return 0 end
-    local count, countOk = U().call(barricade, "getNumPlanks")
-    if countOk and type(count) == "number" then return count end
-    return 0
-end
-
 local function selectedBarricade(object, actor, target)
     local method = type(target) == "table" and target.barricadeSide == "same"
         and "getBarricadeOnSameSquare"
@@ -3010,12 +3002,6 @@ local function warnAboutThreat(actor, snapshot, commands, state, current, speech
 end
 Decision._warnAboutThreatForTests = warnAboutThreat
 Decision._warnAboutThreatForTests = warnAboutThreat
-
-function Decision._threatWarningMemoryForTests(groupAt, sittingCallout)
-    local previousAt, previousSitting = lastGroupThreatWarningAt, lastSittingCallout
-    lastGroupThreatWarningAt, lastSittingCallout = groupAt or -math.huge, sittingCallout
-    return previousAt, previousSitting
-end
 
 local function warnAboutHeardThreat(actor, snapshot, state, current)
     local visibleCount = tonumber(snapshot.threatCount) or #(snapshot.threats or {})

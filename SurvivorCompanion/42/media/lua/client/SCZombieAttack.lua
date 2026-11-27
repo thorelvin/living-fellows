@@ -198,15 +198,6 @@ local function attackEpisodeFacts(zombie, actor)
     return facts
 end
 
--- Retained for callers and tests that only ask "is this zombie mid-swing at me
--- with a successful outcome"; the episode bookkeeping above is what resolve
--- actually uses.
-local function isLandingAttack(zombie, actor)
-    local facts = attackEpisodeFacts(zombie, actor)
-    if not facts.eligible or facts.outcome ~= "success" then return false end
-    return true, facts.damaged
-end
-
 -- One decision per episode. Returns the terminal receipt and whether the mod
 -- should apply its own fallback wound, or nil while the episode is still in
 -- flight and nothing can honestly be concluded yet.
@@ -381,8 +372,6 @@ function ZombieAttack.sustainPulse(current)
     end
     return sustained, dropped, engagedCount
 end
-
-function ZombieAttack.engagedPairCount() return engagedCount end
 
 local function sustainNativeEngagement(zombie, actor, current, elapsed, distance)
     local delay = config("zombieAttackEngageAssistDelayMs", 500)
@@ -864,7 +853,7 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
             swing.seenSince = nil
         end
         -- Edge-triggered wound application: one wound per swing episode.
-        -- isLandingAttack is level-true for the whole time the zombie is mid-swing
+        -- A landing-attack test is level-true for the whole time the zombie is mid-swing
         -- (and while its "success" outcome lingers afterwards), so a level check
         -- re-applied the same swing every frame -- bounded only by a time cooldown,
         -- which in turn swallowed a genuine fast second swing that arrived inside

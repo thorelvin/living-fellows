@@ -34,7 +34,6 @@ Production.FALLEN_DISPLAY_NAME = "LF_FallenDisplayName"
 -- Collect/burn helpers live in one table so the module keeps its local count
 -- and each function's upvalues well inside Kahlua's limits.
 local Disposal = { urgentAt = {} }
-local TOOL_TAGS = { choptree = "CHOP_TREE", saw = "SAW", diggrave = "DIG_GRAVE" }
 -- Shovels with DIG_PLOW are sorted into Farming supplies, but the same
 -- physical shovel carries DIG_GRAVE. Earthwork must search that shelf too.
 local TOOL_CATEGORIES = { "tools", "farming", "construction", "crafting", "general", "weapons" }
@@ -5955,9 +5954,6 @@ function Production.reset(actor)
 end
 
 -- Test seams: the harness drives session state and time-dependent speech.
-function Production._chopSessionForTests()
-    return chopSession
-end
 
 function Production._ceremonyTopicForTests(actor, salt)
     return ceremonyTopic(actor, salt)

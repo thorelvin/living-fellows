@@ -2983,10 +2983,6 @@ function Commands.teamFollowFanOut(player)
     return teamFollowFanOutForPlayer(player)
 end
 
-function Commands.setTeamCombatDoctrine(player, doctrine)
-    return issueTeamDoctrine({ doctrine = doctrine, scope = "team" }, player)
-end
-
 function Commands.conversation(companionId, action, player)
     if not conversationActions[action] and action ~= "recruit" and action ~= "dismiss" then
         return false, "unsupported_conversation"

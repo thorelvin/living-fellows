@@ -28,16 +28,6 @@ local function say(actor, topic, fallback)
             { fallback = fallback })
     else U().say(actor, fallback) end
 end
-local function worldHour()
-    if type(getGameTime) == "function" then
-        local ok, clock = pcall(getGameTime)
-        if ok and clock then
-            local hour, called = U().call(clock, "getWorldAgeHours")
-            if called and tonumber(hour) then return tonumber(hour) end
-        end
-    end
-    return U().nowMs() / 3600000
-end
 local function posing(group)
     local value = state(group)
     return value and (value.stage == "unmet" or value.stage == "posing")

@@ -346,18 +346,6 @@ function UI.selectedActor()
     return row and row.actor or nil
 end
 
--- Mouse control can change the selected companion without opening the panel.
--- Refreshing the live roster also validates that the requested id still exists.
-function UI.selectCompanion(companionId)
-    if type(companionId) ~= "string" or companionId == "" then
-        return false, "invalid_companion"
-    end
-    local root = UI.ensureControl()
-    root:refreshRoster(companionId, nil, true)
-    if root.selectedId ~= companionId then return false, "companion_unavailable" end
-    return true, root.selectedRow
-end
-
 local function screenSize()
     local core = getCore and getCore() or nil
     local width = core and safeMethod(core, "getScreenWidth") or 1280
@@ -1766,28 +1754,6 @@ local function onCommandSelector(target, combo)
     end
 end
 
-local function onDoctrineChange(target, combo)
-    if not combo or not combo.selected then return end
-    local doctrine = combo:getOptionData(combo.selected)
-    if doctrine == combo.scDoctrine then return end
-    local previous = combo.scDoctrine
-    local accepted = onCommandButton(target, {
-        scCommand = "set_combat_doctrine",
-        scPayload = { doctrine = doctrine, scope = "team" },
-        scLabel = UI.text("UI_SC_Action_SetTeamDoctrine", UI.stateText(doctrine)),
-    })
-    if accepted == true then
-        combo.scDoctrine = doctrine
-        return
-    end
-    for index = 1, #combo.options do
-        if combo:getOptionData(index) == previous then
-            combo.selected = index
-            break
-        end
-    end
-end
-
 local function signalResultText(value)
     if type(value) == "number" then
         return UI.text("UI_SC_Signal_Recipients", math.floor(value))
@@ -3162,35 +3128,6 @@ function SCUIDetail:refreshValues()
         end
     end
     return true
-end
-
-function SCUIDetail:addDoctrineSelector(panel, y, doctrine)
-    local metrics = self.metrics or UI.layoutMetrics()
-    local availableWidth = math.max(100, panel:getWidth() - 28)
-    local combo = ISComboBox:new(8, y, availableWidth, metrics.buttonHeight,
-        self, onDoctrineChange)
-    combo:initialise()
-    combo:instantiate()
-    combo.backgroundColor = { r = 0.035, g = 0.04, b = 0.035,
-        a = configuredOpacity(0.88, 0.22, 0.78) }
-    combo.backgroundColorMouseOver = { r = 0.28, g = 0.30, b = 0.25,
-        a = configuredOpacity(1.18, 0.48, 0.9) }
-    combo.scDoctrine = doctrine
-    for index, option in ipairs(COMBAT_DOCTRINES) do
-        combo:addOptionWithData(fitText(UIFont.Small, UI.text(option.key),
-            math.max(40, availableWidth - 28)), option.id,
-            UI.text(option.key .. "_Tooltip"))
-        if option.id == doctrine then combo.selected = index end
-    end
-    local row = self.root and self.root.selectedRow or nil
-    local enabled, reasonKey, reasonArgument = UI.commandAvailability(row,
-        "set_combat_doctrine", { doctrine = doctrine, scope = "team" })
-    combo:setEnabled(enabled)
-    combo.tooltip = enabled and UI.text("UI_SC_Doctrine_TeamTooltip")
-        or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument) or UI.text(reasonKey))
-    panel:addChild(combo)
-    panel.scContentWidth = panel:getWidth()
-    return y + metrics.buttonHeight + 4
 end
 
 function SCUIDetail:addSignal(panel, y, labelKey, signal)

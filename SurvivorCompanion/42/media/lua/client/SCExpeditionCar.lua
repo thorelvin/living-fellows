@@ -281,10 +281,6 @@ function Car.accessBetween(vehicle, at, entry)
     return true
 end
 
-function Car.accessReady(vehicle, entry)
-    return Car.accessBetween(vehicle, point(vehicle), entry)
-end
-
 -- A parked neighbour may block the nearest perpendicular road connector
 -- while the lot has a clear diagonal exit. Try at most six nearby mapped
 -- attachments, only during review/departure. Every complete corridor keeps

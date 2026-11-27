@@ -383,19 +383,6 @@ function PersonalItems.restoreMarker(item, personal, favorite)
     return mark(item, personal, favorite)
 end
 
-function PersonalItems.findNested(actor, ownerId, key)
-    local found, personal
-    PersonalItems.walkActorInventory(actor, function(item, depth)
-        local candidate = PersonalItems.personalRecord(item)
-        if depth > 0 and candidate and candidate.ownerId == ownerId
-            and (key == nil or candidate.key == key) then
-            found, personal = item, candidate
-            return false
-        end
-    end)
-    return found, personal
-end
-
 function PersonalItems.description(source, revealed)
     local keepsake = type(source) == "table" and source.keepsake or nil
     if type(keepsake) ~= "table" then

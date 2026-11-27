@@ -701,17 +701,6 @@ function Supervisor.urgentStatus(actor)
     return urgentPublic(actor and (urgentByActor[actor] or lastUrgentByActor[actor]) or nil)
 end
 
-function Supervisor.clearUrgent(actor, reason)
-    local record = actor and urgentByActor[actor] or nil
-    if not record then return false, "no_urgent_intent" end
-    urgentByActor[actor] = nil
-    record.state, record.reason = "cancelled", clean(reason, 128) or "urgent_cancelled"
-    record.readyAt = nowMs()
-    lastUrgentByActor[actor] = record
-    appendUrgent(actor, "urgent_cancelled", record, record.reason, nil)
-    return true, record.reason
-end
-
 function Supervisor.discardUrgent(actor)
     if actor == nil then return false end
     urgentByActor[actor] = nil
@@ -791,10 +780,6 @@ end
 
 function Supervisor.retryResetStatus(actor)
     return safeDetail(actor and retryResetState(actor) or nil, 0)
-end
-
-function Supervisor.clearRetry(actor, action, targetKey, reason)
-    return Supervisor.resetRetry(actor, reason or "explicit_retry_reset", action, targetKey)
 end
 
 -- `begin` refuses for two very different reasons.  Either the actor is genuinely
@@ -1272,23 +1257,6 @@ local function mostRecentFailure(actor)
         if entry.event == "failed" then return entry end
     end
     return nil
-end
-
-local function mostRecentRetry(actor)
-    local ledger = actor and retryByActor[actor] or nil
-    if not ledger then return nil end
-    local selected
-    for _, record in pairs(ledger) do
-        if selected == nil or (tonumber(record.failedAt) or 0)
-            > (tonumber(selected.failedAt) or 0) then
-            selected = record
-        end
-    end
-    if not selected then return nil end
-    local copy = safeDetail(selected, 0)
-    copy.remainingMs = selected.exhausted == true and 0
-        or math.max(0, (tonumber(selected.retryAt) or 0) - nowMs())
-    return copy
 end
 
 function Supervisor.summary(actor, readOnly)

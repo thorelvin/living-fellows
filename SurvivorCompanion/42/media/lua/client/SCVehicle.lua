@@ -2113,10 +2113,6 @@ local function storedRemainingForKey(key)
     return remaining
 end
 
-function vehicleService.storedCountFor(vehicle)
-    return storedRemainingForKey(keyFor(vehicleIdentity(vehicle)))
-end
-
 function vehicleService.restoreForVehicle(vehicle, player)
     local identity = vehicleIdentity(vehicle)
     local key = keyFor(identity)

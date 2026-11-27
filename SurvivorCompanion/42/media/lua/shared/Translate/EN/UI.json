@@ -1072,7 +1072,6 @@
     "UI_SC_Action_CombatAggressive": "Use aggressive combat stance",
     "UI_SC_Action_HoldFire": "Hold fire",
     "UI_SC_Action_FireAtWill": "Fire at will",
-    "UI_SC_Action_SetTeamDoctrine": "Set team doctrine: %1",
     "UI_SC_Action_ApplyToAll": "Apply to whole squad",
     "UI_SC_Doctrine_TeamScope": "This doctrine applies to every recruited companion, including new recruits.",
     "UI_SC_Doctrine_TeamTooltip": "Set one team-wide engagement policy. Friendly-fire and survival checks always remain active.",

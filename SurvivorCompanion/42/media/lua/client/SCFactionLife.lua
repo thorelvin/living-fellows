@@ -818,8 +818,6 @@ Life._resourceLabelForTests = resourceLabel
 local entryVisits = {}
 local ENTRY_VISIT_LIMIT = 64
 local ENTRY_VISIT_IDLE_MS = 900000
-local ENTRY_VISIT_DEPART_TILES = 12
-local ENTRY_VISIT_DEPART_MS = 10000
 
 -- What an announcement is *about*. The same crisis polled again is not a new
 -- event because its Lua table was rebuilt, so the signature is its kind and the
@@ -871,37 +869,6 @@ local function entryVisitFor(group, player, now)
 end
 Life._entryVisitForTests = entryVisitFor
 Life._crisisSignatureForTests = crisisSignature
-
--- Standing at the doorway keeps the visit open. Walking off and staying off
--- closes it, so coming back is a new visit that may greet once. A step around
--- the entry must not re-arm the greeting, which is why departure needs both a
--- distance and a duration.
-function Life.observeEntryDistance(group, player, distance, now)
-    if type(group) ~= "table" or player == nil then return nil end
-    now = tonumber(now) or U().nowMs()
-    local groupId = tostring(group.id or "group")
-    local key = groupId .. "|" .. tostring(U().idOf(player) or "player")
-    local visit = entryVisits[key]
-    if visit == nil then return nil end
-    if (tonumber(distance) or 0) > ENTRY_VISIT_DEPART_TILES then
-        visit.awaySince = visit.awaySince or now
-        if now - visit.awaySince >= ENTRY_VISIT_DEPART_MS then
-            entryVisits[key] = nil
-            return "visit_closed"
-        end
-        return "departing"
-    end
-    visit.awaySince = nil
-    visit.seenAt = now
-    return "present"
-end
-
-function Life.resetEntryVisits() entryVisits = {} end
-function Life._entryVisitCountForTests()
-    local count = 0
-    for _ in pairs(entryVisits) do count = count + 1 end
-    return count
-end
 
 -- What this household should say to this visitor right now, if anything, and
 -- the bookkeeping that follows a line that was actually delivered. The caller

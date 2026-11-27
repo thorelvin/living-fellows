@@ -40,7 +40,6 @@ local function domain(session,key)
     local _,state=row(session)
     return state and (state.domains[key] or 0)>0
 end
-function R.hasDomain(session,key) return domain(session,key)==true end
 local function fields(session)
     return {name=type(session.operator)=="string" and session.operator~="" and session.operator or "operator"}
 end

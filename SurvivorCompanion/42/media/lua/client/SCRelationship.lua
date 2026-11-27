@@ -971,14 +971,6 @@ local function readableAction(value)
     return "busy with a job"
 end
 Relationship.readableAction = readableAction
-Relationship.hasDoingLabel = function(value)
-    local key = tostring(value or "")
-    if doingLabels[key] then return true end
-    for prefix in pairs(doingPrefixes) do
-        if string.sub(key, 1, #prefix) == prefix then return true end
-    end
-    return false
-end
 
 local function idleAction(state)
     local order = type(state) == "table" and state.order or "idle"

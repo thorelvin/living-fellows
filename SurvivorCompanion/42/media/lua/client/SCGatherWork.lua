@@ -46,16 +46,6 @@ local function zoneFor(order)
     return nil
 end
 
-local function storageFor(order)
-    for _, storage in ipairs(SC.BaseLife and SC.BaseLife.storageRows
-        and SC.BaseLife.storageRows(nil, false) or {}) do
-        if storage.id == order.destinationStorageId and storage.deposits ~= false then
-            return storage
-        end
-    end
-    return nil
-end
-
 function Gather.validateZone(order)
     local zone = type(order) == "table" and zoneFor(order) or nil
     if not zone then return false, "invalid_gather_work_zone" end

@@ -13,7 +13,6 @@ local SC = SurvivorCompanion
 SC.GameplayUtil = SC.GameplayUtil or {}
 local U = SC.GameplayUtil
 
-
 -- Gameplay code reads the canonical shared configuration. Keep this proxy
 -- immutable and dynamic so development hot reloads retain one source of truth.
 local readOnlyDefaults = {}
@@ -1939,10 +1938,6 @@ function U.pendingWorldRecovery(value)
     return pendingWorldRecoveryByItem[value] or pendingWorldRecoveryByWorld[value]
 end
 
-function U.clearPendingWorldRecovery(value)
-    return forgetWorldRecovery(value)
-end
-
 function U.findPendingWorldRecovery(predicate)
     if type(predicate) ~= "function" then return nil end
     for _, record in pairs(pendingWorldRecoveryByItem) do
@@ -2037,7 +2032,6 @@ local function restoreWorldOwnership(square, oldWorldItem, item, source, sourceH
     return restoredPresent == true and linkReadable and linked == restoredWorld and sourceRestored,
         restoredWorld
 end
-
 
 local function resumeWorldRecovery(record, destination)
     if type(record) ~= "table" or not record.item then

@@ -429,10 +429,6 @@ function Background.aptitudeLabel(background)
     return definition and definition.label or "Adaptable"
 end
 
-function Background.summaryLabel(background)
-    return Background.professionLabel(background) .. " / " .. Background.aptitudeLabel(background)
-end
-
 function Background.historyText(background)
     if type(background) == "table" and type(background.history) == "string"
         and professions[background.history] == nil and background.history ~= "" then

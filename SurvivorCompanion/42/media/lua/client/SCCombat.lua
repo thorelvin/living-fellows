@@ -524,18 +524,6 @@ local function resolvePushInjuryOrExpiry(actor, state, commands, now, allowExpir
     return false
 end
 
-function Combat._pushOutcomeForTests(actor, commands, target, outcome, current)
-    local state = stateFor(actor)
-    state.pushEpisode = {
-        serial = (type(commands) == "table" and commands.commandSerial or 0),
-        target = target,
-        healthAt = U().nativeHealth(actor),
-        expires = (tonumber(current) or U().nowMs()) + 1000,
-    }
-    return finishPushEpisode(actor, state, commands, outcome,
-        tonumber(current) or U().nowMs())
-end
-
 local function enterRetreat(actor, state, commands, now, survivalCritical, snapshot)
     if state.retreating == true then return end
     state.retreating = true
@@ -3085,15 +3073,6 @@ function Combat.anticipatoryMeleeWindow(actor, player, snapshot, target, weapon,
     return lead
 end
 
-local function findGroundedThreat(scored, range)
-    for _, threat in ipairs(scored) do
-        if (threat.distanceSq or math.huge) <= range * range then
-            if boolCall(threat.actor, "isOnFloor") or boolCall(threat.actor, "isProne") then return threat end
-        end
-    end
-    return nil
-end
-
 local function shoveFollowUpSafe(actor, snapshot, target)
     if type(snapshot) ~= "table" or snapshot.encircled == true then return false end
     if SC.CombatSquad and not SC.CombatSquad.safeFinisher(actor, target, snapshot) then
@@ -3878,7 +3857,6 @@ local function passiveMayFight(target, player, snapshot)
     end
     return false
 end
-
 
 local function closeDefenseMayFight(actor, target, player, snapshot)
     local radius = U().config("combatCloseDefenseRadius") or 5

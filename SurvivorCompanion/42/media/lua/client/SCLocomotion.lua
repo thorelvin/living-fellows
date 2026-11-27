@@ -192,10 +192,6 @@ function Locomotion.resolveMovementMode(mode, intent, actor)
     return "run", "escape_speed_override"
 end
 
-function Locomotion.isEscapeIntent(intent)
-    return type(intent) == "table" and escapeAction(intent.action, intent) or false
-end
-
 local function stateFor(actor)
     local state = states[actor]
     if not state then

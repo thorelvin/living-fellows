@@ -3352,10 +3352,6 @@ local function reconcileGroups(candidate)
     end
 end
 
-function Oddballs.isKnownId(id)
-    return byId[id] ~= nil
-end
-
 function Oddballs.definition(id)
     return byId[id]
 end

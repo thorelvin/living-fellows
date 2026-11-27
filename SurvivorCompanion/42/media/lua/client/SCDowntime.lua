@@ -1439,19 +1439,6 @@ local function isNamedBed(value)
         or string.find(text, "sleeping bag", 1, true) ~= nil
 end
 
-local function isNamedSeat(value)
-    local text = restFurnitureText(value)
-    return string.find(text, "chair", 1, true) ~= nil
-        or string.find(text, "sofa", 1, true) ~= nil
-        or string.find(text, "couch", 1, true) ~= nil
-        or string.find(text, "stool", 1, true) ~= nil
-        or string.find(text, "bench", 1, true) ~= nil
-        or string.find(text, "pew", 1, true) ~= nil
-        or string.find(text, "booth", 1, true) ~= nil
-        or string.find(text, "ottoman", 1, true) ~= nil
-        or string.find(text, "seat", 1, true) ~= nil
-end
-
 local function furnitureKind(object)
     local utility = U()
     local name, nameOk = utility.call(object, "getName")
@@ -6353,13 +6340,6 @@ function Downtime._sleepForTests()
     return bedSleepEligible, restHours, adjustedBedHours, candidates
 end
 
-function Downtime._ambientForTests()
-    return windowWatchActivity, gearCheckActivity, approachWatchWindow,
-        watchWindowValid, radioCheckActivity, tidyCampActivity,
-        weatherRecoveryActivity, tidyCampValid, cleanBaseActivity,
-        cleanBaseValid
-end
-
 function Downtime.reset(actor)
     if actor then
         Downtime.cancel(actor, "reset")
@@ -6403,17 +6383,8 @@ function Downtime._showerForTests()
         completeShower
 end
 
--- Test seam: the camp-book checkout policy re-read at transfer time.
-function Downtime._borrowedCheckoutForTests()
-    return borrowedCheckoutAuthorized
-end
-
 function Downtime._studyForTests()
     return Study
-end
-
-function Downtime._respectForTests()
-    return Respect
 end
 
 Study.register()

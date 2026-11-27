@@ -11,10 +11,6 @@ local function call(object, name, ...)
     return (U().call(object, name, ...))
 end
 local function endpoints() return SC.RadioEndpoints end
-local function at(object)
-    local x,y,z=U().position(object)
-    return x and {x=x,y=y,z=z} or nil
-end
 local function close(a,b)
     local x,y,z=U().position(a)
     local bx,by,bz=U().position(b)

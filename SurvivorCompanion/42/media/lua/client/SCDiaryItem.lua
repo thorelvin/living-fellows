@@ -111,10 +111,6 @@ function Item.hasPayload(item)
     return data ~= nil and type(data[Item.KEY]) == "table"
 end
 
-function Item.isDiaryItem(item)
-    return item ~= nil and string.lower(U().itemType(item)) == string.lower(Item.ITEM_TYPE)
-end
-
 function Item.parseEntry(entry)
     if type(entry) ~= "string" then return nil, nil end
     local split = string.find(entry, "\n", 1, true)

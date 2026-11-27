@@ -3161,13 +3161,8 @@ function Banter._poolsForTests()
     return POOLS, PLACE_LINES, ROOM_GROUPS
 end
 
-
 function Banter._socialForTests()
     return greetingPulse, campConversationPulse, exchangePulse
-end
-
-function Banter._pairedForTests()
-    return pairedBeatCount, pairedSpec
 end
 
 function Banter._partyForTests()
@@ -3176,9 +3171,5 @@ end
 
 function Banter._sceneStartForTests(...) return sceneStartPulse(...) end
 function Banter._sceneHostForTests() return sceneHost() end
-
-function Banter._intrusiveForTests(actor, commands, records, current, kind)
-    return intrusivePulse(actor, commands, records, current, kind)
-end
 
 return Banter

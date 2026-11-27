@@ -969,14 +969,6 @@ local function actorNeedsMeleeWeapon(actor, audit)
     return true
 end
 
-function Encounter.needsMeleeWeapon(actor)
-    if not actor then return false end
-    local audit = SC.Logistics and type(SC.Logistics.status) == "function"
-        and SC.Logistics.status(actor) or nil
-    local needsUnloading = audit and audit.shouldUnload
-    return actorNeedsMeleeWeapon(actor, audit)
-end
-
 local function priorityMeleeAllowed(actor, item, audit, commands)
     if type(commands) ~= "table" or commands.prioritizeMeleeWeapon ~= true
         or not usableMeleeWeapon(item) then
@@ -3962,10 +3954,6 @@ end
 Encounter._ownerDistanceForTests = ownerDistance
 Encounter._containerReachForTests = containerReach
 Encounter._facingContainerForTests = facingContainer
-
-function Encounter._containerMemoryForTests()
-    return rememberContainer, memoryAllows
-end
 
 function Encounter.reset(actor)
     if actor then

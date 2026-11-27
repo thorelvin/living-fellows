@@ -3618,10 +3618,6 @@ function actions.doorBashTool(actor)
     return taggedWorkTool(actor, nil, "CHOP_TREE")
 end
 
-function actions.forceOpenTool(actor)
-    return taggedWorkTool(actor, nil, "CROWBAR")
-end
-
 local function newJavaList(values)
     local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
     if type(listClass) ~= "table" and type(listClass) ~= "userdata" then return nil end
@@ -6407,11 +6403,6 @@ function actions.seatingStatus(actor)
     end
     if BedExit.overlap(actor) then return "bed" end
     return "standing"
-end
-
--- Focused test seam for the bounded vanilla wait-to-start adapter.
-function actions._boundSeatingTurnForTests(action)
-    return boundSeatingTurn(action)
 end
 
 return actions
