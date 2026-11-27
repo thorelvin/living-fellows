@@ -1726,13 +1726,7 @@ local function isNumber(value)
 end
 
 local function denseArray(value, maximum)
-    if type(value) ~= "table" then return false end
-    local count = 0
-    for key in pairs(value) do
-        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then return false end
-        count = count + 1
-    end
-    return count == #value and count <= maximum
+    return SC.StableValue.denseArray(value, nil, nil, maximum) == true
 end
 
 local function validateCandidate(candidate, path)

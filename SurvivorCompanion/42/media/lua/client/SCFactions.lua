@@ -3905,29 +3905,14 @@ function Factions.export()
     return result
 end
 
-local function finiteNumber(value)
-    return type(value) == "number" and value == value
-        and value ~= math.huge and value ~= -math.huge
-end
+local finiteNumber = SC.StableValue.isFinite
 
 local function restoreFailure(path, detail)
     return false, "invalid faction state at " .. tostring(path) .. ": " .. tostring(detail)
 end
 
 local function denseArray(value, path, minimum, maximum)
-    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
-    local count, highest = 0, 0
-    for key in pairs(value) do
-        if type(key) ~= "number" or not finiteNumber(key) or key < 1
-            or key ~= math.floor(key) then
-            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
-        end
-        count, highest = count + 1, math.max(highest, key)
-    end
-    if highest ~= count then return restoreFailure(path, "sparse array") end
-    if minimum ~= nil and count < minimum then return restoreFailure(path, "too few entries") end
-    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
-    return true, count
+    return SC.StableValue.denseArray(value, path, restoreFailure, maximum, minimum)
 end
 
 local function validPosition(value, path, requireObject)

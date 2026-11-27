@@ -2746,6 +2746,7 @@
     (Join-Path $Gameplay 'nickname_memorial_harness.lua')) }
 @{ Name = 'grave-marker-name'; Extended = $true; Files = @(
     (Join-Path $Gameplay 'grave_marker_name_fixture.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
     (Join-Path $Client 'SCBaseWork.lua'),
     (Join-Path $Client 'SCInfectionCrisis.lua'),
     (Join-Path $Gameplay 'grave_marker_name_harness.lua')) }

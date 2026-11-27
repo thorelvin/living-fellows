@@ -161,6 +161,10 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Client 'SCBootstrap.lua'),
     (Join-Path $Core 'bootstrap_lifecycle_harness.lua')
 ) }
+@{ Name = 'stable-value-checks'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
+    (Join-Path $Core 'stable_value_checks_harness.lua')) }
 
 # Extended scenarios, moved from the former on-demand runners (0.27.94). They
 # run in every -Release gate and with -Extended; routine runs skip them.

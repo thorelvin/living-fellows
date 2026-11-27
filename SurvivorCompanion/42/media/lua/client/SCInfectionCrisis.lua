@@ -40,10 +40,7 @@ local function finite(value, fallback)
     return value
 end
 
-local function finiteNumber(value)
-    return type(value) == "number" and value == value
-        and value ~= math.huge and value ~= -math.huge
-end
+local finiteNumber = SC.StableValue.isFinite
 
 local function cleanText(value, fallback, limit)
     if type(value) ~= "string" or value == "" then value = fallback or "" end
@@ -60,11 +57,7 @@ local function stableCopy(value, depth, remaining)
 end
 
 local function configuredLimit(key, fallback)
-    local raw = U() and U().config and tonumber(U().config(key)) or nil
-    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
-        return fallback
-    end
-    return math.floor(raw)
+    return SC.StableValue.limit(U() and U().config and U().config(key), fallback)
 end
 
 -- The widest row each part of the schema can produce, counted the way the
@@ -2099,18 +2092,7 @@ local function restoreFailure(path, detail)
 end
 
 local function denseArray(value, path, maximum)
-    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
-    local count, highest = 0, 0
-    for key in pairs(value) do
-        if type(key) ~= "number" or not finiteNumber(key) or key < 1
-            or key ~= math.floor(key) then
-            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
-        end
-        count, highest = count + 1, math.max(highest, key)
-    end
-    if highest ~= count then return restoreFailure(path, "sparse array") end
-    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
-    return true, count
+    return SC.StableValue.denseArray(value, path, restoreFailure, maximum)
 end
 
 local phases = { discovered = true, deliberating = true, resolved = true,

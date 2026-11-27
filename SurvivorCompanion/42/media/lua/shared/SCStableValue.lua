@@ -151,4 +151,40 @@ function StableValue.copyStrict(value, options)
     end
 end
 
+-- Checks shared by the saved-document restores. Each restore keeps its own
+-- failure wording, so denseArray reports through the caller's
+-- fail(path, detail); without one it returns false, detail.
+function StableValue.isFinite(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function rejected(_, detail) return false, detail end
+
+-- true, n when the keys are exactly 1..n and n is within the bounds.
+function StableValue.denseArray(value, path, fail, maximum, minimum)
+    fail = fail or rejected
+    if type(value) ~= "table" then return fail(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if not StableValue.isFinite(key) or key < 1 or key ~= math.floor(key) then
+            return fail(tostring(path) .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return fail(path, "sparse array") end
+    if minimum ~= nil and count < minimum then return fail(path, "too few entries") end
+    if maximum ~= nil and count > maximum then return fail(path, "too many entries") end
+    return true, count
+end
+
+-- A configured size limit: a whole number of zero or more, else the fallback.
+function StableValue.limit(raw, fallback)
+    if raw ~= nil then raw = tonumber(raw) end
+    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
+        return fallback
+    end
+    return math.floor(raw)
+end
+
 return StableValue
