@@ -1,0 +1,4237 @@
+// SPDX-License-Identifier: MIT
+package livingfellows.bridge;
+
+import se.krka.kahlua.vm.KahluaTable;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+
+import org.lwjgl.util.vector.Vector3f;
+
+import zombie.Lua.LuaEventManager;
+import zombie.GameTime;
+import zombie.SystemDisabler;
+import zombie.SandboxOptions;
+import zombie.ZomboidGlobals;
+import zombie.ai.AIBrainPlayerControlVars;
+import zombie.ai.State;
+import zombie.ai.astar.AStarPathFinder;
+import zombie.ai.states.IdleState;
+import zombie.ai.states.OpenWindowState;
+import zombie.ai.states.PathFindState;
+import zombie.ai.states.SwipeStatePlayer;
+import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
+import zombie.characters.CharacterStat;
+import zombie.characters.SurvivorDesc;
+import zombie.characters.CharacterTimedActions.BaseAction;
+import zombie.characters.component.AIComponent;
+import zombie.characters.action.ActionState;
+import zombie.chat.ChatElement;
+import zombie.chat.ChatElementOwner;
+import zombie.iso.IsoCamera;
+import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
+import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoObject;
+import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.objects.IsoWindow;
+import zombie.iso.objects.IsoWindowFrame;
+import zombie.iso.objects.IsoThumpable;
+import zombie.inventory.types.HandWeapon;
+import zombie.characterTextures.BloodBodyPartType;
+import zombie.network.fields.hit.HitInfo;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PolygonalMap2;
+import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
+import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
+import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
+import zombie.core.skinnedmodel.animation.AnimationPlayer;
+import zombie.core.skinnedmodel.animation.AnimationTrack;
+import zombie.core.skinnedmodel.model.SkeletonBone;
+import zombie.core.opengl.Shader;
+import zombie.core.textures.ColorInfo;
+import zombie.ui.TextManager;
+import zombie.ui.UIFont;
+
+/** A non-local human actor backed by Build 42's complete player character runtime. */
+public final class SCNativeCompanion extends IsoPlayer {
+    private final SCWindowActionGuard bridgeWindowGuard = new SCWindowActionGuard();
+    private IsoObject bridgeWindowDelegation;
+    private String bridgeWindowOperation;
+    private int bridgeWindowDepth;
+
+    boolean approveWindowAction(IsoObject object, String operation, IsoGridSquare from, IsoGridSquare to) {
+        if (bridgeWindowGuard == null) return false;
+        bridgeWindowGuard.clear();
+        if (bridgeDisabled || isDead() || isAsleep() || getVehicle() != null || object == null
+                || object.getObjectIndex() < 0 || from == null || to == null || getCurrentSquare() != from
+                || from.getCell() == null || from.getCell() != to.getCell() || from.getZ() != to.getZ()
+                || Math.abs(from.getX() - to.getX()) + Math.abs(from.getY() - to.getY()) != 1
+                || !from.TreatAsSolidFloor() || !to.TreatAsSolidFloor()
+                || to.isSolid() || to.isSolidTrans() || to.haveFire() || to.getVehicleContainer() != null) return false;
+        if (from.getWindowTo(to) != object && from.getWindowThumpableTo(to) != object
+                && from.getWindowFrameTo(to) != object) return false;
+        return bridgeWindowGuard.approve(object, operation, from, System.nanoTime());
+    }
+
+    public void clearCompanionWindowApproval() {
+        if (bridgeWindowGuard != null) bridgeWindowGuard.clear();
+    }
+    public IsoObject getCompanionBlockedWindow() { return bridgeWindowGuard == null ? null : bridgeWindowGuard.blocked(); }
+    public String getCompanionWindowBlockReason() {
+        return bridgeWindowGuard == null ? "" : bridgeWindowGuard.blockedOperation();
+    }
+
+    private void checkedWindowAction(IsoObject object, String operation, Runnable action) {
+        boolean delegated = bridgeWindowDepth > 0 && bridgeWindowDelegation == object
+                && operation.equals(bridgeWindowOperation);
+        if (!delegated && (bridgeWindowGuard == null || bridgeDisabled || isDead() || isAsleep() || getVehicle() != null
+                || !bridgeWindowGuard.consume(object, operation, getCurrentSquare(), System.nanoTime()))) return;
+        IsoObject previous = bridgeWindowDelegation;
+        String previousOperation = bridgeWindowOperation;
+        bridgeWindowDelegation = object;
+        bridgeWindowOperation = operation;
+        bridgeWindowDepth++;
+        try { action.run(); }
+        finally { bridgeWindowDepth--; bridgeWindowDelegation = previous; bridgeWindowOperation = previousOperation; }
+    }
+
+    @Override public void smashWindow(IsoWindow window) {
+        checkedWindowAction(window, "smash", () -> super.smashWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoWindow window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoWindow window, Integer flags) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window, flags));
+    }
+    @Override public void climbThroughWindow(IsoThumpable window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoThumpable window, Integer flags) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window, flags));
+    }
+    @Override public void climbThroughWindowFrame(IsoWindowFrame window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindowFrame(window));
+    }
+    @Override public void climbThroughWindow(IsoObject window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
+    public static final int RESERVED_NON_LOCAL_PLAYER_INDEX = 3;
+    private volatile boolean bridgeCoopLeaderForProbe;
+    private volatile boolean coldBootstrapHiddenForProbe;
+    private final SCCompanionComfort bridgeComfort = new SCCompanionComfort();
+    private final SCCompanionDriver bridgeDriver = new SCCompanionDriver();
+
+    /** The bridge's driving state for this companion. Package-private: Lua goes through SCBridge. */
+    SCCompanionDriver companionDriver() {
+        return bridgeDriver;
+    }
+
+    /** Live Mod Options affect only this native companion's ordinary cold. */
+    public void setCompanionOrdinaryColdsEnabled(boolean enabled) {
+        bridgeComfort.setOrdinaryColdsEnabled(enabled, getBodyDamage());
+    }
+
+    /** Controls both the native symptom timer and scripted gesture admission. */
+    public void setCompanionSymptomMode(String mode) {
+        bridgeComfort.setSymptomMode(mode, getBodyDamage());
+    }
+
+    public boolean canCompanionScriptedSymptom() {
+        return bridgeComfort.canScriptedSymptom();
+    }
+
+    public boolean noteCompanionScriptedSymptom() {
+        return bridgeComfort.noteScriptedSymptom();
+    }
+
+    void hideColdBootstrapForProbe() {
+        coldBootstrapHiddenForProbe = true;
+        setSceneCulled(true);
+    }
+
+    int bridgeExpectedPlayerIndex() {
+        return bridgeCoopLeaderForProbe ? 1 : RESERVED_NON_LOCAL_PLAYER_INDEX;
+    }
+
+    boolean isCoopLeaderForProbe() {
+        return bridgeCoopLeaderForProbe;
+    }
+
+    void markCoopLeaderForProbe() {
+        bridgeCoopLeaderForProbe = true;
+        playerIndex = 1;
+    }
+
+    void unmarkCoopLeaderForProbe() {
+        bridgeCoopLeaderForProbe = false;
+        playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+    }
+    private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
+    private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
+    private static final Method PLAYER_ENDURANCE_UPDATE = resolveDeclaredNoArg(IsoPlayer.class, "updateEndurance");
+    private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
+    private static final Method PLAYER_EMITTER_UPDATE = resolvePlayerEmitterUpdate();
+    private static final Method COMBAT_MANAGER_INSTANCE = resolveStatic("zombie.CombatManager", "getInstance");
+    private static final Method SWIPE_STATE_INSTANCE = resolveStatic("zombie.ai.states.SwipeStatePlayer", "instance");
+    private static final Method ATTACK_COLLISION_CHECK = resolveAttackCollisionCheck();
+    private static final Method GET_USE_HAND_WEAPON = resolveNoArg(IsoGameCharacter.class, "getUseHandWeapon");
+    private static final Method GET_PRIMARY_HAND_ITEM = resolveNoArg(IsoGameCharacter.class, "getPrimaryHandItem");
+    private static final Method GET_ATTACK_TYPE = resolveNoArg(IsoPlayer.class, "getAttackType");
+    private static final Method COMBAT_MANAGER_GET_WEAPON = resolveCombatManagerGetWeapon();
+    private static final Method WEAPON_IS_AIMED_FIREARM = resolveWeaponIsAimedFirearm();
+    private static final Method UPDATE_AIMING_DELAY =
+            resolveNoArg(IsoGameCharacter.class, "updateAimingDelay");
+    private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
+    private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
+    private static final Method WEAPON_ZOMBIE_HIT_SOUND = resolveWeaponZombieHitSound();
+    private static final Method WEAPON_IS_RANGED = resolveWeaponIsRanged();
+    private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
+    private static final Method RANGED_SHOOT_SOUND = resolvePlayerMethod("playRangedWeaponShootSound", String.class);
+    private static final Method UNLIMITED_AMMO = resolvePlayerMethod("isUnlimitedAmmo");
+    private static final Method CHAT_ELEMENT_UPDATE = resolveNoArg(ChatElement.class, "update");
+    /** Lazy metadata only: resolving Bullet must not initialize its native
+     * state while the bridge itself is loading. No lookups run per aim tick. */
+    private static final class BallisticAccess {
+        static final Class<?> CONTROLLER = resolveBallisticClass("zombie.core.physics.BallisticsController");
+        static final Class<?> TARGET = resolveBallisticClass("zombie.core.physics.BallisticsTarget");
+        static final Class<?> VECTOR = resolveBallisticClass("zombie.iso.Vector3");
+        static final Class<?> BULLET = resolveBallisticClass("zombie.core.physics.Bullet");
+        static final Method GET_CONTROLLER = resolveBallisticMethod(IsoGameCharacter.class, "getBallisticsController");
+        static final Method GET_RETICLE = resolveBallisticMethod(CONTROLLER, "getIsoAimingPosition");
+        static final Method GET_ID = resolveBallisticMethod(CONTROLLER, "getID");
+        static final Method CAMERA_TARGETS = resolveBallisticMethod(CONTROLLER, "getCameraTargets", float.class, boolean.class);
+        static final Method HAS_CAMERA_TARGET = resolveBallisticMethod(CONTROLLER, "hasBallisticsTarget");
+        static final Method UPDATE_CONTROLLER = resolveBallisticMethod(CONTROLLER, "update");
+        static final Method SET_VECTOR = resolveBallisticMethod(VECTOR, "set", float.class, float.class, float.class);
+        static final Field X = resolveBallisticField(VECTOR, "x");
+        static final Field Y = resolveBallisticField(VECTOR, "y");
+        static final Field Z = resolveBallisticField(VECTOR, "z");
+        static final Method IS_PRONE = resolveBallisticMethod(IsoGameCharacter.class, "isProne");
+        static final Method AIM_HEIGHT = resolveBallisticMethod(IsoGameCharacter.class, "getAimOriginPosZ");
+        static final Method UPDATE_RETICLE = resolveBallisticMethod(BULLET, "updateBallisticsAimReticlePosition",
+                int.class, float.class, float.class, float.class);
+        static final Method MAX_RANGE = resolveBallisticMethod(HandWeapon.class, "getMaxRange", IsoGameCharacter.class);
+        static final Method RANGE_MOD = resolveBallisticMethod(HandWeapon.class, "getRangeMod", IsoGameCharacter.class);
+        static final Method ENSURE_TARGET = resolveBallisticMethod(IsoGameCharacter.class,
+                "ensureExistsBallisticsTarget", IsoGameCharacter.class);
+        static final Method ADD_TARGET = resolveBallisticMethod(TARGET, "add");
+
+        static void requireReticle() throws ReflectiveOperationException {
+            if (GET_CONTROLLER == null || GET_RETICLE == null || SET_VECTOR == null
+                    || X == null || Y == null || Z == null) {
+                throw new ReflectiveOperationException("Native ballistic reticle interface is unavailable");
+            }
+        }
+    }
+    private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
+    private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
+    private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
+
+    private volatile boolean bridgeDisabled;
+    // The game's ordinary setter refuses ZOMBIES_DONT_ATTACK without a player
+    // cheat role. A story passenger needs a private, temporary exemption while
+    // sealed inside her vehicle; never change the player's cheat permissions.
+    private transient volatile boolean bridgeStoryZombieIgnored;
+    // Set only by the exact acknowledged remote-arrival lease. The on-disk
+    // companion now owns this logical character; these old native objects are
+    // inert cleanup subjects until their world membership is fully retired.
+    private transient volatile boolean bridgeRemoteArrivalRetired;
+    private volatile String bridgeFailure = "";
+    private volatile boolean bridgeDeathStarted;
+    private volatile boolean corpseReady;
+    private volatile IsoDeadBody bridgeCorpse;
+    private volatile boolean bridgeCorpseListedAtCallback;
+    private volatile boolean bridgeMoving;
+    // A dying but still human companion uses the player's supported limp blend.
+    // The native wound value remains authoritative when a real injury is worse.
+    private volatile float bridgeLateKnoxGait;
+    private volatile boolean bridgeMoveRequested;
+    private volatile boolean bridgePathActive;
+    // review 3.1: reconcile a phantom-active path. Track whether the current path
+    // request has actually started moving and when it began, so a path that ends
+    // naturally (reached goal / failed / cancelled) clears bridgePathActive instead
+    // of leaving isMoving()/hasPendingMovement() reporting movement indefinitely.
+    private volatile boolean bridgePathStartedThisRun;
+    private volatile boolean bridgePathRouteReady;
+    private volatile boolean bridgePathStopping;
+    private volatile long bridgePathStartNanos;
+    private volatile float bridgeMoveDistance;
+    private volatile float bridgeMoveX;
+    private volatile float bridgeMoveY;
+    private volatile float bridgeMoveSoundDelta;
+    private volatile long bridgeMoveExpiresNanos;
+    private volatile boolean bridgeMoveHasTarget;
+    private volatile float bridgeMoveTargetX;
+    private volatile float bridgeMoveTargetY;
+    private volatile float bridgeMoveTargetZ;
+    private volatile float bridgeMoveArrivalTolerance;
+    private static final long MANUAL_INPUT_LIFETIME_NANOS = 250_000_000L;
+    private static final long FIRST_MANUAL_INPUT_GRACE_NANOS = 1_000_000_000L;
+    private boolean bridgeMoveFirstPending;
+    private long bridgeMoveFirstUntilNanos, bridgeLateFirstInputs;
+    /**
+     * Speed a companion keeps while pushing through a hedge or tall bush.
+     *
+     * <p>A hedge square carries no IsoTree to ask, so this stands in for
+     * {@code IsoTree.getSlowFactor}. It is the engine's own strongest foliage
+     * slow -- the value that method returns for a full-grown tree.
+     */
+    static final float FOLIAGE_SLOW_FACTOR = 0.5f;
+    private volatile boolean bridgeTacticalMovement;
+    private volatile float bridgeStrafeX;
+    private volatile float bridgeStrafeY;
+    private boolean bridgeTacticalFacingSet;
+    private float bridgeTacticalFacingX, bridgeTacticalFacingY;
+    private volatile int bridgeNextSpeechDisplayMillis;
+    private volatile String bridgeSpeechLine;
+    private SCCompanionSpeechRows bridgeSpeechRows;
+    private volatile long bridgeSpeechRefreshUntilNanos;
+    // ClimbOverWallState computes its normal player success/struggle/fail roll
+    // only for a local IsoPlayer. This flag is true solely inside the synchronous
+    // companion wall-climb submission below; it is cleared before Lua regains
+    // control and never makes the actor a split-screen/local-player singleton.
+    private volatile boolean bridgeWallClimbOutcomeContext;
+    // Only the synchronous native radio dispatch below may expose the
+    // receiver to WaveSignalDevice's local-player text callback.
+    private volatile boolean bridgeRadioTextContext;
+    // Inherited contextual-action submissions refused for this non-local actor.
+    private volatile long bridgeSuppressedContextualActions;
+    private volatile String bridgeLastSuppressedContextualAction = "";
+    private volatile long bridgePostUpdateCount;
+    private final Vector3f bridgePelvisWorld = new Vector3f();
+    private long bridgePelvisSamplePostUpdateCount = Long.MIN_VALUE;
+    private boolean bridgePelvisSampleValid;
+    private volatile SCWorldPeeStreamRenderer.Stream bridgePeeStream;
+    private final long[] bridgePeeStreamDepthDrawNanos = new long[4];
+    private volatile long bridgePeeStreamDepthSubmissionCount;
+    private volatile String bridgePeeStreamDepthFailure = "";
+    // The bed pose remains at its native world Z. Only the active model camera
+    // reads this lift while this companion's render call is in progress.
+    private transient volatile float bridgeOnBedRenderLift;
+    private transient volatile IsoGridSquare bridgeOnBedRenderSquare;
+    private transient volatile Thread bridgeOnBedRenderThread;
+    private transient volatile zombie.iso.IsoObject bridgeSleepModelBed;
+    private transient volatile float bridgeSleepModelX, bridgeSleepModelY, bridgeSleepModelZ;
+    private volatile String bridgePostUpdateDiagnostic = "not_run";
+    private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
+    private final MovementProbe bridgeLastCollisionProbe = new MovementProbe();
+    private long bridgeInvalidMovementCount;
+    private String bridgeInvalidMovementEvidence = "none";
+    private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
+    // Keep the construction cell independently of mutable square references so
+    // a cleanup retry can still remove scheduler membership after an earlier
+    // attempt already cleared current/render/moving squares.
+    private final IsoCell bridgeCell;
+    // Monotonic evidence that a native swing reached its animation-owned impact
+    // frame. The accompanying target/result fields let Lua consume the native
+    // collision outcome without fabricating a second hit after the animation.
+    private volatile int bridgeAttackCollisionSerial;
+    private volatile int bridgeAttackCollisionHitCount;
+    private volatile zombie.iso.IsoMovingObject bridgeAttackCollisionTarget;
+    private volatile boolean bridgeAttackCollisionTargetHit;
+    private SCCompanionFirearmProtection.Shot bridgeFirearmProtection;
+    // CB-09. The completed-hit serial above advances only when the native
+    // collision returns normally. A reflective throw used to leave no trace at
+    // all, so Lua saw a timeout even though the call may already have damaged
+    // one target before failing -- and a timeout invites a retry. These three
+    // are a terminal-receipt channel that is published on BOTH paths, and they
+    // are deliberately separate counters so no existing consumer can read a
+    // failure as a hit.
+    // Diagnostic count of native path steps held at a closed door, so the
+    // guard's effect is observable rather than inferred.
+    private volatile long bridgePathDoorHolds;
+    private volatile long bridgeSwingSounds;
+    private volatile long bridgeAimingDelayUpdates;
+    private volatile String bridgeAimingDelayFailure = "";
+    private volatile long bridgeSwingSoundEvents;
+    private volatile String bridgeSwingSoundFailure = "";
+    private volatile long bridgeGunshotSounds;
+    private volatile long bridgeGunshotSoundHandle;
+    private volatile String bridgeGunshotSoundName = "";
+    private volatile long bridgeHitSounds;
+    private volatile long bridgeHitSoundEvents;
+    private volatile String bridgeHitSoundFailure = "";
+    private volatile int bridgeAttackAttemptSerial;
+    private volatile int bridgeAttackReceiptSerial;
+    private volatile String bridgeAttackReceiptOutcome = "none";
+    private volatile String bridgeAttackReceiptCause = "";
+    private boolean bridgeFloorInputArmed;
+    private boolean bridgeFloorInputStomp;
+    private boolean bridgeFloorInputObservedSwing;
+    private long bridgeFloorInputStartDeadline;
+    private long bridgeFloorInputHardDeadline;
+    private boolean genericUpdateActive;
+    private final Set<BaseAction> bridgePendingActionStarts = ConcurrentHashMap.newKeySet();
+    private volatile String bridgeActionStartFailure = "";
+    // A recoverable exception in the vanilla update chain (e.g. an animation-
+    // variable slot that is momentarily null on this non-local actor) must not
+    // be fatal: disabling the bridge makes the runtime health gate remove and
+    // respawn the companion, dropping its gear. Tolerate a bounded window of such
+    // frames -- the local player is restored each time -- and only give up (self-
+    // healing via respawn) if the failures persist past the window.
+    private long firstUpdateFailureNanos;
+    private long firstPostUpdateFailureNanos;
+    private static final long MAX_TRANSIENT_UPDATE_NANOS = 3_000_000_000L;
+    // A path request that has not begun moving via pathfind within this window is
+    // treated as failed to start, so a phantom-active path clears rather than
+    // pinning the movement flags forever.
+    private static final long PATH_START_GRACE_NANOS = 6_500_000_000L;
+
+    public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
+        super(cell, descriptor, x, y, z, false);
+        // Construction precedes any dialogue. Keep the stock chat settings and
+        // behavior, changing only this companion's final screen-space anchor.
+        chatElement = new CompanionChatElement(this,
+                chatElement.getMaxChatLines(), chatElement.getTalkerType());
+        bridgeCell = cell;
+        bridgeComfort.applyDefaults(getBodyDamage());
+        playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+        serverPlayerIndex = -1;
+        setNpc(true);
+        // SurvivorDesc defaults to the female voice prefix independently of its
+        // sex flag. playerVoiceSound() composes every pain/death event from this
+        // prefix, so normalize it for every construction path (including restore
+        // and real-JAR probes), not only the ordinary spawn request.
+        descriptor.setVoicePrefix(descriptor.isFemale() ? "VoiceFemale" : "VoiceMale");
+        descriptor.setInstance(this);
+        addOnDiedListener((character, body) -> {
+            bridgeCorpse = body;
+            var square = body == null ? null : body.getSquare();
+            bridgeCorpseListedAtCallback = square != null
+                    && square.getStaticMovingObjects() != null
+                    && square.getStaticMovingObjects().contains(body);
+            corpseReady = body != null;
+        }, false);
+    }
+
+    /**
+     * The shared co-op PvP switch lets the player hit hostile and unrecruited
+     * NPCs. A separate per-target marker, maintained by Lua relationship
+     * transitions, protects only a current ally when the user enables it.
+     * Check before vanilla Hit emits OnWeaponHitCharacter or applies damage,
+     * so a blocked shove, stomp, shot, or swing cannot count as a strike.
+     */
+    @Override
+    public float Hit(HandWeapon weapon, IsoGameCharacter wielder, float damageSplit,
+            boolean ignoreDamage, float modDelta, boolean remote) {
+        if (bridgeRemoteArrivalRetired) return 0.0f;
+        if (blocksPlayerWeaponHit(wielder)) return 0.0f;
+        return super.Hit(weapon, wielder, damageSplit, ignoreDamage, modDelta, remote);
+    }
+
+    @Override
+    public boolean isGodMod() {
+        return bridgeRemoteArrivalRetired || super.isGodMod();
+    }
+
+    @Override
+    public boolean isInvulnerable() {
+        return bridgeRemoteArrivalRetired || super.isInvulnerable();
+    }
+
+    void markRemoteArrivalRetired() { bridgeRemoteArrivalRetired = true; }
+
+    void protectRemoteArrivalRetirement() { setGodMod(true, true); }
+
+    void finishRemoteArrivalRetirement(boolean originalGodMode) {
+        setGodMod(originalGodMode, true);
+        bridgeRemoteArrivalRetired = false;
+    }
+
+    boolean isRemoteArrivalRetired() { return bridgeRemoteArrivalRetired; }
+
+    boolean blocksPlayerWeaponHit(IsoGameCharacter wielder) {
+        if (!SCBridge.isProtectRecruitedCompanions() || !SCBridge.isCompanion(this)
+                || IsoPlayer.players == null || IsoPlayer.players.length == 0
+                || wielder == null || wielder != IsoPlayer.players[0]) return false;
+        KahluaTable data = getModData();
+        return data != null && Boolean.TRUE.equals(data.rawget("SC_PlayerAttackProtected"));
+    }
+
+    /**
+     * CombatManager splashes blood on its target and may knock off a helmet
+     * before it calls Hit, so the Hit gate alone would leave those marks on a
+     * protected ally. Recognise the local player's current swing by its own hit
+     * list, which the game fills with that swing's targets before either step.
+     */
+    boolean protectedFromLocalSwing() {
+        if (IsoPlayer.players == null || IsoPlayer.players.length == 0) return false;
+        IsoPlayer player = IsoPlayer.players[0];
+        if (player == null || !blocksPlayerWeaponHit(player)) return false;
+        ArrayList<HitInfo> hits = player.getHitInfoList();
+        if (hits == null) return false;
+        for (int index = 0; index < hits.size(); index++) {
+            HitInfo hit = hits.get(index);
+            if (hit != null && hit.getObject() == this) return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean helmetFall(boolean hitHead) {
+        if (protectedFromLocalSwing()) return false;
+        return super.helmetFall(hitHead);
+    }
+
+    @Override
+    public void addBlood(BloodBodyPartType part, boolean scratched, boolean bitten,
+            boolean allLayers) {
+        if (protectedFromLocalSwing()) return;
+        super.addBlood(part, scratched, bitten, allLayers);
+    }
+
+    /**
+     * Vanilla's Lua timed-action queue calls StartAction while Kahlua is still
+     * inside the Lua -> Java invocation that enqueued the action. StartAction
+     * immediately calls back into Lua and corrupts Kahlua's pooled return frame
+     * for this non-local IsoPlayer (ReturnValues.put then dereferences a null
+     * callFrame). Defer only the native start; the Lua queue already owns and
+     * tracks the action synchronously.
+     */
+    @Override
+    public void StartAction(BaseAction action) {
+        if (action == null || bridgeDisabled || bridgeRemoteArrivalRetired) return;
+        bridgeActionStartFailure = "";
+        if (!bridgePendingActionStarts.add(action)) return;
+        try {
+            SCBridge.queueCompanionActionStart(this, action);
+        } catch (RejectedExecutionException failure) {
+            bridgePendingActionStarts.remove(action);
+            bridgeActionStartFailure = "native action start hand-off is unavailable";
+        }
+    }
+
+    void completeDeferredActionStart(BaseAction action) {
+        if (!bridgePendingActionStarts.remove(action) || bridgeDisabled || bridgeRemoteArrivalRetired) return;
+        try {
+            super.StartAction(action);
+        } catch (RuntimeException | LinkageError failure) {
+            bridgeActionStartFailure = "native action start failed: "
+                    + failure.getClass().getSimpleName() + cleanMessage(failure.getMessage());
+        }
+    }
+
+    /**
+     * The hand-off thread could not queue the start. Release the pending slot
+     * and record why, so Lua sees a failed start rather than one that never
+     * resolves. Safe off the main thread: both fields are thread-safe.
+     */
+    void failDeferredActionStart(BaseAction action, String failure) {
+        if (bridgePendingActionStarts.remove(action)) {
+            bridgeActionStartFailure = failure;
+        }
+    }
+
+    /** Kahlua-safe ownership probe used during the deferred-start frame. */
+    public boolean isCompanionActionStartPending(BaseAction action) {
+        return action != null && bridgePendingActionStarts.contains(action);
+    }
+
+    /** Prevent a cancelled Lua action from starting after its hand-off arrives. */
+    public boolean cancelCompanionPendingAction(BaseAction action) {
+        return action != null && bridgePendingActionStarts.remove(action);
+    }
+
+    public String getCompanionActionStartFailure() {
+        return bridgeActionStartFailure;
+    }
+
+    @Override
+    public boolean isLocalPlayer() {
+        return bridgeWallClimbOutcomeContext || bridgeRadioTextContext;
+    }
+
+    @Override
+    public boolean isZombiesDontAttack() {
+        return bridgeStoryZombieIgnored || super.isZombiesDontAttack();
+    }
+
+    void setStoryZombieIgnored(boolean enabled) {
+        bridgeStoryZombieIgnored = enabled;
+    }
+
+    void beginCompanionRadioTextContext() {
+        if (bridgeRadioTextContext || bridgeWallClimbOutcomeContext) {
+            throw new IllegalStateException("companion local callback context is already active");
+        }
+        bridgeRadioTextContext = true;
+    }
+
+    void endCompanionRadioTextContext() {
+        bridgeRadioTextContext = false;
+    }
+
+    boolean isCompanionRadioTextContextActive() {
+        return bridgeRadioTextContext;
+    }
+
+    /** Kahlua-safe diagnostic view of the otherwise unexposed ActionContext. */
+    public String getCompanionActionGroupName() {
+        if (getActionContext() == null || getActionContext().getGroup() == null) return "";
+        String name = getActionContext().getGroup().getName();
+        return name == null ? "" : name;
+    }
+
+    /** Kahlua-safe diagnostic view of the active root player-action state. */
+    public String getCompanionActionStateName() {
+        if (getActionContext() == null) return "";
+        String name = getActionContext().getCurrentStateName();
+        return name == null ? "" : name;
+    }
+
+    /** The transition the stock player graph would select on its next update. */
+    public String getCompanionNextActionStateName() {
+        if (getActionContext() == null) return "";
+        ActionState state = getActionContext().peekNextState();
+        return state == null || state.getName() == null ? "" : state.getName();
+    }
+
+    /**
+     * Kahlua-safe names of the animation clips that are visibly contributing this
+     * frame. This lets the live harness prove that the stock player graph selected
+     * Bob_Walk/Bob_Run clips, rather than inferring animation solely from flags.
+     */
+    public String getCompanionActiveAnimationNames() {
+        try {
+            AnimationPlayer player = getAnimationPlayer();
+            if (player == null) return "";
+            AnimationMultiTrack multiTrack = player.getMultiTrack();
+            if (multiTrack == null) return "";
+            StringBuilder names = new StringBuilder();
+            int added = 0;
+            for (AnimationTrack track : multiTrack.getTracks()) {
+                if (track == null || !track.isPlaying || !track.hasClip()
+                        || track.getBlendWeight() <= 0.001f) {
+                    continue;
+                }
+                String name = track.getName();
+                if (name == null || name.isBlank()) continue;
+                if (names.length() > 0) names.append('|');
+                names.append(name);
+                if (++added >= 16) break;
+            }
+            return names.toString();
+        } catch (RuntimeException | LinkageError failure) {
+            return "";
+        }
+    }
+
+    /** Exact world-space pelvis point, sampled once per native postupdate pass. */
+    private boolean refreshCompanionPelvisWorld() {
+        long postUpdateCount = bridgePostUpdateCount;
+        if (bridgePelvisSamplePostUpdateCount != postUpdateCount) {
+            bridgePelvisSamplePostUpdateCount = postUpdateCount;
+            bridgePelvisSampleValid = false;
+            try {
+                AnimationPlayer player = getAnimationPlayer();
+                if (player != null
+                        && player.getSkinningBoneIndex("Bip01_Pelvis", -1) >= 0) {
+                    Vector3f point = player.getBoneWorldPosition(
+                            SkeletonBone.Bip01_Pelvis, bridgePelvisWorld);
+                    bridgePelvisSampleValid = point != null
+                            && Float.isFinite(point.x)
+                            && Float.isFinite(point.y)
+                            && Float.isFinite(point.z);
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // A model without initialized bone transforms has no sample yet.
+            }
+        }
+        return bridgePelvisSampleValid;
+    }
+
+    public float getCompanionPelvisWorldX() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.x : Float.NaN;
+    }
+
+    public float getCompanionPelvisWorldY() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.y : Float.NaN;
+    }
+
+    public float getCompanionPelvisWorldZ() {
+        return refreshCompanionPelvisWorld() ? bridgePelvisWorld.z : Float.NaN;
+    }
+
+    /** Keep the world effect synchronized with the Lua hygiene animation. */
+    public boolean setCompanionPeeStream(double sourceX, double sourceY,
+            double sourceZ, double targetX, double targetY) {
+        if (!SCWorldPeeStreamRenderer.valid(this, sourceX, sourceY,
+                sourceZ, targetX, targetY)) {
+            clearCompanionPeeStream();
+            return false;
+        }
+        bridgePeeStream = new SCWorldPeeStreamRenderer.Stream(
+                (float) sourceX, (float) sourceY, (float) sourceZ,
+                (float) targetX, (float) targetY,
+                System.nanoTime() + 800_000_000L);
+        return true;
+    }
+
+    public void clearCompanionPeeStream() {
+        bridgePeeStream = null;
+        for (int index = 0; index < bridgePeeStreamDepthDrawNanos.length; index++) {
+            bridgePeeStreamDepthDrawNanos[index] = 0L;
+        }
+    }
+
+    /** Lua skips its approximate screen mask only after a recent world draw. */
+    public boolean isCompanionPeeStreamDepthReady(int playerIndex) {
+        if (playerIndex < 0 || playerIndex >= bridgePeeStreamDepthDrawNanos.length
+                || bridgePeeStream == null) return false;
+        long last = bridgePeeStreamDepthDrawNanos[playerIndex];
+        return last > 0L && System.nanoTime() - last < 500_000_000L;
+    }
+
+    public String getCompanionPeeStreamDepthFailure() {
+        return bridgePeeStreamDepthFailure;
+    }
+
+    /** Counts queued world stream batches, not completed GPU frames. */
+    public long getCompanionPeeStreamDepthSubmissionCount() {
+        return bridgePeeStreamDepthSubmissionCount;
+    }
+
+    void setBridgeOnBedRenderLift(float lift, IsoGridSquare pillowSquare) {
+        bridgeOnBedRenderSquare = pillowSquare;
+        bridgeOnBedRenderLift = lift;
+    }
+
+    void clearBridgeOnBedRenderLift() {
+        bridgeOnBedRenderLift = 0.0f;
+        bridgeOnBedRenderSquare = null;
+    }
+
+    float getBridgeOnBedRenderLift() {
+        return bridgeOnBedRenderLift;
+    }
+
+    @Override
+    public float getX() {
+        return super.getX() + (bridgeSleepModelX != 0.0f && bridgeOnBedRenderThread == Thread.currentThread()
+                ? bridgeSleepModelX : 0.0f);
+    }
+
+    @Override
+    public float getY() {
+        return super.getY() + (bridgeSleepModelY != 0.0f && bridgeOnBedRenderThread == Thread.currentThread()
+                ? bridgeSleepModelY : 0.0f);
+    }
+
+    void setSleepModelOffset(zombie.iso.IsoObject bed, float x, float y, float z) {
+        bridgeSleepModelX = x;
+        bridgeSleepModelY = y;
+        bridgeSleepModelZ = z;
+        bridgeSleepModelBed = bed;
+    }
+
+    void clearSleepModelOffset() {
+        bridgeSleepModelBed = null;
+        bridgeSleepModelX = bridgeSleepModelY = bridgeSleepModelZ = 0.0f;
+    }
+
+    @Override
+    public float getZ() {
+        float physicalZ = super.getZ();
+        return bridgeOnBedRenderThread == Thread.currentThread()
+                ? physicalZ + bridgeOnBedRenderLift + bridgeSleepModelZ : physicalZ;
+    }
+
+    @Override
+    public void render(float x, float y, float z, ColorInfo color,
+            boolean bDoChild, boolean bWallLightingPass, Shader shader) {
+        IsoGridSquare pillow = bridgeOnBedRenderSquare;
+        boolean liftModel = bridgeOnBedRenderLift > 0.0f && pillow != null
+                && isOnBed() && getCurrentSquare() == pillow
+                && getMovingSquare() == pillow && square == pillow
+                && (int) Math.floor(getX()) == pillow.getX()
+                && (int) Math.floor(getY()) == pillow.getY();
+        Thread previousRenderThread = bridgeOnBedRenderThread;
+        zombie.iso.IsoObject bed = bridgeSleepModelBed;
+        boolean alignModel = bed != null && bed.getObjectIndex() >= 0
+                && isOnBed() && getSitOnFurnitureObject() == bed;
+        if (liftModel || alignModel) bridgeOnBedRenderThread = Thread.currentThread();
+        try {
+            super.render(x, y, z, color, bDoChild, bWallLightingPass, shader);
+        } finally {
+            // The model camera captures virtual getZ() during super.render().
+            // Other world and physics reads must always see the physical Z.
+            if (liftModel || alignModel) bridgeOnBedRenderThread = previousRenderThread;
+        }
+        try {
+            int playerIndex = SCWorldPeeStreamRenderer.queue(this, bridgePeeStream);
+            if (playerIndex >= 0) {
+                bridgePeeStreamDepthDrawNanos[playerIndex] = System.nanoTime();
+                bridgePeeStreamDepthSubmissionCount++;
+                bridgePeeStreamDepthFailure = "";
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            for (int index = 0; index < bridgePeeStreamDepthDrawNanos.length; index++) {
+                bridgePeeStreamDepthDrawNanos[index] = 0L;
+            }
+            bridgePeeStreamDepthFailure = failure.getClass().getSimpleName()
+                    + ": " + String.valueOf(failure.getMessage());
+        }
+    }
+
+    /** Whether all Build 42 transition conditions currently permit melee. */
+    public boolean canCompanionTransitionToMelee() {
+        return getActionContext() != null
+                && getActionContext().canTransitionToState("melee");
+    }
+
+    /**
+     * Compact live diagnostic proving whether the engine-owned postupdate pass
+     * consumed a companion attack request through the ordinary player action
+     * graph. This is intentionally read-only and safe to expose to Kahlua.
+     */
+    /**
+     * addToWorld()/setCurrentSquare() only reliably register a manually
+     * constructed non-local actor into the cell's deferred add list, so the
+     * MovingObjectUpdateScheduler (which iterates IsoCell.getObjectList()) never
+     * ticks it while it is stationary. Force live object-list membership so the
+     * companion is simulated every frame like a normal character.
+     */
+    public boolean ensureScheduled() {
+        if (bridgeDisabled) return false;
+        try {
+            zombie.iso.IsoCell cell = bridgeCell;
+            if (cell == null) return false;
+            if (!isDead() && getVehicle() == null && !ensureWorldMembership()) return false;
+            java.util.Set<zombie.iso.IsoMovingObject> list = cell.getObjectList();
+            if (list == null) return false;
+            if (!list.contains(this)) list.add(this);
+            return list.contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Maintain the square-list half of live world ownership. Build 42 can drop
+     * this manually constructed non-local IsoPlayer from its render square's
+     * moving-object list while retaining all three square references. Repairing
+     * that one list directly is idempotent and avoids a destructive retire/
+     * persistence-respawn cycle (and avoids replaying addToWorld side effects).
+     */
+    public boolean ensureWorldMembership() {
+        if (bridgeDisabled || isDead() || getVehicle() != null) return true;
+        try {
+            zombie.iso.IsoGridSquare square = getSquare();
+            if (square == null || square.getCell() != bridgeCell || square.getChunk() == null) {
+                return false;
+            }
+            java.util.ArrayList<zombie.iso.IsoMovingObject> moving = square.getMovingObjects();
+            if (moving == null) return false;
+            if (!moving.contains(this)) moving.add(this);
+            return isExistInTheWorld();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /** Whether this actor is still present in the cell-wide update scheduler. */
+    public boolean isScheduled() {
+        try {
+            IsoCell cell = bridgeCell;
+            return cell != null && cell.getObjectList() != null
+                    && cell.getObjectList().contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Explicitly remove this actor from the cell-wide update scheduler. The
+     * ordinary world/square removal paths do not reliably do this for a
+     * manually constructed non-local IsoPlayer, which leaves a renderable
+     * "shadow" continuing to update after bridge ownership has ended.
+     */
+    public boolean ensureUnscheduled() {
+        try {
+            IsoCell cell = bridgeCell;
+            if (cell == null || cell.getObjectList() == null) return true;
+            cell.getObjectList().remove(this);
+            return !cell.getObjectList().contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * End a native climb that has stopped advancing past the navigation timeout.
+     * Merely cancelling PathFindBehavior2 leaves the legacy Climb*State active;
+     * its native state can remain active and every later route waits on the
+     * same animation. Changing to the stock player state invokes the climb
+     * state's own exit hook, which restores collision/movement flags and clears
+     * its animation variables without translating or recreating the actor.
+     */
+    public boolean cancelCompanionStuckClimb() {
+        return cancelCompanionTraversal();
+    }
+
+    /**
+     * Submit a tall-wall climb while allowing the stock ClimbOverWallState to
+     * roll the same skill, moodle, trait, load, sandbox and random outcome used
+     * by the local player. The actor remains a non-local NPC before and after
+     * this synchronous call; only vanilla's setParams calculation observes the
+     * temporary context.
+     */
+    public boolean climbCompanionOverWall(IsoDirections direction) {
+        if (bridgeDisabled || direction == null || bridgeWallClimbOutcomeContext) return false;
+        bridgeWallClimbOutcomeContext = true;
+        try {
+            return super.climbOverWall(direction);
+        } finally {
+            bridgeWallClimbOutcomeContext = false;
+        }
+    }
+
+    /**
+     * Stock ContextualAction handlers (ClimbOverFence, ClimbThroughWindow,
+     * curtains, beds, animals) resolve their character with
+     * getSpecificPlayer(getIndex()), which is nil for this reserved non-local
+     * index, and then queue the local player's Lua timed actions. Inherited Java
+     * entry points such as hopFence(dir, false) fire that hook as their entire
+     * effect, so a companion reaching one raised a Lua error and never moved.
+     * Lua submits native climbs directly; never enter the player's contextual
+     * queue on a companion's behalf.
+     */
+    @Override
+    public void triggerContextualAction(String action) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third, Object fourth) {
+        suppressContextualAction(action);
+    }
+
+    private void suppressContextualAction(String action) {
+        bridgeSuppressedContextualActions++;
+        bridgeLastSuppressedContextualAction = action == null ? "" : action;
+    }
+
+    /** Read-only evidence that an inherited path tried to enter the player's contextual queue. */
+    public String getCompanionContextualActionDiagnostic() {
+        return "suppressed=" + bridgeSuppressedContextualActions
+                + ",last=" + bridgeLastSuppressedContextualAction;
+    }
+
+    /**
+     * Build 42 fence/window/wall states do not maintain the legacy climbing
+     * field returned by isClimbing(). Observe the actual state owners, including
+     * child states, so a valid vault is not cancelled as a failed start and no
+     * retained manual input can compete with its animation-owned movement.
+     */
+    public boolean isCompanionTraversalActive() {
+        try {
+            if (isClimbing()) return true;
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isTraversalState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isTraversalState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not release another native movement owner.
+            return true;
+        }
+    }
+
+    /**
+     * Is a verified native paired grapple holding this companion?
+     *
+     * <p>Read from the engine's own pair state rather than from any mod record.
+     * {@code IsoGameCharacter} implements {@code IGrappleableWrapper}, so both
+     * sides of the relationship are available on a companion.
+     *
+     * <p>This matters for root motion. {@code IsoGameCharacter.doDeferredMovement()}
+     * adds {@code getGrappleOffset()} to the movement vector whenever
+     * {@code isGrappling()} or {@code isBeingGrappled()} holds -- that offset is
+     * what keeps a grappled victim positioned against its grappler. Discarding
+     * the accumulator during a grapple therefore pulls the paired animation
+     * apart: the clip plays while the collision body stays where it was.
+     *
+     * <p>Verified against the pinned 42.20.4 JAR; see
+     * docs/combat-native-capabilities.md.
+     */
+    public boolean isCompanionNativeGrappleActive() {
+        try {
+            return isBeingGrappled() || isGrappling();
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not silently release a movement owner.
+            return false;
+        }
+    }
+
+    /**
+     * Is this companion the carrier in Build 42's corpse-drag grapple?
+     *
+     * <p>{@code PlayerDraggingCorpse} deliberately reuses the grapple pair,
+     * but unlike a combat grapple it does not own the carrier's translation:
+     * player input keeps moving the carrier while the paired corpse follows.
+     * Treating every {@code isGrappling()} result as an exclusive body owner
+     * therefore freezes a companion as soon as the pickup animation succeeds.
+     */
+    public boolean isCompanionCorpseDragActive() {
+        try {
+            return isDraggingCorpse();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /** A victim grapple is always exclusive; a carrier grapple is exclusive
+     * only when it is not the stock corpse-drag relationship. */
+    public boolean isCompanionExclusiveGrappleActive() {
+        try {
+            return exclusiveGrappleOwnsBody(
+                    isBeingGrappled(), isGrappling(), isDraggingCorpse());
+        } catch (RuntimeException | LinkageError failure) {
+            // Do not release a possibly hostile pair when observation fails.
+            return true;
+        }
+    }
+
+    /** Pure form of the corpse-drag exception, kept testable without a live pair. */
+    static boolean exclusiveGrappleOwnsBody(boolean beingGrappled,
+            boolean grappling, boolean draggingCorpse) {
+        return beingGrappled || (grappling && !draggingCorpse);
+    }
+
+    private static boolean isTraversalState(State state) {
+        if (state == null) return false;
+        String name = state.getClass().getSimpleName();
+        return name.startsWith("Climb") || name.equals("OpenWindowState")
+                || name.equals("SmashWindowState");
+    }
+
+    /**
+     * Player-side states in which the engine itself owns the companion's
+     * position and facing: an incoming hit, a stagger, a knockdown, lying on
+     * the floor, and getting back up.
+     *
+     * <p>Exact names, matched whole, taken from the pinned 42.20.4 JAR rather
+     * than from a substring guess -- {@code SCNativeApiSignatureTest} resolves
+     * every one of them against the installed game and fails if any is renamed
+     * or removed, so this set cannot silently rot into a classifier that
+     * matches nothing.
+     *
+     * <p>{@code IsoPlayer.updateInternal2()}'s multiplayer block is the engine's
+     * own statement of intent here: it is an allowlist of exactly the states in
+     * which root motion is applied to a character the local machine does not
+     * drive.
+     */
+    private static final java.util.Set<String> NATIVE_REACTION_STATES =
+            java.util.Collections.unmodifiableSet(new java.util.HashSet<>(
+                    java.util.Arrays.asList(
+                            "PlayerHitReactionState", "PlayerHitReactionPVPState",
+                            "StaggerBackState", "PlayerFallDownState",
+                            "PlayerFallingState", "PlayerGetUpState",
+                            "PlayerOnGroundState", "PlayerSitOnGroundState",
+                            "BumpedState", "CollideWithWallState")));
+
+    /** Pure classifier, kept testable without a live state machine. */
+    static boolean isReactionStateName(String name) {
+        return name != null && NATIVE_REACTION_STATES.contains(name);
+    }
+
+    private static boolean isReactionState(State state) {
+        return state != null && isReactionStateName(state.getClass().getSimpleName());
+    }
+
+    /**
+     * Is the engine playing an incoming reaction that owns this companion's
+     * body? Checks child states as well: Build 42 runs several of these as
+     * sub-states of the player action graph.
+     */
+    public boolean isCompanionNativeReactionActive() {
+        try {
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isReactionState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isReactionState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not hand the body back to path or manual
+            // movement mid-reaction; hold the more restrictive answer.
+            return true;
+        }
+    }
+
+    /**
+     * Furniture sit and Get On Bed animations carry their own displacement.
+     * The engine places the actor at an entry point calculated from that
+     * displacement, so dropping root motion leaves the model beside the
+     * chair or mattress despite its native seated/on-bed state.
+     */
+    public boolean isCompanionFurnitureSeatingActive() {
+        try {
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isFurnitureSeatingState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isFurnitureSeatingState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Hold native ownership if the state cannot be read during entry.
+            return true;
+        }
+    }
+
+    private static boolean isFurnitureSeatingState(State state) {
+        if (state == null) return false;
+        String name = state.getClass().getSimpleName();
+        return "PlayerSitOnFurnitureState".equals(name)
+                || "PlayerOnBedState".equals(name);
+    }
+
+    /** Owner names published to Lua. Ordered most exclusive first. */
+    public static final String OWNER_GRAPPLE = "grapple";
+    public static final String OWNER_REACTION = "reaction";
+    public static final String OWNER_TRAVERSAL = "traversal";
+    public static final String OWNER_SEATING = "seating";
+    public static final String OWNER_ATTACK = "attack";
+    public static final String OWNER_CORPSE_DRAG = "corpse_drag";
+    public static final String OWNER_TACTICAL = "tactical";
+    public static final String OWNER_MANUAL = "manual";
+    public static final String OWNER_PATH = "path";
+    public static final String OWNER_NONE = "none";
+
+    /**
+     * The single coherent answer to "who owns this companion's movement and
+     * facing right now", consulted by every movement, facing, root-motion and
+     * path entry point so they cannot disagree with one another.
+     *
+     * <p>Precedence is most-exclusive first. A grapple outranks a reaction
+     * because a held victim is frequently also in an on-ground state, and it is
+     * the grapple offset that positions them against the grappler.
+     */
+    public String getCompanionMovementOwner() {
+        if (isCompanionExclusiveGrappleActive()) return OWNER_GRAPPLE;
+        if (isCompanionNativeReactionActive()) return OWNER_REACTION;
+        if (isCompanionTraversalActive()) return OWNER_TRAVERSAL;
+        if (isCompanionFurnitureSeatingActive()) return OWNER_SEATING;
+        try {
+            if (isAttackStarted() || isPerformingAttackAnimation()) return OWNER_ATTACK;
+        } catch (RuntimeException | LinkageError ignored) {
+            // Fall through: an unreadable attack flag is not an owner claim.
+        }
+        if (isCompanionCorpseDragActive()) return OWNER_CORPSE_DRAG;
+        if (bridgeTacticalMovement) return OWNER_TACTICAL;
+        if (bridgeMoveRequested && bridgeMoving) return OWNER_MANUAL;
+        if (bridgePathActive) return OWNER_PATH;
+        return OWNER_NONE;
+    }
+
+    /**
+     * Does a native state own the body outright this frame? While one does, the
+     * bridge contributes no translation of its own and the engine's root motion
+     * is the only thing that moves the actor -- which is what makes applying
+     * that root motion safe rather than a second displacement.
+     */
+    static boolean ownerIsExclusiveNative(String owner) {
+        return OWNER_GRAPPLE.equals(owner) || OWNER_REACTION.equals(owner)
+                || OWNER_TRAVERSAL.equals(owner) || OWNER_SEATING.equals(owner);
+    }
+
+    private boolean nativeOwnsBody() {
+        return ownerIsExclusiveNative(getCompanionMovementOwner());
+    }
+
+    public boolean cancelCompanionTraversal() {
+        try {
+            // Climb methods enqueue events; cancellation can arrive before the
+            // next ActionContext update has entered the corresponding state.
+            var context = getActionContext();
+            if (context == null) return false;
+            for (String event : new String[] { "EventClimbFence", "EventClimbWall",
+                    "EventClimbWindow", "EventClimbRope", "EventClimbDownRope",
+                    "EventOpenWindow", "EventSmashWindow" }) {
+                context.clearEvent(event);
+            }
+            if (!isCompanionTraversalActive()) return true;
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior != null) behavior.cancel();
+            setMoving(false);
+            var idle = context.getGroup() == null ? null : context.getGroup().findState("idle");
+            if (idle == null) return false;
+            // setCurrentState clears ActionContext children, and changeState
+            // removes native substates through their own exit hooks as well.
+            context.setCurrentState(idle);
+            changeState(IdleState.instance());
+            return !isCompanionTraversalActive()
+                    && getStateMachine().getCurrent() == IdleState.instance();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    public String getCompanionPostUpdateDiagnostic() {
+        return bridgePostUpdateDiagnostic + ",count=" + bridgePostUpdateCount;
+    }
+
+    /** Read-only, retained evidence of the vectors consumed by native physics. */
+    public String getCompanionCollisionDiagnostic() {
+        return "move{" + bridgeLastMovementProbe.describe() + "};collision{"
+                + bridgeLastCollisionProbe.describe() + "};invalid=" + bridgeInvalidMovementCount
+                + ":" + bridgeInvalidMovementEvidence + ";lateFirst=" + bridgeLateFirstInputs;
+    }
+
+    private static final class MovementProbe {
+        long sequence;
+        boolean standalone;
+        boolean polygonCollision;
+        boolean collided;
+        float x, y, nextX, nextY, lastX, lastY, afterX, afterY, afterNextX, afterNextY;
+        String state = "none";
+
+        void record(long sequence, boolean standalone, State state, float x, float y,
+                float nextX, float nextY, float lastX, float lastY, SCNativeCompanion actor) {
+            this.sequence = sequence;
+            this.standalone = standalone;
+            this.state = state == null ? "none" : state.getClass().getSimpleName();
+            this.x = x; this.y = y; this.nextX = nextX; this.nextY = nextY;
+            this.lastX = lastX; this.lastY = lastY;
+            this.afterX = actor.getX(); this.afterY = actor.getY();
+            this.afterNextX = actor.getNextX(); this.afterNextY = actor.getNextY();
+            this.polygonCollision = actor.isCollidedWithVehicle();
+            this.collided = actor.isCollidedThisFrame();
+        }
+
+        String describe() {
+            if (sequence == 0) return "none";
+            return "seq=" + sequence + ",pass=" + (standalone ? "standalone" : "nested")
+                    + ",state=" + state + ",before=" + x + "/" + y
+                    + ",intended=" + nextX + "/" + nextY + ",last=" + lastX + "/" + lastY
+                    + ",after=" + afterX + "/" + afterY
+                    + ",resolved=" + afterNextX + "/" + afterNextY
+                    + ",polygon=" + polygonCollision + ",collided=" + collided;
+        }
+    }
+
+    @Override
+    public void postupdate() {
+        if (bridgeRemoteArrivalRetired) return;
+        if (bridgeDisabled) {
+            return;
+        }
+        guardPhysicsMovement();
+        // The engine runs postupdate() both nested inside update()'s generic pass
+        // and again as its own standalone pass. When nested, update() already owns
+        // the local-player snapshot/restore and exception handling for this frame,
+        // and a second capture/restore here fights the multi-frame swing animation
+        // that advances across nested postupdate calls (it left melee swings stuck
+        // mid-swipe). So only isolate the STANDALONE pass -- the one update() does
+        // not cover, which can otherwise leak player-indexed/singleton ownership
+        // onto the real player (a hotbar-disturbance cause).
+        final boolean standalonePass = !genericUpdateActive;
+        final float physicsX = getX(), physicsY = getY();
+        final float physicsNextX = getNextX(), physicsNextY = getNextY();
+        final float physicsLastX = getLastX(), physicsLastY = getLastY();
+        final State physicsState = getStateMachine().getCurrent();
+        LocalPlayerState localState = null;
+        if (standalonePass) {
+            localState = LocalPlayerState.capture();
+            if (localState == null) {
+                disableBridge("postupdate: unexpected local-player slot layout");
+                return;
+            }
+        }
+        // Reading animation variables/state can throw on this non-local actor
+        // when a named slot is momentarily unregistered. Diagnostics only.
+        String beforeState = "?";
+        String beforeNext = "?";
+        boolean beforeMelee = false;
+        boolean beforeInitiate = false;
+        boolean beforeVariable = false;
+        try {
+            beforeState = getCompanionActionStateName();
+            beforeNext = getCompanionNextActionStateName();
+            beforeMelee = canCompanionTransitionToMelee();
+            beforeInitiate = isInitiateAttack();
+            beforeVariable = getVariableBoolean("initiateAttack");
+        } catch (RuntimeException | LinkageError ignored) {
+            // diagnostics unavailable this frame
+        }
+        if (!standalonePass) {
+            // Nested in update(): run the body only; update() owns isolation and
+            // will catch/tolerate any exception from this chain.
+            applyCompanionAim();
+            applyBridgeMovementFacing();
+            super.postupdate();
+            applyBridgeMovementFacing();
+            bridgePostUpdateCount++;
+        } else {
+            try {
+                // Re-point at the aim target immediately before the engine advances
+                // the swing animation and fires its AttackCollisionCheck.
+                applyCompanionAim();
+                applyBridgeMovementFacing();
+                super.postupdate();
+                applyBridgeMovementFacing();
+                bridgePostUpdateCount++;
+            } catch (RuntimeException | LinkageError failure) {
+                // Restore local ownership, then tolerate a bounded window of these
+                // recoverable frames (same policy as update()) instead of tearing
+                // the companion down -- a health-gate naked respawn.
+                boolean repaired = localState.restore();
+                playerIndex = bridgeExpectedPlayerIndex();
+                serverPlayerIndex = -1;
+                setNpc(true);
+                long now = System.nanoTime();
+                if (firstPostUpdateFailureNanos == 0L) firstPostUpdateFailureNanos = now;
+                if (!repaired) {
+                    disableBridge("native postupdate failed: "
+                            + failure.getClass().getSimpleName()
+                            + cleanMessage(failure.getMessage())
+                            + "; local-player rollback failed");
+                } else if (now - firstPostUpdateFailureNanos > MAX_TRANSIENT_UPDATE_NANOS) {
+                    disableBridge("native postupdate failed: "
+                            + failure.getClass().getSimpleName()
+                            + cleanMessage(failure.getMessage()));
+                } else {
+                    bridgePostUpdateDiagnostic = "postupdate_skipped_transient:"
+                            + failure.getClass().getSimpleName();
+                }
+                return;
+            }
+            // A clean standalone pass mutated only non-local state. Reassert the
+            // non-local identity and restore the local player's slots/singleton/
+            // camera, undoing any player-indexed ownership the vanilla pass borrowed.
+            playerIndex = bridgeExpectedPlayerIndex();
+            serverPlayerIndex = -1;
+            setNpc(true);
+            if (!localState.restore()) {
+                disableBridge("postupdate local-player rollback failed");
+                return;
+            }
+            firstPostUpdateFailureNanos = 0L;
+        }
+        // Retain primitive snapshots, formatting only when diagnostics are read.
+        // A later idle physics pass must not erase the last attempted vector or
+        // collision. Vanilla's "vehicle" flag also covers static polygons.
+        if (physicsNextX != physicsX || physicsNextY != physicsY) {
+            bridgeLastMovementProbe.record(bridgePostUpdateCount, standalonePass, physicsState,
+                    physicsX, physicsY, physicsNextX, physicsNextY, physicsLastX, physicsLastY, this);
+        }
+        if (isCollidedThisFrame() || isCollidedWithVehicle()) {
+            bridgeLastCollisionProbe.record(bridgePostUpdateCount, standalonePass, physicsState,
+                    physicsX, physicsY, physicsNextX, physicsNextY, physicsLastX, physicsLastY, this);
+        }
+        try {
+            bridgePostUpdateDiagnostic = "before=" + beforeState
+                    + ",next=" + beforeNext
+                    + ",canMelee=" + beforeMelee
+                    + ",initiate=" + beforeInitiate
+                    + ",variable=" + beforeVariable
+                    + ",after=" + getCompanionActionStateName()
+                    + ",afterInitiate=" + isInitiateAttack()
+                    + ",performing=" + isPerformingAttackAnimation();
+        } catch (RuntimeException | LinkageError ignored) {
+            bridgePostUpdateDiagnostic = "diagnostic_unavailable";
+        }
+    }
+
+    /**
+     * Build 42's SwipeStatePlayer.OnAnimEvent_AttackCollisionCheck resolves a
+     * melee/ranged hit only for a local player (in multiplayer the server does
+     * it for everyone else). A non-local companion therefore swings, finds valid
+     * targets and animates, but never applies damage in single player. Detect the
+     * same swing event and drive the collision check ourselves. CombatManager's
+     * hit application is gated on isLocalPlayer()||isNpc(), and this actor is an
+     * NPC, so the hit lands. This is the sole place the companion applies a swing.
+     */
+    @Override
+    public void OnAnimEvent(AnimLayer layer, AnimationTrack track, AnimEvent event) {
+        // OpenWindowState.onSuccess only toggles the world object for a local
+        // player. A companion receives the success animation as an NPC, so the
+        // window otherwise stays shut and navigation repeats the same action.
+        // Capture the state's exact target before super dispatches the event;
+        // apply its stock ToggleWindow effect only if vanilla left it closed.
+        // Both halves are guarded like every other bridge hook: a changed
+        // state or window API must cost one window, not the event dispatch
+        // that the rest of this animation update depends on.
+        IsoWindow openedWindow = null;
+        if (!bridgeDisabled && event != null
+                && "WindowOpenSuccess".equalsIgnoreCase(event.eventName)) {
+            try {
+                var machine = getVariableBoolean("bOpenWindow") ? getStateMachine() : null;
+                if (machine != null) {
+                    boolean opening = machine.getCurrent() == OpenWindowState.instance();
+                    for (int index = 0; !opening && index < machine.getSubStateCount(); index++) {
+                        opening = machine.getSubStateAt(index) == OpenWindowState.instance();
+                    }
+                    if (opening) openedWindow = get(OpenWindowState.WINDOW);
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                openedWindow = null;
+            }
+        }
+        super.OnAnimEvent(layer, track, event);
+        if (openedWindow != null) {
+            try {
+                if (openedWindow.getObjectIndex() != -1 && !openedWindow.IsOpen()) {
+                    openedWindow.ToggleWindow(this);
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+                // The stock success effect is best-effort; navigation verifies
+                // the window state and replans if it is still shut.
+            }
+        }
+        if (event == null) return;
+        if ("AttackCollisionCheck".equals(event.eventName)) {
+            if (driveCompanionAttackCollision(event.parameterValue)) {
+                bridgeAttackCollisionSerial++;
+            }
+        } else if ("PlaySwingSound".equalsIgnoreCase(event.eventName)) {
+            driveCompanionSwingSound(event.parameterValue);
+        }
+    }
+
+    /**
+     * Play the weapon's own impact sound when a companion's swing connects.
+     *
+     * <p>Same shape of gap as the swing sound above, one step later. The flesh
+     * noise belongs to the victim's damage code and plays for anyone, so a
+     * companion hitting a zombie with a shovel produced the squish and not the
+     * shovel -- {@code HitSound = ShovelHit} in the item script -- exactly as
+     * the gunshot went missing while its bullet impact did not.
+     *
+     * <p>Scripts name this sound {@code HitSound}, which CombatManager reads
+     * through {@code getZombieHitSound()}. The separate {@code getImpactSound()}
+     * can retain its constructor's BaseballBatHit default even for BareHands. A
+     * weapon that declares neither stays silent, because that is what it
+     * declares. Firearms are left alone: their report is the swing sound above
+     * and their impact already belongs to the bullet.
+     */
+    private boolean usesCompanionWeaponImpact() {
+        return !isDoShove() && !isPerformingShoveAnimation() && !isPerformingStompAnimation();
+    }
+
+    static String companionWeaponHitSound(Object weapon) throws ReflectiveOperationException {
+        if (weapon == null || WEAPON_ZOMBIE_HIT_SOUND == null) return null;
+        Object named = WEAPON_ZOMBIE_HIT_SOUND.invoke(weapon);
+        return named instanceof String value && !value.isBlank() ? value : null;
+    }
+
+    private void driveCompanionHitSound(Object weapon, int hitCount, boolean weaponImpact) {
+        // Counted on every landed swing, before any early return, so "no hit
+        // reached this path" and "a hit reached it with nothing to play" stay
+        // distinguishable in diagnostics.
+        if (hitCount <= 0 || weapon == null) return;
+        bridgeHitSoundEvents++;
+        // Vanilla excludes shoves from its weapon-impact branch. CombatManager
+        // still supplies BareHands (or the held weapon) for that collision;
+        // replaying its HitSound adds a blunt hit over a push or stomp.
+        if (!weaponImpact) return;
+        if (bridgeDisabled || isDead() || CHARACTER_PLAY_SOUND == null) return;
+        try {
+            if (WEAPON_IS_RANGED != null
+                    && Boolean.TRUE.equals(WEAPON_IS_RANGED.invoke(weapon))) {
+                return;
+            }
+            String sound = companionWeaponHitSound(weapon);
+            if (sound == null) return;
+            CHARACTER_PLAY_SOUND.invoke(this, sound);
+            bridgeHitSounds++;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // A missing sound is cosmetic; never let it break the swing.
+            bridgeHitSoundFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    /**
+     * Play the weapon's own swing sound for animations which provide this event.
+     *
+     * <p>{@code SwipeStatePlayer.OnAnimEvent_PlaySwingSound} returns immediately
+     * unless {@code IsoPlayer.isLocalPlayer(character)}, and so does the
+     * "Always" variant it delegates to -- so a companion swung and fired in
+     * silence. The bullet still made a noise on impact, because that belongs to
+     * the hit. Build 42's firearm animations provide no PlaySwingSound event;
+     * their missing Lua attack-hook sound is handled at the native shot below.
+     *
+     * <p>This reproduces the stock body rather than reaching into it: prefer
+     * the sound the anim event names, fall back to the weapon's swing sound,
+     * and play it through the character's own emitter so it is heard from where
+     * the companion is standing.
+     */
+    private void driveCompanionSwingSound(String soundId) {
+        // Counted before any early return: "the event never reached us" and
+        // "it reached us and there was nothing to play" are different problems
+        // and the log should be able to tell them apart.
+        bridgeSwingSoundEvents++;
+        if (bridgeDisabled || isDead()) return;
+        if (COMBAT_MANAGER_INSTANCE == null || COMBAT_MANAGER_GET_WEAPON == null
+                || CHARACTER_PLAY_SOUND == null) {
+            return;
+        }
+        // The stock handler plays once per swing and latches this variable to
+        // say so. Honour the same latch: duplicate animation layers must not
+        // stack two gunshots on one shot.
+        try {
+            if (getVariableBoolean("PlayedSwingSound")) return;
+            Object manager = COMBAT_MANAGER_INSTANCE.invoke(null);
+            if (manager == null) return;
+            Object weapon = COMBAT_MANAGER_GET_WEAPON.invoke(manager, this);
+            if (weapon == null) return;
+            playCompanionWeaponSound(weapon, soundId, false);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            bridgeSwingSoundFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    private void playCompanionWeaponSound(Object weapon, String soundId, boolean gunshot)
+            throws ReflectiveOperationException {
+        if (getVariableBoolean("PlayedSwingSound")) return;
+        String sound = null;
+        if (soundId != null && !soundId.isBlank() && WEAPON_SOUND_BY_ID != null) {
+            Object named = WEAPON_SOUND_BY_ID.invoke(weapon, soundId);
+            if (named instanceof String value && !value.isBlank()) sound = value;
+        }
+        if (sound == null && WEAPON_SWING_SOUND != null) {
+            Object swing = WEAPON_SWING_SOUND.invoke(weapon);
+            if (swing instanceof String value && !value.isBlank()) sound = value;
+        }
+        if (sound == null) return;
+        // Latch before calling: even an emitter failure must not replay a shot.
+        setVariable("PlayedSwingSound", true);
+        boolean ranged = WEAPON_IS_AIMED_FIREARM != null
+                && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon));
+        Object handle = (ranged ? RANGED_SHOOT_SOUND : CHARACTER_PLAY_SOUND).invoke(this, sound);
+        bridgeSwingSounds++;
+        if (gunshot) {
+            bridgeGunshotSoundHandle = handle instanceof Number number ? number.longValue() : 0;
+            bridgeGunshotSoundName = sound;
+            if (bridgeGunshotSoundHandle > 0) bridgeGunshotSounds++;
+            else bridgeSwingSoundFailure = "gunshot: no sound handle";
+        }
+    }
+
+    private SCFirearmShot.Snapshot captureCompanionShot(Object weapon) {
+        if (bridgeDisabled || isDead() || isDoShove() || isPerformingShoveAnimation()
+                || getVariableBoolean("RangedWeaponEmpty")) return null;
+        try {
+            return SCFirearmShot.capture(weapon);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            bridgeSwingSoundFailure = "shot snapshot: " + failure.getClass().getSimpleName();
+            return null;
+        }
+    }
+
+    private void driveCompanionGunshotSound(Object weapon, SCFirearmShot.Snapshot before) {
+        if (before == null) return;
+        try {
+            boolean unlimited = UNLIMITED_AMMO != null && Boolean.TRUE.equals(UNLIMITED_AMMO.invoke(this));
+            if (SCFirearmShot.fired(before, SCFirearmShot.capture(weapon), true, unlimited)) {
+                playCompanionWeaponSound(weapon, null, true);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // Cosmetic only. Never replay a native attack to obtain its audio.
+            bridgeSwingSoundFailure = "gunshot: " + failure.getClass().getSimpleName();
+        }
+    }
+
+    void driveCompanionGunshotSoundForTests(Object weapon, SCFirearmShot.Snapshot before) {
+        driveCompanionGunshotSound(weapon, before);
+    }
+
+    public long getCompanionGunshotSounds() { return bridgeGunshotSounds; }
+    public long getCompanionGunshotSoundHandle() { return bridgeGunshotSoundHandle; }
+    public String getCompanionGunshotSoundName() { return bridgeGunshotSoundName; }
+
+    /** PlaySwingSound anim events this companion received. */
+    public long getCompanionSwingSoundEvents() {
+        return bridgeSwingSoundEvents;
+    }
+
+    /** Swing/gunshot sounds played for this companion, for diagnostics. */
+    public long getCompanionSwingSounds() {
+        return bridgeSwingSounds;
+    }
+
+    /** Last reason a swing sound could not be played, or an empty string. */
+    public String getCompanionSwingSoundFailure() {
+        return bridgeSwingSoundFailure;
+    }
+
+    /** Test seam: the hit-sound path without a swing animation to drive it. */
+    void driveCompanionHitSoundForTests(Object weapon, int hitCount) {
+        driveCompanionHitSound(weapon, hitCount, usesCompanionWeaponImpact());
+    }
+
+    /** Landed melee swings that reached this companion's hit-sound path. */
+    public long getCompanionHitSoundEvents() {
+        return bridgeHitSoundEvents;
+    }
+
+    /** Weapon impact sounds played for this companion, for diagnostics. */
+    public long getCompanionHitSounds() {
+        return bridgeHitSounds;
+    }
+
+    /** Last reason a hit sound could not be played, or an empty string. */
+    public String getCompanionHitSoundFailure() {
+        return bridgeHitSoundFailure;
+    }
+
+    private boolean driveCompanionAttackCollision(String attackTypeName) {
+        // Tracks whether the native collision call itself had begun when a
+        // throw arrived: only then can a hit have been partially applied.
+        boolean inFlight = false;
+        if (bridgeDisabled || isDead()) return false;
+        if (COMBAT_MANAGER_INSTANCE == null || ATTACK_COLLISION_CHECK == null
+                || SWIPE_STATE_INSTANCE == null || GET_USE_HAND_WEAPON == null
+                || GET_ATTACK_TYPE == null) {
+            return false;
+        }
+        try {
+            // Use the same per-swing latch as the local player. The native state
+            // resets it on the next attack (including automatic-fire reentry),
+            // so duplicate animation layers cannot add damage while later swings
+            // remain eligible. Ignore outgoing/stale tracks outside that state.
+            var swipe = SwipeStatePlayer.instance();
+            boolean currentSwing = getStateMachine().getCurrent() == swipe
+                    || getStateMachine().isSubstate(swipe);
+            if (!shouldDriveAttackCollision(currentSwing,
+                    Boolean.TRUE.equals(get(SwipeStatePlayer.ATTACKED)))) return false;
+            Object weapon = GET_USE_HAND_WEAPON.invoke(this);
+            if (weapon == null) return false;
+            boolean aimedFirearm = WEAPON_IS_AIMED_FIREARM != null
+                    && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon));
+            // Vehicle ranged animations use the same SwipeState collision
+            // event, whose vanilla handler also excludes non-local actors.
+            // Keep seated melee excluded; authorized passenger firearm shots
+            // still need this one native collision to spend ammo and fire.
+            if (getVehicle() != null && !aimedFirearm) return false;
+            // The AttackType that gates CombatManager's stance filter is carried
+            // by the swing's AttackCollisionCheck anim event (its parameter is the
+            // enum id, e.g. "MeleeSwing"), not by the actor's getAttackType()
+            // (which is DEFAULT/MISS off the collision path). With the wrong type
+            // the hit loop skips the target. Resolve it from the event parameter;
+            // only fall back to the actor's value if the event carries no name.
+            Object attackType = resolveAttackType(attackTypeName);
+            if (attackType == null) {
+                attackType = GET_ATTACK_TYPE.invoke(this);
+            }
+            Object combatManager = COMBAT_MANAGER_INSTANCE.invoke(null);
+            Object swipeState = SWIPE_STATE_INSTANCE.invoke(null);
+            if (combatManager == null || swipeState == null) return false;
+            // Re-point at the current target: the swing animation may have turned
+            // the actor, and attackCollisionCheck rebuilds the hit-info list
+            // against the actor's facing before applying the hit.
+            applyCompanionAim();
+            // A stomp/floor finisher builds its hit list from targetOnGround,
+            // which the local player fills from the cursor over a downed enemy.
+            // A non-local companion has no cursor, so point the field at the aim
+            // target (the grounded zombie) or the floor attack hits nothing.
+            if (isAimAtFloor() && bridgeAimTarget instanceof IsoGameCharacter) {
+                this.targetOnGround = (IsoGameCharacter) bridgeAimTarget;
+            }
+            IsoGameCharacter collisionTarget = bridgeAimTarget instanceof IsoGameCharacter
+                    ? (IsoGameCharacter) bridgeAimTarget : null;
+            float targetHealthBefore = collisionTarget == null
+                    ? Float.NaN : collisionTarget.getHealth();
+            boolean targetDeadBefore = collisionTarget != null && collisionTarget.isDead();
+
+            // SwipeStatePlayer.enter only derives this flag inside its local-
+            // player input branch. A companion is intentionally non-local, so an
+            // explicitly armed stomp otherwise arrives here as an ordinary shove;
+            // CombatManager then sets bIgnoreDamage and the foot never hurts the
+            // grounded zombie. Restore the result immediately before the one
+            // native collision check. SwipeStatePlayer.exit clears it normally.
+            boolean liveFloorInput = refreshBridgeFloorAttackInput();
+            if (shouldForceStompCollision(liveFloorInput, bridgeFloorInputStomp)) {
+                setShoveStompAnim(true);
+            }
+            // Claim before calling: a thrown native check may already have hit
+            // one target, and must not be replayed by a second animation layer.
+            set(SwipeStatePlayer.ATTACKED, true);
+            bridgeAttackAttemptSerial++;
+            SCCompanionFirearmProtection.Shot protection = aimedFirearm && SCBridge.isCompanion(this)
+                    ? SCCompanionFirearmProtection.begin(this, collisionTarget) : null;
+            if (protection != null && !protection.allowed()) {
+                publishAttackReceipt("blocked", protection.decision);
+                return false;
+            }
+            Object[] ballisticInput = null, ballisticScratch = null;
+            SCFirearmShot.Snapshot shotBefore = captureCompanionShot(weapon);
+            boolean weaponImpact = usesCompanionWeaponImpact();
+            try {
+                if (aimedFirearm) {
+                    ballisticInput = selectCompanionBallisticReticle();
+                    selectCompanionPhysicsReticle(ballisticInput);
+                    ballisticScratch = selectCompanionBallisticScratch(combatManager, weapon);
+                }
+                inFlight = true;
+                // Vanilla reads this actor's penalties but wiggles the global
+                // MoodlesUI singleton. Keep an exhausted NPC's feedback on its
+                // own view (or offscreen), without changing anyone's Stats.
+                SCCompanionFirearmProtection.Shot previousProtection = bridgeFirearmProtection;
+                bridgeFirearmProtection = protection != null && protection.protects != null ? protection : null;
+                try (var feedback = SCCompanionMoodleFeedback.open(this)) {
+                    ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+                } finally {
+                    bridgeFirearmProtection = previousProtection;
+                }
+            } finally {
+                try {
+                    restoreCompanionBallisticScratch(ballisticScratch);
+                } finally {
+                    try {
+                        restoreCompanionPhysicsReticle(ballisticInput);
+                    } finally {
+                        restoreCompanionBallisticReticle(ballisticInput);
+                    }
+                }
+            }
+            inFlight = false;
+            driveCompanionGunshotSound(weapon, shotBefore);
+            int hitCount = getLastHitCount();
+            driveCompanionHitSound(weapon, hitCount, weaponImpact && usesCompanionWeaponImpact());
+            boolean targetHit = hitCount > 0 && collisionTarget != null
+                    && collisionTargetAffected(targetHealthBefore, collisionTarget.getHealth(),
+                            targetDeadBefore, collisionTarget.isDead());
+            bridgeAttackCollisionTarget = collisionTarget;
+            bridgeAttackCollisionHitCount = hitCount;
+            bridgeAttackCollisionTargetHit = targetHit;
+            publishAttackReceipt("completed", protection != null && protection.removed > 0
+                    ? "protected_firearm_hits:" + protection.removed : "");
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // Fail closed on damage -- never replay the call to obtain a clean
+            // receipt -- but never fail silent either. A throw after the
+            // collision call began may have left a partially applied hit, and
+            // that is exactly the case the caller must not retry.
+            publishAttackReceipt(inFlight ? "failed_maybe_partial" : "failed_before_impact",
+                    failure.getClass().getSimpleName() + cleanMessage(failure.getMessage()));
+            return false;
+        }
+    }
+
+    /** Terminal receipt for one claimed collision attempt, success or failure. */
+    private void publishAttackReceipt(String outcome, String cause) {
+        bridgeAttackReceiptOutcome = outcome == null ? "unknown" : outcome;
+        bridgeAttackReceiptCause = cause == null ? "" : truncate(cause, 120);
+        bridgeAttackReceiptSerial++;
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value == null) return "";
+        return value.length() <= limit ? value : value.substring(0, limit);
+    }
+
+    /**
+     * Impact attempts claimed, including ones that then failed. Distinct from
+     * the completed-hit serial so a failure can never be counted as a hit.
+     */
+    /**
+     * Why a firearm would or would not fire, read from the engine rather than
+     * inferred.
+     *
+     * <p>{@code CombatManager.pressedAttack} refuses outright unless
+     * {@code isDoShove() || isWeaponReady()}. For a firearm
+     * {@code isWeaponReady()} needs the primary hand model loaded AND a MUZZLE
+     * attachment on its model script -- readiness that has nothing to do with
+     * the mod's own notion of being armed, and that no Lua-side check can see.
+     *
+     * <p>Encouragingly, the firing itself is not gated on the local player:
+     * inside {@code attackCollisionCheck}, {@code isAimedFirearm()} alone
+     * decides whether the muzzle flash, the ballistics update and
+     * {@code fireWeapon} run. So the engine will shoot for a companion; the
+     * question is only what stops the attack reaching that point.
+     */
+    public String getCompanionRangedReadiness() {
+        StringBuilder out = new StringBuilder(96);
+        try {
+            Object weapon = GET_USE_HAND_WEAPON == null ? null
+                    : GET_USE_HAND_WEAPON.invoke(this);
+            out.append("useWeapon=").append(weapon == null ? "none"
+                    : weapon.getClass().getSimpleName());
+            boolean aimedFirearm = false;
+            if (weapon != null && WEAPON_IS_AIMED_FIREARM != null) {
+                Object value = WEAPON_IS_AIMED_FIREARM.invoke(weapon);
+                aimedFirearm = Boolean.TRUE.equals(value);
+            }
+            out.append(" aimedFirearm=").append(aimedFirearm);
+            // Reached reflectively: these are real engine methods that the
+            // compile-only stubs do not declare, and widening the stubs for a
+            // diagnostic would weaken the boundary the stub gate protects.
+            out.append(" weaponReady=").append(probeBoolean("isWeaponReady"));
+            out.append(" handModel=").append(probeBoolean("isPrimaryHandModelReady"));
+            out.append(" aiming=").append(isAiming());
+            out.append(" attackStarted=").append(isAttackStarted());
+            out.append(" handToHand=").append(probeBoolean("isAuthorizedHandToHandAction"));
+            out.append(" shove=").append(probeBoolean("isDoShove"));
+            appendBallisticsDiagnostics(out);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" probeFailed=").append(failure.getClass().getSimpleName());
+        }
+        return out.toString();
+    }
+
+    /** Read-only, actor-local evidence for a shot with no native hit candidates. */
+    private void appendBallisticsDiagnostics(StringBuilder out) {
+        try {
+            Method getter = IsoGameCharacter.class.getMethod("getBallisticsController");
+            Object controller = getter.invoke(this);
+            if (controller == null) {
+                out.append(" ballistics=none");
+                return;
+            }
+            out.append(" ballisticsID=").append(controller.getClass().getMethod("getID").invoke(controller));
+            out.append(" muzzle=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getMuzzlePosition").invoke(controller)));
+            out.append(" muzzleDir=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getMuzzleDirection").invoke(controller)));
+            out.append(" reticle=").append(diagnosticVector(controller.getClass()
+                    .getMethod("getIsoAimingPosition").invoke(controller)));
+            out.append(" ballisticTargets=").append(controller.getClass()
+                    .getMethod("getNumberOfTargets").invoke(controller));
+            out.append(" cachedTargets=").append(controller.getClass()
+                    .getMethod("getCachedNumberOfTargets").invoke(controller));
+            out.append(" cameraTargets=").append(controller.getClass()
+                    .getMethod("getNumberOfCameraTargets").invoke(controller));
+            out.append(" animAngle=").append(hasAnimationPlayer()
+                    ? getAnimationPlayer().getRenderedAngle() : Float.NaN);
+            Class<?> vectorType = Class.forName("zombie.iso.Vector3");
+            Object muzzle = vectorType.getConstructor().newInstance();
+            Object direction = vectorType.getConstructor().newInstance();
+            controller.getClass().getMethod("calculateMuzzlePosition", vectorType, vectorType)
+                    .invoke(controller, muzzle, direction);
+            out.append(" currentMuzzle=").append(diagnosticVector(muzzle));
+            out.append(" currentMuzzleDir=").append(diagnosticVector(direction));
+            out.append(" aimOrigin=").append(diagnosticAimOrigin(this));
+            var target = bridgeAimTarget;
+            out.append(" aimTarget=").append(target == null ? "none"
+                    : target.getX() + "," + target.getY() + "," + target.getZ());
+            if (target instanceof IsoGameCharacter character) {
+                out.append(" targetOrigin=").append(diagnosticAimOrigin(character));
+                Object animation = character.getAnimationPlayer();
+                out.append(" targetAnimationReady=").append(animation != null
+                        && Boolean.TRUE.equals(animation.getClass().getMethod("isReady").invoke(animation)));
+                out.append(" targetModel=").append(character.isAddedToModelManager())
+                        .append('/').append(character.hasActiveModel());
+                out.append(" targetPhysics=").append(IsoGameCharacter.class
+                        .getMethod("getBallisticsTarget").invoke(character) != null);
+            }
+            out.append(" pitch=").append(IsoGameCharacter.class
+                    .getMethod("getCurrentVerticalAimAngle").invoke(this));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" ballisticsProbeFailed=").append(failure.getClass().getSimpleName());
+        }
+        try {
+            Object model = IsoGameCharacter.class.getField("primaryHandModel").get(this);
+            Object script = model == null ? null : model.getClass().getField("modelScript").get(model);
+            out.append(" handScript=").append(script == null ? "none"
+                    : script.getClass().getMethod("getName").invoke(script));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" handScript=unavailable");
+        }
+    }
+
+    private static String diagnosticVector(Object vector) throws ReflectiveOperationException {
+        if (vector == null) return "none";
+        Class<?> type = vector.getClass();
+        return type.getField("x").getFloat(vector) + ","
+                + type.getField("y").getFloat(vector) + ","
+                + type.getField("z").getFloat(vector);
+    }
+
+    private static String diagnosticAimOrigin(IsoGameCharacter actor) throws ReflectiveOperationException {
+        return IsoGameCharacter.class.getMethod("getAimOriginPosX").invoke(actor) + ","
+                + IsoGameCharacter.class.getMethod("getAimOriginPosY").invoke(actor) + ","
+                + IsoGameCharacter.class.getMethod("getAimOriginPosZ").invoke(actor);
+    }
+
+    /**
+     * 42.21's hit-list prefilter reads this controller's isometric cursor point.
+     * Its normal update fills that point from AimingReticle using a player slot,
+     * even for a non-local NPC. Supply our actual selected aim input during the
+     * one stock collision call. This never writes mouse input, player slots,
+     * hit candidates, accuracy, ammunition or health. Native line-of-sight,
+     * armor and hit rolls still decide what the shot does.
+     */
+    private Object[] selectCompanionBallisticReticle() throws ReflectiveOperationException {
+        var target = bridgeAimTarget;
+        if (target == null || !target.isExistInTheWorld()
+                || target instanceof IsoGameCharacter character && character.isDead()) return null;
+        float x = target.getX(), y = target.getY(), z = target.getZ();
+        if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) return null;
+        BallisticAccess.requireReticle();
+        Object controller = BallisticAccess.GET_CONTROLLER.invoke(this);
+        if (controller == null) return null;
+        Object reticle = BallisticAccess.GET_RETICLE.invoke(controller);
+        float[] original = { BallisticAccess.X.getFloat(reticle),
+                BallisticAccess.Y.getFloat(reticle), BallisticAccess.Z.getFloat(reticle) };
+        Object[] captured = { reticle, original, this, controller, target };
+        BallisticAccess.SET_VECTOR.invoke(reticle, x, y, z);
+        return captured;
+    }
+
+    private static void restoreCompanionBallisticReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null || !ownsCompanionBallisticInput(captured)) return;
+        Object reticle = captured[0];
+        float[] prior = (float[]) captured[1];
+        BallisticAccess.SET_VECTOR.invoke(reticle, prior[0], prior[1], prior[2]);
+    }
+
+    private static boolean ownsCompanionBallisticInput(Object[] captured) throws ReflectiveOperationException {
+        if (captured.length == 2) return true; // CombatManager's unpooled scratch vector.
+        SCNativeCompanion owner = (SCNativeCompanion) captured[2];
+        return !owner.bridgeDisabled && BallisticAccess.GET_CONTROLLER != null
+                && BallisticAccess.GET_CONTROLLER.invoke(owner) == captured[3];
+    }
+
+    // The Java reticle is the broad-phase input; Bullet owns the corresponding
+    // camera ray used to refine native body intersections. Both are per actor.
+    private void selectCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null) return;
+        Object reticle = captured[0];
+        // A known character supplies a 3D aim point. Feeding its floor point
+        // into Bullet's camera ray aims between the feet of walking targets.
+        // The broad-phase Java reticle stays at the floor coordinate, as the
+        // stock range filter expects; only the physical ray aims at the body.
+        float z = companionPhysicsAimHeight((zombie.iso.IsoMovingObject) captured[4]);
+        updateCompanionPhysicsReticle(BallisticAccess.X.getFloat(reticle),
+                BallisticAccess.Y.getFloat(reticle), z);
+    }
+
+    private static float companionPhysicsAimHeight(zombie.iso.IsoMovingObject target)
+            throws ReflectiveOperationException {
+        if (target instanceof IsoGameCharacter character) {
+            if (BallisticAccess.IS_PRONE == null || BallisticAccess.AIM_HEIGHT == null) {
+                throw new ReflectiveOperationException("Native ballistic target height interface is unavailable");
+            }
+            if (!Boolean.TRUE.equals(BallisticAccess.IS_PRONE.invoke(target))) {
+                return ((Number) BallisticAccess.AIM_HEIGHT.invoke(character)).floatValue();
+            }
+        }
+        return target.getZ();
+    }
+
+    /** Keep this actor's physical aim input current between impact callbacks.
+     * The stock update reads a local camera reticle, which is not NPC input.
+     * Bullet's simulation needs the selected world point during aiming too;
+     * replacing it only at impact leaves the preceding physics frame aimed at
+     * the player's cursor. This controller belongs solely to this companion. */
+    @Override
+    public void updateBallistics() {
+        super.updateBallistics();
+        if (bridgeDisabled || bridgeAimTarget == null) return;
+        try {
+            Object[] input = selectCompanionBallisticReticle();
+            selectCompanionPhysicsReticle(input);
+            // The local aiming pass normally refreshes native camera/body
+            // intersections before the animation computes its aiming vector.
+            // LF omits that input controller. Refresh only this actor's query;
+            // a real native intersection is still required to adjust the pose.
+            Object weapon = GET_PRIMARY_HAND_ITEM.invoke(this);
+            if (input != null && isAiming() && weapon != null
+                    && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))
+                    && BallisticAccess.CAMERA_TARGETS != null
+                    && BallisticAccess.HAS_CAMERA_TARGET != null
+                    && BallisticAccess.UPDATE_CONTROLLER != null) {
+                prepareCompanionBallisticTarget();
+                float range = ((Number) BallisticAccess.MAX_RANGE.invoke(weapon, this)).floatValue()
+                        * ((Number) BallisticAccess.RANGE_MOD.invoke(weapon, this)).floatValue();
+                var target = (zombie.iso.IsoMovingObject) input[4];
+                if (!isCompanionBallisticTargetInRange(target.getX() - getX(),
+                        target.getY() - getY(), target.getZ() - getZ(), range)) return;
+                BallisticAccess.CAMERA_TARGETS.invoke(input[3], range + 0.5f, true);
+                if (Boolean.TRUE.equals(BallisticAccess.HAS_CAMERA_TARGET.invoke(input[3]))) {
+                    BallisticAccess.UPDATE_CONTROLLER.invoke(input[3]);
+                    input = selectCompanionBallisticReticle();
+                    selectCompanionPhysicsReticle(input);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            // Retain the stock collision contract; never manufacture a hit.
+        }
+    }
+
+    private void restoreCompanionPhysicsReticle(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null || !ownsCompanionBallisticInput(captured)) return;
+        float[] prior = (float[]) captured[1];
+        updateCompanionPhysicsReticle(prior[0], prior[1], prior[2]);
+    }
+
+    private void updateCompanionPhysicsReticle(float x, float y, float z) throws ReflectiveOperationException {
+        if (BallisticAccess.GET_CONTROLLER == null || BallisticAccess.GET_ID == null
+                || BallisticAccess.UPDATE_RETICLE == null) {
+            throw new ReflectiveOperationException("Native physics reticle interface is unavailable");
+        }
+        Object controller = BallisticAccess.GET_CONTROLLER.invoke(this);
+        int id = ((Number) BallisticAccess.GET_ID.invoke(controller)).intValue();
+        BallisticAccess.UPDATE_RETICLE.invoke(null, id, x, z * 2.44949f, y);
+    }
+
+    /** CombatManager shares these scratch rays across all characters. The
+     * local aiming update normally fills them, before the later impact event.
+     * Another actor can overwrite them between those steps. Refresh from the
+     * stock muzzle calculation for this one shot and restore the outer context. */
+    private Object[] selectCompanionBallisticScratch(Object combat, Object weapon)
+            throws ReflectiveOperationException {
+        Class<?> combatType = combat.getClass();
+        Object[] captured = captureCompanionBallisticScratch(combatType);
+        Method calculate = combatType.getDeclaredMethod("calculateBallistics", IsoGameCharacter.class, float.class);
+        calculate.setAccessible(true);
+        float range = ((Number) weapon.getClass().getMethod("getMaxRange", IsoGameCharacter.class)
+                .invoke(weapon, this)).floatValue()
+                * ((Number) weapon.getClass().getMethod("getRangeMod", IsoGameCharacter.class)
+                .invoke(weapon, this)).floatValue();
+        try {
+            calculate.invoke(combat, this, range);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            restoreCompanionBallisticScratch(captured);
+            throw failure;
+        }
+        return captured;
+    }
+
+    private static Object[] captureCompanionBallisticScratch(Class<?> combatType) throws ReflectiveOperationException {
+        Object[] captured = new Object[6];
+        String[] names = { "ballisticsStartPosition", "ballisticsEndPosition", "ballisticsDirectionVector" };
+        for (int index = 0; index < names.length; index++) {
+            var field = combatType.getDeclaredField(names[index]);
+            field.setAccessible(true);
+            Object vector = field.get(null);
+            Class<?> type = vector.getClass();
+            captured[index * 2] = vector;
+            captured[index * 2 + 1] = new float[] { type.getField("x").getFloat(vector),
+                    type.getField("y").getFloat(vector), type.getField("z").getFloat(vector) };
+        }
+        return captured;
+    }
+
+    private static void restoreCompanionBallisticScratch(Object[] captured) throws ReflectiveOperationException {
+        if (captured == null) return;
+        for (int index = 0; index < captured.length; index += 2) {
+            restoreCompanionBallisticReticle(new Object[] { captured[index], captured[index + 1] });
+        }
+    }
+
+    /**
+     * Run the engine's own aim-steadying step for this companion.
+     *
+     * <p>Reflective because the compile-only stubs do not declare it; a failure
+     * is recorded rather than thrown, since a companion that cannot steady its
+     * aim should still be able to shoot.
+     */
+    private void updateCompanionAimingDelay() {
+        if (bridgeDisabled || isDead()) return;
+        if (UPDATE_AIMING_DELAY == null) return;
+        try {
+            UPDATE_AIMING_DELAY.invoke(this);
+            bridgeAimingDelayUpdates++;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            bridgeAimingDelayFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    /** Aim-steadying steps run for this companion. */
+    public long getCompanionAimingDelayUpdates() {
+        return bridgeAimingDelayUpdates;
+    }
+
+    /** One no-argument boolean read from the live class, or "unreadable". */
+    private String probeBoolean(String methodName) {
+        try {
+            var method = getClass().getMethod(methodName);
+            method.setAccessible(true);
+            return String.valueOf(method.invoke(this));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError first) {
+            try {
+                var method = zombie.characters.IsoGameCharacter.class
+                        .getDeclaredMethod(methodName);
+                method.setAccessible(true);
+                return String.valueOf(method.invoke(this));
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError second) {
+                return "unreadable";
+            }
+        }
+    }
+
+    /** Native path steps refused because a closed door sat on the next step. */
+    public long getCompanionPathDoorHolds() {
+        return bridgePathDoorHolds;
+    }
+
+    public int getCompanionAttackAttemptSerial() {
+        return bridgeAttackAttemptSerial;
+    }
+
+    /** Terminal receipts published. A caller comparing this across two polls
+     *  can see that it missed events rather than silently collapsing them. */
+    public int getCompanionAttackReceiptSerial() {
+        return bridgeAttackReceiptSerial;
+    }
+
+    /** completed | failed_maybe_partial | failed_before_impact | none */
+    public String getCompanionAttackReceiptOutcome() {
+        return bridgeAttackReceiptOutcome;
+    }
+
+    /** Bounded cause for a failed receipt; empty on completion. */
+    public String getCompanionAttackReceiptCause() {
+        return bridgeAttackReceiptCause;
+    }
+
+    static boolean shouldDriveAttackCollision(boolean currentSwing, boolean attacked) {
+        return currentSwing && !attacked;
+    }
+
+    static boolean shouldForceStompCollision(boolean floorInputArmed, boolean floorInputStomp) {
+        return floorInputArmed && floorInputStomp;
+    }
+
+    static boolean collisionTargetAffected(float healthBefore, float healthAfter,
+            boolean deadBefore, boolean deadAfter) {
+        return !deadBefore && deadAfter
+                || Float.isFinite(healthBefore) && Float.isFinite(healthAfter)
+                        && healthAfter < healthBefore;
+    }
+
+    /**
+     * IsoGameCharacter.isMoving() deliberately reports false for an IsoPlayer
+     * outside a narrow local attack-animation case. That is correct for a
+     * keyboard-controlled player, but it cancels every generic NPC movement
+     * request made by this non-local subtype. Own the movement flag here while
+     * still mirroring it into the base character for physics and animation.
+     */
+    @Override
+    public boolean isMoving() {
+        return isBridgeLocomotionActive();
+    }
+
+    /**
+     * The player action group does not read IsoGameCharacter's {@code bMoving}
+     * callback. It reads IsoPlayer's separate {@code isMoving} callback, which
+     * delegates to isPlayerMoving(). The local-player controller normally owns
+     * that field; this non-local actor must expose the bridge/path state instead.
+     */
+    @Override
+    public boolean isPlayerMoving() {
+        return isBridgeLocomotionActive();
+    }
+
+    @Override
+    public void setMoving(boolean moving) {
+        if (!genericUpdateActive) {
+            bridgeMoving = moving && getVehicle() == null;
+            if (!bridgeMoving) {
+                clearCompanionWindowApproval();
+                bridgeMoveRequested = false;
+                bridgeMoveHasTarget = false;
+                bridgeMoveExpiresNanos = 0L;
+                bridgeMoveFirstPending = false;
+                bridgePathActive = false;
+                bridgePathStartedThisRun = false;
+                bridgePathRouteReady = false;
+                bridgePathStopping = false;
+                // External stop/cancel requests run outside the generic physics
+                // pass. Vanilla's PathFindBehavior2.cancel() does not clear the
+                // animation variable, so without this handshake the actor reaches
+                // idle with bPathfind pinned true indefinitely.
+                try {
+                    setVariable("bPathfind", false);
+                    clearBridgePathContinuation();
+                } catch (RuntimeException | LinkageError ignored) {
+                    // The superclass constructor can call setMoving before the
+                    // animation-variable registry is fully initialized.
+                }
+            }
+        }
+        super.setMoving(moving && getVehicle() == null);
+    }
+
+    /**
+     * Mark a native path request active and start its start-grace/observed-moving
+     * tracking so {@link #reconcileBridgePathState()} can later clear a path that
+     * ends naturally instead of leaving the movement flags pinned.
+     */
+    private void beginBridgePath(boolean active) {
+        clearCompanionWindowApproval();
+        bridgePathActive = active;
+        bridgePathRouteReady = false;
+        bridgePathStopping = false;
+        if (active) {
+            bridgePathStartedThisRun = false;
+            bridgePathStartNanos = System.nanoTime();
+        } else {
+            bridgePathStartedThisRun = false;
+        }
+    }
+
+    /**
+     * Vanilla's clear-line shortcut changes a path request into ordinary player
+     * movement ({@code bPathfind=false, bMoving=true}). A local IsoPlayer then
+     * supplies a movement vector from keyboard/mouse input. This non-local actor
+     * deliberately has no local input, so accepting that shortcut leaves it
+     * animating in place forever. Keep PathFindBehavior2 as the owner for every
+     * companion path, including a straight corridor; its normal update supplies
+     * direction, deferred movement, collision handling and arrival semantics.
+     */
+    private void forceBridgePathfindingState(boolean active) {
+        if (!active) {
+            beginBridgePath(false);
+            return;
+        }
+        bridgeMoveRequested = false;
+        bridgeMoveHasTarget = false;
+        bridgeMoveExpiresNanos = 0L;
+        bridgeMoveFirstPending = false;
+        bridgeMoving = false;
+        setVariable("bPathfind", true);
+        super.setMoving(false);
+        beginBridgePath(true);
+    }
+
+    @Override
+    public void pathToLocationF(float x, float y, float z) {
+        clearBridgePathContinuation();
+        super.pathToLocationF(x, y, z);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
+    }
+
+    @Override
+    public void pathToLocation(int x, int y, int z) {
+        clearBridgePathContinuation();
+        super.pathToLocation(x, y, z);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
+    }
+
+    @Override
+    public void pathToCharacter(IsoGameCharacter target) {
+        clearBridgePathContinuation();
+        super.pathToCharacter(target);
+        forceBridgePathfindingState(target != null && getVehicle() == null && !bridgeDisabled);
+    }
+
+    @Override
+    public void pathToSound(int x, int y, int z) {
+        clearBridgePathContinuation();
+        super.pathToSound(x, y, z);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
+    }
+
+    /**
+     * Lua decisions run after moving-object postupdate. Calling the vanilla
+     * implementation there only changes nextX/nextY until the next preupdate
+     * resets them. Retain the validated vector and apply it from update(),
+     * which is inside the engine's preupdate/update/postupdate physics window.
+     */
+    @Override
+    public void MoveForward(float distance, float x, float y, float soundDelta) {
+        if (!Float.isFinite(distance) || !Float.isFinite(x) || !Float.isFinite(y)) {
+            recordInvalidMovement("MoveForward", x, y);
+            if (!genericUpdateActive) setMoving(false);
+            return;
+        }
+        if (genericUpdateActive) {
+            super.MoveForward(distance, x, y, soundDelta);
+            return;
+        }
+        if (getVehicle() != null) {
+            suspendBridgeLocomotion();
+            return;
+        }
+        if (!Float.isFinite(distance) || distance <= 0.0f
+                || !Float.isFinite(x) || !Float.isFinite(y)) {
+            setMoving(false);
+            return;
+        }
+        bridgeMoveDistance = distance;
+        bridgeMoveX = x;
+        bridgeMoveY = y;
+        bridgeMoveSoundDelta = soundDelta;
+        bridgeMoveHasTarget = false;
+        long requestedAt = System.nanoTime();
+        bridgeMoveExpiresNanos = requestedAt + MANUAL_INPUT_LIFETIME_NANOS;
+        bridgeMoveFirstUntilNanos = requestedAt + FIRST_MANUAL_INPUT_GRACE_NANOS;
+        bridgeMoveFirstPending = true;
+        bridgeMoveRequested = true;
+        bridgeMoving = true;
+        if (bridgeTacticalMovement) {
+            zombie.iso.Vector2 facing = getForwardDirection();
+            if (facing != null && Float.isFinite(facing.x) && Float.isFinite(facing.y)
+                    && facing.x * facing.x + facing.y * facing.y > 0.0001f) {
+                bridgeTacticalFacingX = facing.x;
+                bridgeTacticalFacingY = facing.y;
+                bridgeTacticalFacingSet = true;
+            }
+        }
+        super.setMoving(true);
+    }
+
+    @Override
+    public void moveUnmodded(float x, float y) {
+        if (!Float.isFinite(x) || !Float.isFinite(y)) {
+            recordInvalidMovement("moveUnmodded", x, y);
+            return;
+        }
+        guardPhysicsMovement();
+        if (!Float.isFinite(getNextX() + x) || !Float.isFinite(getNextY() + y)) {
+            recordInvalidMovement("moveUnmodded_overflow", x, y);
+            return;
+        }
+        super.moveUnmodded(x, y);
+    }
+
+    private void guardPhysicsMovement() {
+        if (Float.isFinite(getNextX()) && Float.isFinite(getNextY())) return;
+        recordInvalidMovement("physics_ingress", getNextX(), getNextY());
+        // Discard an invalid pending displacement, never translate the actor.
+        // Otherwise vanilla's collision code floors NaN, loses square membership
+        // and snaps the actor to its previous tile centre.
+        if (Float.isFinite(getX()) && Float.isFinite(getY())) {
+            setNextX(getX());
+            setNextY(getY());
+        }
+    }
+
+    private void recordInvalidMovement(String source, float x, float y) {
+        bridgeInvalidMovementCount++;
+        if (bridgeInvalidMovementCount > 3 && bridgeInvalidMovementCount % 120 != 0) return;
+        try {
+            zombie.iso.Vector2 deferred = getDeferredMovement(new zombie.iso.Vector2());
+            zombie.iso.Vector2 forward = getForwardDirection();
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            StringBuilder evidence = new StringBuilder(source).append('(').append(x).append(',').append(y)
+                    .append(") pos=").append(getX()).append(',').append(getY())
+                    .append(" deferred=").append(deferred.x).append(',').append(deferred.y)
+                    .append(" forward=").append(forward.x).append(',').append(forward.y)
+                    .append(" angle=").append(hasAnimationPlayer() ? getAnimationPlayer().getRenderedAngle() : Float.NaN)
+                    .append(" waypoint=").append(behavior.pathNextIsSet).append(':')
+                    .append(behavior.pathNextX).append(',').append(behavior.pathNextY);
+            var path = getPath2();
+            evidence.append(" nodes=").append(path == null ? -1 : path.size());
+            if (path != null) {
+                for (int index = 0; index < Math.min(path.size(), 10); index++) {
+                    var node = path.getNode(index);
+                    evidence.append('[').append(node.x).append(',').append(node.y).append(',').append(node.z).append(']');
+                }
+            }
+            StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+            for (int index = 2; index < Math.min(trace.length, 6); index++) {
+                evidence.append(" <-").append(trace[index].getClassName()).append('.')
+                        .append(trace[index].getMethodName()).append(':').append(trace[index].getLineNumber());
+            }
+            bridgeInvalidMovementEvidence = evidence.toString();
+        } catch (RuntimeException | LinkageError failure) {
+            bridgeInvalidMovementEvidence = source + ":" + x + "," + y + ":diagnostic_unavailable";
+        }
+    }
+
+    /** Attach an exact endpoint to the immediately preceding MoveForward input. */
+    public boolean setCompanionMovementTarget(float x, float y, float z,
+            float arrivalTolerance, int ttlMs) {
+        if (!bridgeMoveRequested || !validMovementTarget(x, y, z, getZ(),
+                arrivalTolerance, ttlMs)) return false;
+        bridgeMoveTargetX = x;
+        bridgeMoveTargetY = y;
+        bridgeMoveTargetZ = z;
+        bridgeMoveArrivalTolerance = Math.min(0.25f, arrivalTolerance);
+        bridgeMoveExpiresNanos = System.nanoTime() + Math.min(1000, ttlMs) * 1_000_000L;
+        // An explicit endpoint deadline is authoritative. The first-update
+        // grace repairs the default input lifetime, never a caller's shorter
+        // deliberate lease (for example a close-range combat alignment).
+        bridgeMoveFirstUntilNanos = Math.min(bridgeMoveFirstUntilNanos, bridgeMoveExpiresNanos);
+        bridgeMoveHasTarget = true;
+        return true;
+    }
+
+    static boolean validMovementTarget(float x, float y, float z, float currentZ,
+            float tolerance, int ttlMs) {
+        return Float.isFinite(x) && Float.isFinite(y) && Float.isFinite(z)
+                && Float.isFinite(currentZ) && Math.floor(z) == Math.floor(currentZ)
+                && Float.isFinite(tolerance) && tolerance >= 0.0f && ttlMs > 0;
+    }
+
+    /**
+     * Build 42 stores NPC aiming in AIComponent rather than the ordinary
+     * IsoGameCharacter field. Mirror every weapon-ready request into that
+     * authoritative control record so the player strafe state can activate.
+     */
+    @Override
+    public void setIsAiming(boolean aiming) {
+        super.setIsAiming(aiming);
+        try {
+            AIBrainPlayerControlVars controls = getECSComponent(AIComponent.class)
+                    .getHumanControlVars();
+            controls.aiming = aiming;
+        } catch (RuntimeException | LinkageError ignored) {
+            // The superclass constructor runs before setNpc(true) installs the
+            // AI component. The ordinary character field is sufficient there.
+        }
+    }
+
+    /** Companion aim is issued by its action owner, never the player's mouse. */
+    @Override
+    public boolean isAimControlActive() {
+        return false;
+    }
+
+    /**
+     * Select the stock IsoPlayer backward/diagonal/side-step animations while
+     * translation remains owned by the bridge. Values are local to the facing
+     * direction: X is lateral and Y is forward (negative Y walks backward).
+     */
+    public boolean setCompanionTacticalMovement(boolean enabled, float strafeX, float strafeY) {
+        bridgeTacticalMovement = enabled;
+        bridgeStrafeX = enabled ? clampUnit(strafeX) : 0.0f;
+        bridgeStrafeY = enabled ? clampUnit(strafeY) : 0.0f;
+        if (enabled) {
+            applyCompanionTacticalMovement();
+        } else {
+            bridgeTacticalFacingSet = false;
+            setIsAiming(false);
+            setVariable("DeltaX", 0.0f);
+            setVariable("DeltaY", 0.0f);
+        }
+        return isAiming() == enabled;
+    }
+
+    public boolean isCompanionTacticalMovement() {
+        return bridgeTacticalMovement;
+    }
+
+    /**
+     * Set (or clear, with a null target) the downed target the native floor attack
+     * builds its stomp hit list from. Kahlua cannot assign the targetOnGround field
+     * directly -- a raw field write throws "attempted index of non-table" every
+     * time and spams the log -- so the stomp path drives it through this setter.
+     */
+    public boolean setCompanionFloorTarget(Object target) {
+        this.targetOnGround = (target instanceof IsoGameCharacter)
+                ? (IsoGameCharacter) target : null;
+        return true;
+    }
+
+    /**
+     * Supply the actor-owned equivalent of the player's manual-floor modifier.
+     * CombatManager recalculates aimAtFloor/doShove during CanAttack, attack
+     * start and native animation entry; setting those result flags alone cannot
+     * preserve an explicit floor intent. Keep this input through the one native
+     * swing, then release it on exit (or bounded failure to start).
+     */
+    public boolean setCompanionFloorAttackInput(boolean enabled, boolean stomp) {
+        if (!enabled) {
+            clearBridgeFloorAttackInput();
+            return true;
+        }
+        if (bridgeDisabled || isDead() || getVehicle() != null) return false;
+        refreshBridgeFloorAttackInput();
+        boolean activeSwing = hasNativeAttackOwner();
+        if (activeSwing && (!bridgeFloorInputArmed || bridgeFloorInputStomp != stomp)) return false;
+        if (bridgeFloorInputArmed && bridgeFloorInputObservedSwing) return true;
+        long now = System.nanoTime();
+        bridgeFloorInputArmed = true;
+        bridgeFloorInputStomp = stomp;
+        bridgeFloorInputObservedSwing = activeSwing;
+        bridgeFloorInputStartDeadline = now + 1_000_000_000L;
+        bridgeFloorInputHardDeadline = now + 15_000_000_000L;
+        return true;
+    }
+
+    @Override
+    public boolean isManualFloorAtkButtonDown() {
+        return refreshBridgeFloorAttackInput();
+    }
+
+    @Override
+    public boolean isMeleeButtonDown() {
+        return refreshBridgeFloorAttackInput() && bridgeFloorInputStomp;
+    }
+
+    private boolean hasNativeAttackOwner() {
+        var machine = getStateMachine();
+        var swipe = SwipeStatePlayer.instance();
+        return isAttackStarted() || isPerformingAttackAnimation()
+                || isPerformingShoveAnimation() || isPerformingStompAnimation()
+                || machine != null && (machine.getCurrent() == swipe || machine.isSubstate(swipe));
+    }
+
+    private boolean hasCompanionAttackActionState() {
+        String state = getCompanionActionStateName().toLowerCase(java.util.Locale.ROOT);
+        return state.contains("melee") || state.contains("attack")
+                || state.contains("shove") || state.contains("stomp");
+    }
+
+    /**
+     * Release every independent Build 42 attack owner after Lua's bounded
+     * dead-target lease expires. clearHandToHandAttack() alone does not promise
+     * to clear the animation/FSM latches, and any one of those latches prevents
+     * retained follow movement from reaching MoveForward().
+     */
+    public boolean releaseCompanionStaleAttack() {
+        try {
+            boolean attackStateOwned = hasNativeAttackOwner()
+                    || hasCompanionAttackActionState();
+            clearBridgeFloorAttackInput();
+            targetOnGround = null;
+            bridgeAimTarget = null;
+            clearHandToHandAttack();
+            setAttackStarted(false);
+            setInitiateAttack(false);
+            setPerformingAttackAnimation(false);
+            setPerformingShoveAnimation(false);
+            setPerformingStompAnimation(false);
+            setShoveStompAnim(false);
+            setDoShove(false);
+            setAimAtFloor(false);
+            setIsAiming(false);
+            set(SwipeStatePlayer.ATTACKED, false);
+
+            if (attackStateOwned) {
+                var context = getActionContext();
+                var machine = getStateMachine();
+                var swipe = SwipeStatePlayer.instance();
+                boolean swipeOwned = machine != null
+                        && (machine.getCurrent() == swipe || machine.isSubstate(swipe));
+                if (context != null && (swipeOwned || hasCompanionAttackActionState())) {
+                    var idle = context.getGroup() == null
+                            ? null : context.getGroup().findState("idle");
+                    if (idle == null) return false;
+                    context.setCurrentState(idle);
+                }
+                if (swipeOwned) changeState(IdleState.instance());
+            }
+
+            // State exit hooks are allowed to rewrite animation variables, so
+            // establish and verify the postcondition after leaving SwipeState.
+            clearHandToHandAttack();
+            setAttackStarted(false);
+            setInitiateAttack(false);
+            setPerformingAttackAnimation(false);
+            setPerformingShoveAnimation(false);
+            setPerformingStompAnimation(false);
+            setShoveStompAnim(false);
+            setDoShove(false);
+            setAimAtFloor(false);
+            setIsAiming(false);
+            set(SwipeStatePlayer.ATTACKED, false);
+            return !hasNativeAttackOwner() && !hasCompanionAttackActionState();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    private boolean refreshBridgeFloorAttackInput() {
+        if (!bridgeFloorInputArmed) return false;
+        long now = System.nanoTime();
+        if (bridgeDisabled || isDead() || now >= bridgeFloorInputHardDeadline) {
+            clearBridgeFloorAttackInput();
+            return false;
+        }
+        if (hasNativeAttackOwner()) {
+            bridgeFloorInputObservedSwing = true;
+        } else if (bridgeFloorInputObservedSwing || now >= bridgeFloorInputStartDeadline) {
+            clearBridgeFloorAttackInput();
+            return false;
+        }
+        return true;
+    }
+
+    private void clearBridgeFloorAttackInput() {
+        bridgeFloorInputArmed = false;
+        bridgeFloorInputStomp = false;
+        bridgeFloorInputObservedSwing = false;
+        bridgeFloorInputStartDeadline = 0L;
+        bridgeFloorInputHardDeadline = 0L;
+    }
+
+    /** Return the opaque sequence number of the last bridge-driven native impact. */
+    public int getCompanionAttackCollisionSerial() {
+        return bridgeAttackCollisionSerial;
+    }
+
+    /** Return Build 42's candidate count from the last native collision check. */
+    public int getCompanionAttackCollisionHitCount() {
+        return bridgeAttackCollisionHitCount;
+    }
+
+    /** Return the exact bridge aim target sampled for the last native impact. */
+    public zombie.iso.IsoMovingObject getCompanionAttackCollisionTarget() {
+        return bridgeAttackCollisionTarget;
+    }
+
+    /**
+     * True only when that exact target lost health or died during the native
+     * collision call. A candidate/miss, ignored shove damage, or a hit on another
+     * object therefore cannot authorize a synthetic Lua fallback.
+     */
+    public boolean didCompanionAttackCollisionHitTarget() {
+        return bridgeAttackCollisionTargetHit;
+    }
+
+    /**
+     * CombatManager obtains this list again after constructing native melee,
+     * shove, floor and ballistic candidates and before applying any wounds.
+     * Recheck live SWM identity here: a bystander can enter after Lua dispatch.
+     * Only this LF actor's candidates change; other attackers keep their lists.
+     */
+    @Override
+    public ArrayList<HitInfo> getHitInfoList() {
+        ArrayList<HitInfo> hits = SCStayWithMeProtection.filter(super.getHitInfoList());
+        SCCompanionFirearmProtection.Shot protection = bridgeFirearmProtection;
+        if (protection != null && SCCompanionFirearmProtection.readsResolvedHits()) protection.filter(hits);
+        return hits;
+    }
+
+    /**
+     * Test a short manual movement against the same continuous polygon map used
+     * by Build 42 for players and vehicles. IsoGameCharacter.canStandAt() uses
+     * the ignore-doors flag, so it is not sufficient for a companion step.
+     */
+    public boolean isCompanionMovementClear(float toX, float toY, float toZ) {
+        if (getVehicle() != null || !Float.isFinite(toX) || !Float.isFinite(toY) || !Float.isFinite(toZ)) return false;
+        int level = (int)Math.floor(toZ);
+        if ((int)Math.floor(getZ()) != level) return false;
+        PolygonalMap2 map = PolygonalMap2.instance;
+        boolean sweepBlocked = map.lineClearCollide(
+                getX(), getY(), toX, toY, level, this, false, true);
+        if (!sweepBlocked) return true;
+        return movementLeavesObstacle(true,
+                map.canStandAt(getX(), getY(), level, this, false, true),
+                map.canStandAt(toX, toY, level, this, false, true));
+    }
+
+    /**
+     * Read-only clearance for a candidate grid edge, including edges ahead of
+     * the actor. A vehicle can clip the walking line between two otherwise free
+     * squares. Testing from the actor for every A* edge would test unrelated
+     * geometry; only its actual source square uses the current capsule position.
+     */
+    public boolean isCompanionPathEdgeClear(IsoGridSquare from, IsoGridSquare to) {
+        if (from == null || to == null || from.getZ() != to.getZ()) return false;
+        int dx = Math.abs(to.getX() - from.getX());
+        int dy = Math.abs(to.getY() - from.getY());
+        if (Math.max(dx, dy) != 1) return false;
+        float toX = to.getX() + 0.5f, toY = to.getY() + 0.5f;
+        if (getCurrentSquare() == from) {
+            return isCompanionMovementClear(toX, toY, to.getZ());
+        }
+        return !PolygonalMap2.instance.lineClearCollide(
+                from.getX() + 0.5f, from.getY() + 0.5f, toX, toY,
+                to.getZ(), this, false, true);
+    }
+
+    /**
+     * A failed seat entry stops at the stock entry point, flush against the
+     * chair, and the companion's capsule can overlap the seat there. Every sweep
+     * from inside an obstacle collides at its first point, so no step out was
+     * ever clear and every route failed (a 2026-10-10 playtest companion stood
+     * frozen for minutes beside a chair). When the companion cannot stand where
+     * it is but can stand at the step's end, the step leaves the obstacle rather
+     * than entering it. Native collision still governs the walk itself.
+     */
+    static boolean movementLeavesObstacle(boolean sweepBlocked, boolean standsHere,
+            boolean standsThere) {
+        if (!sweepBlocked) return true;
+        return !standsHere && standsThere;
+    }
+
+    /**
+     * Supplies a one-shot real-time display target for the next actor-owned
+     * overhead line. Lua derives it from line length. Bounds prevent a broken
+     * mod call from creating a permanent bubble.
+     */
+    public boolean setCompanionSpeechDisplayMillis(int milliseconds) {
+        if (isAsleep()) return false;
+        bridgeNextSpeechDisplayMillis = Math.max(MIN_SPEECH_DISPLAY_MILLIS,
+                Math.min(MAX_SPEECH_DISPLAY_MILLIS, milliseconds));
+        return true;
+    }
+
+    /** Lift the complete native bubble without adding an empty backdrop row. */
+    static final class CompanionChatElement extends ChatElement {
+        long emissionGeneration;
+
+        CompanionChatElement(ChatElementOwner owner, int lines, String talkerType) {
+            super(owner, lines, talkerType);
+        }
+
+        @Override
+        public void addChatLine(String line, float r, float g, float b, UIFont font,
+                float range, String tag, boolean images, boolean icons, boolean colors,
+                boolean fonts, boolean bbcode, boolean equalizeHeights) {
+            // A direct engine/mod insertion can recycle a previous TextDrawObject
+            // with identical words. Its row identity alone is not a speech lease.
+            emissionGeneration++;
+            super.addChatLine(line, r, g, b, font, range, tag,
+                    images, icons, colors, fonts, bbcode, equalizeHeights);
+        }
+
+        @Override
+        public void renderBatched(int playerIndex, int x, int y, boolean ignoreRadioLines) {
+            int nameHeight = TextManager.instance.getFontHeight(UIFont.Small);
+            // Include the native backdrop's padding, so the widest views still
+            // leave a visible gap before the separate companion name label.
+            int clearance = Math.max(14, nameHeight) + 8;
+            // Pixels, like the UI font: applying camera zoom again would move
+            // the bubble by different text heights in different viewports.
+            super.renderBatched(playerIndex, x, y - clearance, ignoreRadioLines);
+        }
+    }
+
+    @Override
+    public void setAsleep(boolean asleep) {
+        super.setAsleep(asleep);
+        // Retire both the visible text and its real-time refresh lease at the
+        // transition. A line spoken just before bed must not follow us to sleep.
+        if (asleep) clearCompanionSpeech();
+    }
+
+    @Override
+    public void addLineChatElement(String line) {
+        // Stock overload dispatch reaches the guarded full overload once.
+        super.addLineChatElement(line);
+    }
+
+    @Override
+    public void addLineChatElement(String line, float r, float g, float b, UIFont font,
+            float range, String tag, boolean images, boolean chatIcons, boolean colors,
+            boolean fonts, boolean bbcode, boolean equalizeHeights) {
+        int duration = bridgeNextSpeechDisplayMillis > 0 ? bridgeNextSpeechDisplayMillis : 9_000;
+        bridgeNextSpeechDisplayMillis = 0;
+        emitSpeech(line, r, g, b, font, range, tag, images, chatIcons, colors,
+                fonts, bbcode, equalizeHeights, duration);
+    }
+
+    /** One atomic actor-local emission, including admission and real-time lease. */
+    public boolean emitCompanionSpeech(String line, float r, float g, float b, int durationMillis) {
+        bridgeNextSpeechDisplayMillis = 0;
+        return emitSpeech(line, r, g, b, UIFont.Dialogue, 30f, "default",
+                false, false, false, false, false, true, durationMillis);
+    }
+
+    private boolean emitSpeech(String line, float r, float g, float b, UIFont font,
+            float range, String tag, boolean images, boolean chatIcons, boolean colors,
+            boolean fonts, boolean bbcode, boolean equalizeHeights, int durationMillis) {
+        if (isAsleep()) {
+            clearCompanionSpeech();
+            return false;
+        }
+        if (line == null || line.isBlank() || !Float.isFinite(r)
+                || !Float.isFinite(g) || !Float.isFinite(b)) return false;
+        // Expire the previous lease before a potentially throwing engine call.
+        bridgeSpeechLine = null;
+        bridgeSpeechRows = null;
+        bridgeSpeechRefreshUntilNanos = 0L;
+        Object[] previous = SCCompanionSpeechRows.newest(getChatElement());
+        super.addLineChatElement(line, Math.max(0f, Math.min(1f, r)),
+                Math.max(0f, Math.min(1f, g)), Math.max(0f, Math.min(1f, b)),
+                font, range, tag, images, chatIcons, colors, fonts, bbcode, equalizeHeights);
+        bridgeSpeechRows = SCCompanionSpeechRows.capture(getChatElement(), previous);
+        bridgeSpeechLine = line;
+        int duration = Math.max(MIN_SPEECH_DISPLAY_MILLIS,
+                Math.min(MAX_SPEECH_DISPLAY_MILLIS, durationMillis));
+        bridgeSpeechRefreshUntilNanos = System.nanoTime() + duration * 1_000_000L;
+        return true;
+    }
+
+    private void refreshCompanionSpeech() {
+        if (isAsleep()) {
+            if (hasCompanionSpeech()) clearCompanionSpeech();
+            return;
+        }
+        if (bridgeSpeechLine == null) return;
+        if (System.nanoTime() >= bridgeSpeechRefreshUntilNanos) {
+            bridgeSpeechLine = null;
+            bridgeSpeechRows = null;
+            bridgeSpeechRefreshUntilNanos = 0L;
+            return;
+        }
+        // Touch only the clocks of this emission's still-newest existing rows.
+        // SayDebug can create/reparse rows with white text and a different font.
+        if (bridgeSpeechRows != null && !bridgeSpeechRows.refresh(getChatElement())) {
+            bridgeSpeechRows = null;
+        }
+    }
+
+    /**
+     * Clear both the bridge-owned refresh lease and the engine's visible chat
+     * state before teardown. Otherwise an orphan actor can keep its last speech
+     * bubble alive even after registry ownership has moved to a replacement.
+     */
+    public boolean clearCompanionSpeech() {
+        bridgeSpeechRows = null;
+        bridgeSpeechLine = null;
+        bridgeSpeechRefreshUntilNanos = 0L;
+        bridgeNextSpeechDisplayMillis = 0;
+        boolean cleared = true;
+        try {
+            // Build 42.20.4 parses setSayLine immediately and dereferences its
+            // argument in ChatUtility. An empty line clears the retained text;
+            // null throws before the engine can update it, leaving ghost bubbles.
+            setSayLine("");
+            setLastSpokenLine("");
+            setSpeaking(false);
+            setSpeakTime(0);
+        } catch (RuntimeException | LinkageError failure) {
+            cleared = false;
+        }
+        try {
+            ChatElement chat = getChatElement();
+            if (chat != null) {
+                for (int playerIndex = 0; playerIndex < 4; playerIndex++) {
+                    chat.clear(playerIndex);
+                }
+                // clear(index) expires each player's rows, while update()
+                // recomputes ChatElement's cached speaking/display flags. A
+                // same-frame teardown otherwise verifies the stale cache and
+                // quarantines an already invisible encounter actor for retry.
+                if (CHAT_ELEMENT_UPDATE != null) CHAT_ELEMENT_UPDATE.invoke(chat);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            cleared = false;
+        }
+        return cleared && !hasCompanionSpeech();
+    }
+
+    /** Postcondition used by transactional cleanup and its real-JAR test. */
+    public boolean hasCompanionSpeech() {
+        if (bridgeSpeechLine != null || bridgeSpeechRefreshUntilNanos != 0L
+                || bridgeNextSpeechDisplayMillis != 0) {
+            return true;
+        }
+        try {
+            String line = getSayLine();
+            if (line != null && !line.isBlank()) return true;
+            ChatElement chat = getChatElement();
+            return chat != null && (chat.IsSpeaking() || chat.getHasChatToDisplay());
+        } catch (RuntimeException | LinkageError failure) {
+            // If the engine state cannot be read back, teardown must retain the
+            // actor for a checked retry instead of declaring a ghost-free success.
+            return true;
+        }
+    }
+
+    /**
+     * Continuously point the companion straight at its combat target, like a
+     * player's mouse aim. Build 42's CombatManager hit arc reads
+     * getDirectionAngle (the angle of forwardDirection), and the ordinary
+     * per-frame update resets that vector, so a swing set up from Lua misses a
+     * target the companion appears to face. Lua sets the target while engaging
+     * and clears it when combat ends; a target that leaves the world is dropped.
+     */
+    public void setCompanionAimTarget(zombie.iso.IsoMovingObject target) {
+        bridgeAimTarget = target;
+        prepareCompanionBallisticTarget();
+    }
+
+    /** Passive diagnostics: distinguish the actual aim binding from Lua's intent. */
+    public zombie.iso.IsoMovingObject getCompanionAimTarget() {
+        return bridgeAimTarget;
+    }
+
+    /** A native shot needs the target's real skeleton even outside the local
+     * camera. Culling can leave a loaded zombie with no animation/model at all;
+     * Bullet then has no body to intersect. Ask the stock renderer to prepare
+     * that one live, in-range target. Its owner and ordinary culling still own
+     * its lifecycle; this changes no visibility alpha, AI, inventory or health. */
+    private void prepareCompanionBallisticTarget() {
+        if (bridgeDisabled || !(bridgeAimTarget instanceof IsoGameCharacter target)
+                || target == this || target.isDead() || !target.isExistInTheWorld()) return;
+        try {
+            Object weapon = GET_PRIMARY_HAND_ITEM == null ? null : GET_PRIMARY_HAND_ITEM.invoke(this);
+            if (weapon == null || WEAPON_IS_AIMED_FIREARM == null
+                    || !Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) return;
+            if (BallisticAccess.MAX_RANGE == null || BallisticAccess.RANGE_MOD == null) return;
+            float range = ((Number) BallisticAccess.MAX_RANGE.invoke(weapon, this)).floatValue()
+                    * ((Number) BallisticAccess.RANGE_MOD.invoke(weapon, this)).floatValue();
+            float dx = target.getX() - getX(), dy = target.getY() - getY();
+            if (!isCompanionBallisticTargetInRange(dx, dy, target.getZ() - getZ(), range)) return;
+            // Even a ready skeleton can have a queued camera-cull removal.
+            // Cancel it while this one body remains our actual aim target.
+            target.setSceneCulled(false);
+            if (!target.isAddedToModelManager()) ModelManager.instance.Add(target);
+            if (!target.isAddedToModelManager() && target.hasActiveModel()) {
+                target.setAddedToModelManager(ModelManager.instance, true);
+            }
+            // The local player's aiming pass registers candidate skeletons
+            // before Bullet's next simulation step. This non-local actor has
+            // no such pass; register only its actual, in-range selected body.
+            // Native collision, occlusion and hit rolls still select the hit.
+            if (isAiming()
+                    && BallisticAccess.ENSURE_TARGET != null && BallisticAccess.ADD_TARGET != null) {
+                Object body = BallisticAccess.ENSURE_TARGET.invoke(target, target);
+                if (body != null) BallisticAccess.ADD_TARGET.invoke(body);
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            // The stock attack remains authoritative. A missing model must
+            // never become a synthetic hit or a second damage callback.
+        }
+    }
+
+    static boolean isCompanionBallisticTargetInRange(float dx, float dy, float dz, float range) {
+        return Float.isFinite(dx) && Float.isFinite(dy) && Float.isFinite(dz)
+                && Float.isFinite(range) && range > 0 && Math.abs(dz) <= 3.3f
+                && dx * dx + dy * dy <= range * range;
+    }
+
+    public boolean hasCompanionAimTarget() {
+        return bridgeAimTarget != null;
+    }
+
+    private void applyCompanionAim() {
+        zombie.iso.IsoMovingObject target = bridgeAimTarget;
+        if (target == null || getVehicle() != null && !isAiming()) return;
+        if (!target.isExistInTheWorld()) {
+            bridgeAimTarget = null;
+            return;
+        }
+        prepareCompanionBallisticTarget();
+        // A stock non-local IsoPlayer can never use PathFindBehavior2's strafe
+        // branch (isStrafing() explicitly returns false for non-local players).
+        // Re-facing an ordinary path/run toward the combat target after its
+        // forward locomotion clip was selected therefore makes the model run
+        // backward while playing Bob_Walk/Bob_Run. Preserve the route-facing
+        // direction during non-tactical locomotion. Manual tactical movement has
+        // DeltaX/DeltaY and a proper strafe blend, while a started attack still
+        // needs the exact target angle for CombatManager's hit arc.
+        // CB-02: a retained combat target used to keep turning a companion who
+        // was mid-reaction or held in a grapple, fighting the paired animation.
+        if (nativeOwnsBody()) return;
+        boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        if (!shouldApplyCompanionAim(isBridgeLocomotionActive(),
+                bridgeTacticalMovement, attackOwnsFacing)) {
+            return;
+        }
+        float dx = target.getX() - getX();
+        float dy = target.getY() - getY();
+        float length = (float) Math.sqrt(dx * dx + dy * dy);
+        if (length > 0.0001f) {
+            setForwardDirection(dx / length, dy / length);
+            if (getVehicle() != null && hasAnimationPlayer()) {
+                // Vanilla aligns a non-aiming passenger model to the car.
+                // Our local-input-free vehicle pass must instead align the
+                // native muzzle to this actor's explicit world-space aim.
+                getAnimationPlayer().setTargetAndCurrentDirection(dx / length, dy / length);
+            }
+        }
+    }
+
+    /** Pure facing/locomotion ownership rule used by the real-JAR test. */
+    static boolean shouldApplyCompanionAim(boolean locomotionActive,
+            boolean tacticalMovement, boolean attackOwnsFacing) {
+        return !locomotionActive || tacticalMovement || attackOwnsFacing;
+    }
+
+    private void applyCompanionTacticalMovement() {
+        if (bridgeTacticalMovement) {
+            setIsAiming(true);
+            setVariable("DeltaX", bridgeStrafeX);
+            setVariable("DeltaY", bridgeStrafeY);
+            setRunning(false);
+            setSprinting(false);
+        }
+    }
+
+    /**
+     * Preserve the generic character-death contract without running IsoPlayer's
+     * local-player UI, music, drag-slot, or save-file deletion side effects.
+     */
+    @Override
+    public void OnDeath() {
+        if (bridgeDeathStarted) return;
+        clearCompanionWindowApproval();
+        bridgeDeathStarted = true;
+        // A dead driver's last pedal stays in Bullet until someone parks the car.
+        bridgeDriver.stop(this, "driver_dead");
+        StopAllActionQueue();
+        if (isAsleep()) setAsleep(false);
+        dropHandItems();
+        if (shouldBecomeZombieAfterDeath()) forceAwake();
+        if (getMoodles() != null) getMoodles().Update();
+        LuaEventManager.triggerEvent("OnCharacterDeath", this);
+    }
+
+    /**
+     * When this companion was hidden for construction, or 0 once it is
+     * visible. Written by SCBridge on the main thread at spawn and cleared on
+     * the main thread here or by {@link SCBridge#reveal}.
+     */
+    long hiddenUntilReadyAt;
+
+    /** How long a construction hide may last before it un-hides itself. */
+    private static final long MAX_CONSTRUCTION_HIDE_MS = 4000L;
+
+    /**
+     * Shows the companion and forgets it was ever hidden. Idempotent.
+     *
+     * <p>Scene culling, not setInvisible: that flag drives building alarms,
+     * chat elements and the stats panel, and the engine never consults it to
+     * decide whether to draw a character. Culling is what attachRenderModel
+     * clears to make a companion visible in the first place.
+     */
+    void revealNow() {
+        hiddenUntilReadyAt = 0L;
+        setSceneCulled(false);
+    }
+
+    /**
+     * Whether a construction hide has outlived its welcome. A hidden companion
+     * that nothing ever revealed is worse than one seen changing its clothes,
+     * so the hide is a deadline rather than a promise. Static and clock-free
+     * so the decision can be tested without an actor.
+     */
+    static boolean constructionHideExpired(long hiddenAt, long now) {
+        if (hiddenAt == 0L) return false;
+        return now - hiddenAt >= MAX_CONSTRUCTION_HIDE_MS;
+    }
+
+    private void expireConstructionHide() {
+        if (!constructionHideExpired(hiddenUntilReadyAt, System.currentTimeMillis())) return;
+        revealNow();
+    }
+
+    @Override
+    public void update() {
+        // Native BodyDamage.Update heals god-mode actors. Return before all
+        // generic updates so the temporary retirement protection cannot heal,
+        // consume supplies, advance fatigue or play a new physical action.
+        if (bridgeRemoteArrivalRetired) return;
+        if (bridgeSleepModelBed != null && (!isOnBed()
+                || getSitOnFurnitureObject() != bridgeSleepModelBed
+                || bridgeSleepModelBed.getObjectIndex() < 0)) clearSleepModelOffset();
+        if (bridgeOnBedRenderLift > 0.0f
+                && (!isOnBed() || getCurrentSquare() != bridgeOnBedRenderSquare)) {
+            clearBridgeOnBedRenderLift();
+        }
+        if (bridgeDisabled) {
+            if (bridgeDriver.isActive()) bridgeDriver.stop(this, "bridge_disabled");
+            return;
+        }
+        expireConstructionHide();
+        LocalPlayerState localState = LocalPlayerState.capture();
+        if (localState == null) {
+            disableBridge("unexpected local-player slot layout");
+            return;
+        }
+        try {
+            bridgeComfort.beforeUpdate(getBodyDamage());
+            refreshBridgeFloorAttackInput();
+            boolean seated = getVehicle() != null;
+            boolean sleepingAtStart = isAsleep();
+            if (seated) suspendBridgeLocomotion();
+            else if (bridgeDriver.isActive()) bridgeDriver.stop(this, "left_driver_seat");
+            reconcileBridgePathState();
+            synchronizePlayerLocomotion();
+            genericUpdateActive = true;
+            // A promoted expedition leader is a real local player in slot 1.
+            // Vanilla IsoPlayer.update calls updateLOS before the generic
+            // character update; this bridge intentionally skips that input/UI
+            // path. Without its sight pass, zombies keep targetAlpha[1] at zero
+            // and fight the leader while invisible in the second viewport.
+            if (bridgeCoopLeaderForProbe && IsoPlayer.players != null
+                    && IsoPlayer.players[1] == this && getCurrentSquare() != null) {
+                updateLOS();
+            }
+            if (seated) {
+                // A driving companion's pedals and wheel must be set before the
+                // vanilla in-vehicle update hands them to the car's controller.
+                bridgeDriver.beforeVehicleUpdate(this, getVehicle());
+                updatePlayerVehicleState();
+            } else {
+                // Keep the on-foot player action group active every frame, not
+                // only on the vehicle-exit frame. checkActionGroup() only
+                // selects the ActionGroup (no local input), and ActionContext
+                // .update() already runs through this actor's postupdate chain
+                // (IsoPlayer.postupdate -> ... -> IsoGameCharacter
+                // .postUpdateInternal -> postUpdateAnimating). Without the
+                // combat-capable group set, that context can never transition
+                // into ai.states.SwipeStatePlayer, so a DoAttack-initiated
+                // swing plays its animation (driven by the initiateAttack
+                // variable) but SwipeStatePlayer.OnAnimEvent_AttackCollisionCheck
+                // never fires and the melee hit is never resolved.
+                updatePlayerActionGroup();
+            }
+            updateGenericCharacter();
+            // WakeState only updates IsoPlayer.getInstance() in single-player.
+            // Advance this non-local actor's fatigue once, without running the
+            // full player awake/input update or duplicating hunger/thirst.
+            SCCompanionFatigue.update(this);
+            // The on-foot player update owns both standing and seated recovery.
+            // Keep that tick separate from vehicle and sleep recovery on exits.
+            if (sleepingAtStart && isAsleep()) updateCompanionSleepEndurance();
+            else if (!seated && !sleepingAtStart) updateCompanionEndurance();
+            bridgeComfort.afterUpdate(getBodyDamage());
+            advanceBridgePath();
+            consumeBridgeDeferredMovement();
+            genericUpdateActive = false;
+            // A companion's aim never steadied. IsoGameCharacter.updateAimingDelay()
+            // decays aimingDelay toward zero while isAiming() holds, and that value
+            // is subtracted from ranged crit chance through
+            // CombatManager.getAimDelayPenalty -- so an unsteadied shot is a snap
+            // shot with almost no chance of a critical. It is called only from
+            // IsoPlayer.updateInternal2 (the local-input update this actor
+            // deliberately omits) and from the in-vehicle path, so for a companion
+            // it never ran: guns fired, bullets flew, and headshots never came.
+            //
+            // Safe to call unconditionally. The method guards itself on isAiming(),
+            // on recoil and on the racking variable, and it owns its own reset, so
+            // a companion that is not aiming simply has its delay reset the way the
+            // player's is.
+            updateCompanionAimingDelay();
+            refreshBridgeFloorAttackInput();
+            // The generic update advanced the native pathfinder; clear a path that
+            // finished on its own so the movement flags do not stay pinned (3.1).
+            reconcileBridgePathState();
+            // The vanilla visibility fade never raises this non-local actor's
+            // render alpha, so it stays 0: the companion is invisible even while
+            // present on the map (seen only on the minimap), and the
+            // MovingObjectUpdateScheduler treats a <0.25-alpha actor as barely
+            // visible and collapses its simulation level until it effectively
+            // stops ticking. Force full opacity after the generic update so the
+            // companion is both visible and fully simulated.
+            setAlphaAndTarget(1.0f);
+            if (coldBootstrapHiddenForProbe) setSceneCulled(true);
+            applyCompanionAim();
+            refreshCompanionSpeech();
+            if (getVehicle() == null) applyBridgeMovement();
+            // IsoPlayer.update() normally advances the character-owned FMOD
+            // emitter, but this non-local actor deliberately runs the generic
+            // IsoGameCharacter update to avoid local-player input/UI side effects.
+            // Tick it here, after movement, so vanilla playerVoiceSound() pain and
+            // death vocals start and remain parented to the companion's position.
+            updatePlayerEmitter();
+        } catch (RuntimeException | LinkageError failure) {
+            genericUpdateActive = false;
+            boolean repaired = localState.restore();
+            playerIndex = bridgeExpectedPlayerIndex();
+            serverPlayerIndex = -1;
+            // Local-player ownership is safe again (restored above). If this is a
+            // transient hiccup, skip the rest of this frame and retry next tick
+            // rather than tearing the companion down. bridgeFailure stays empty so
+            // the health gate still sees a healthy actor.
+            long now = System.nanoTime();
+            if (firstUpdateFailureNanos == 0L) firstUpdateFailureNanos = now;
+            if (repaired && now - firstUpdateFailureNanos <= MAX_TRANSIENT_UPDATE_NANOS) {
+                bridgePostUpdateDiagnostic = "update_skipped_transient:"
+                        + failure.getClass().getSimpleName();
+                return;
+            }
+            disableBridge("native update failed: " + failure.getClass().getSimpleName()
+                    + cleanMessage(failure.getMessage()) + cleanLocation(failure)
+                    + (repaired ? "" : "; local-player rollback failed"));
+            return;
+        }
+        // A clean frame clears the transient-failure window.
+        firstUpdateFailureNanos = 0L;
+
+        // A generic character update must never borrow local-player ownership.
+        boolean actorStateIntact = playerIndex == bridgeExpectedPlayerIndex()
+                && serverPlayerIndex == -1 && isNpc();
+        boolean slotsIntact = localState.slotsMatch();
+        boolean ownersIntact = localState.ownersMatch();
+        boolean repaired = localState.restore();
+        if (!actorStateIntact || !slotsIntact || !ownersIntact || !repaired) {
+            playerIndex = bridgeExpectedPlayerIndex();
+            serverPlayerIndex = -1;
+            setNpc(true);
+            disableBridge("native update isolation failure: actor=" + actorStateIntact
+                    + ", slots=" + slotsIntact + ", owners=" + ownersIntact
+                    + ", rollback=" + repaired);
+        }
+    }
+
+    private void applyBridgeMovement() {
+        if (getVehicle() != null || !bridgeMoveRequested || !bridgeMoving) return;
+        long now = System.nanoTime();
+        if (!manualInputAvailable(now, bridgeMoveExpiresNanos, bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)
+                || isDead() || nativeOwnsBody()
+                || isBlockMovement() || isAttackStarted() || isPerformingAttackAnimation()) {
+            setMoving(false);
+            return;
+        }
+        float multiplier = GameTime.getInstance().getMultiplier();
+        if (!Float.isFinite(multiplier) || multiplier <= 0.0f) return;
+        float distance = bridgeMoveDistance;
+        boolean lateFirstInput = bridgeMoveFirstPending && now >= bridgeMoveExpiresNanos;
+        // Native paths get their pace from the walk animation's root motion.
+        // Direct bridge steps need the matching reduction to avoid foot sliding.
+        distance *= lateKnoxDirectStepFactor(bridgeLateKnoxGait);
+        // Before the arrival clamp, so a short final step into a hedge is
+        // shortened by the same factor instead of overshooting the target.
+        float terrain = getCompanionTerrainSpeedFactor();
+        if (Float.isFinite(terrain) && terrain > 0.0f && terrain < 1.0f) {
+            distance *= terrain;
+        }
+        // A slow main-thread frame must not consume the entire input lifetime
+        // before this actor ever sees its command. Permit one checked step,
+        // with a hard distance cap, rather than running stale input afterward.
+        if (lateFirstInput) distance = Math.min(distance, 0.1f / multiplier);
+        if (bridgeMoveHasTarget) {
+            if (Math.floor(getZ()) != Math.floor(bridgeMoveTargetZ)) {
+                setMoving(false);
+                return;
+            }
+            float dx = bridgeMoveTargetX - getX();
+            float dy = bridgeMoveTargetY - getY();
+            float remaining = (float)Math.sqrt(dx * dx + dy * dy);
+            distance = boundedMovementDistance(distance, multiplier, remaining,
+                    bridgeMoveArrivalTolerance);
+            if (distance <= 0.0f) {
+                setMoving(false);
+                return;
+            }
+            bridgeMoveX = dx / remaining;
+            bridgeMoveY = dy / remaining;
+        }
+        if (!isCompanionMovementClear(getX() + bridgeMoveX * distance * multiplier,
+                getY() + bridgeMoveY * distance * multiplier, getZ())) {
+            setMoving(false);
+            return;
+        }
+        applyBridgeMovementFacing();
+        super.setMoving(true);
+        super.MoveForward(distance, bridgeMoveX, bridgeMoveY, bridgeMoveSoundDelta);
+        // MoveForward/action variables may rotate a non-local player during the
+        // same update. Leave the render-facing direction authoritative too.
+        applyBridgeMovementFacing();
+        if (lateFirstInput) bridgeLateFirstInputs++;
+        bridgeMoveFirstPending = false;
+    }
+
+    static boolean manualInputAvailable(long now, long expires, boolean firstPending, long firstUntil) {
+        return expires != 0L && (now < expires || firstPending && now < firstUntil);
+    }
+
+    static float lateKnoxDirectStepFactor(float gait) {
+        return 1.0f - Math.max(0.0f, Math.min(0.75f, gait)) * 0.35f;
+    }
+
+    public boolean setCompanionInfectionGait(float gait) {
+        if (!Float.isFinite(gait) || gait < 0.0f || gait > 0.75f) return false;
+        bridgeLateKnoxGait = gait;
+        return true;
+    }
+
+    @Override
+    protected float getFootInjurySpeedModifier() {
+        float injury = super.getFootInjurySpeedModifier();
+        return Math.abs(injury) >= bridgeLateKnoxGait ? injury : bridgeLateKnoxGait;
+    }
+
+    /**
+     * Speed multiplier for the foliage the companion is standing in.
+     *
+     * <p>Build 42 never scales a movement <em>distance</em> for foliage, because
+     * every locomotion speed it has is animation-owned. On a hedge square
+     * {@code IsoGameCharacter.isInTreesNoBush()} raises the read-only "intrees"
+     * animation variable (a callback bound straight to that method, with no
+     * local-player gate), {@code AnimSets/player/movement/inTrees.xml} swaps the
+     * clip to {@code Bob_WalkTrees}, and
+     * {@code PathFindBehavior2.moveToPoint} sizes each step from
+     * {@code getDeferredMovement()} -- the clip's own root motion. The slower
+     * clip <em>is</em> the slowdown, and a companion on an engine path already
+     * gets it for free.
+     *
+     * <p>A direct companion step does not: {@link #MoveForward} carries a fixed
+     * per-frame distance decided in Lua, and nothing between there and the
+     * physics body consults the animation. So a companion walked through a
+     * hedge the player has to push through without losing a step. This restores
+     * the parity for direct steps only -- {@link #applyBridgeMovement} is the
+     * one caller, it stands down while a native state owns the body, and the
+     * root-motion accumulator is discarded rather than applied, so nothing is
+     * slowed twice.
+     *
+     * <p>A tree square reuses the engine's own number rather than inventing
+     * one: {@code IsoTree.getSlowFactor} is 0.8 for a sapling and 0.5 for a
+     * full tree, and already folds in the Park Ranger and Lumberjack bonuses.
+     *
+     * @param inFoliage      the engine's {@code isInTreesNoBush()} verdict
+     * @param hasTree        whether that square carries an IsoTree to ask
+     * @param treeSlowFactor what {@code IsoTree.getSlowFactor} answered
+     * @param hedgeFactor    the stand-in for a hedge or tall bush
+     */
+    static float foliageSpeedFactor(boolean inFoliage, boolean hasTree,
+            float treeSlowFactor, float hedgeFactor) {
+        if (!inFoliage) return 1.0f;
+        float factor = hedgeFactor;
+        if (hasTree && Float.isFinite(treeSlowFactor) && treeSlowFactor > 0.0f) {
+            factor = treeSlowFactor;
+        }
+        // A non-finite or non-positive factor would stop the companion dead in a
+        // hedge with no way out. Foliage may never speed a companion up either.
+        if (!Float.isFinite(factor) || factor <= 0.0f) return 1.0f;
+        return Math.min(1.0f, factor);
+    }
+
+    /**
+     * Read {@link #foliageSpeedFactor} from the square the companion occupies.
+     * Returns 1.0 for anything it cannot establish: foliage must never be the
+     * reason a companion cannot move.
+     */
+    public float getCompanionTerrainSpeedFactor() {
+        try {
+            if (!isInTreesNoBush()) return 1.0f;
+            zombie.iso.IsoGridSquare square = getCurrentSquare();
+            boolean hasTree = square != null && square.HasTree();
+            float treeFactor = 1.0f;
+            if (hasTree) {
+                zombie.iso.objects.IsoTree tree = square.getTree();
+                if (tree == null) hasTree = false;
+                else treeFactor = tree.getSlowFactor(this);
+            }
+            return foliageSpeedFactor(true, hasTree, treeFactor, FOLIAGE_SLOW_FACTOR);
+        } catch (RuntimeException | LinkageError failure) {
+            return 1.0f;
+        }
+    }
+
+    static float boundedMovementDistance(float requested, float multiplier,
+            float remaining, float tolerance) {
+        if (!Float.isFinite(requested) || !Float.isFinite(multiplier)
+                || !Float.isFinite(remaining) || !Float.isFinite(tolerance)
+                || requested <= 0.0f || multiplier <= 0.0f || remaining <= tolerance) return 0.0f;
+        return Math.min(requested, remaining / multiplier);
+    }
+
+    /**
+     * Reassert the movement owner's facing after the player action graph advances.
+     * The non-local player lacks the local input update that ordinarily turns a
+     * path follower; otherwise a previous idle/combat direction can remain on
+     * the model while PathFindBehavior2 moves it sideways or backward.
+     */
+    private void applyBridgeMovementFacing() {
+        applyBridgeMovementFacing(isCompanionCorpseDragActive());
+    }
+
+    /** The parameter also lets the real-JAR control exercise an active drag
+     * without manufacturing a world corpse and grapple pair. */
+    void applyBridgeMovementFacing(boolean draggingCorpse) {
+        if (nativeOwnsBody()) return;
+        boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        // Tactical moves with a coordinate/unarmed look target still need a
+        // continuous facing owner between Lua pulses. Never replace a live aim
+        // target or the angle of an attack/reaction animation.
+        if (bridgeTacticalMovement && bridgeTacticalFacingSet && bridgeAimTarget == null
+                && isBridgeLocomotionActive() && !attackOwnsFacing) {
+            setForwardDirection(bridgeTacticalFacingX, bridgeTacticalFacingY);
+            return;
+        }
+        // The stock BwdDrag grapple keeps the corpse in front of the actor's
+        // facing while the actor walks backward. Lua sets that bearing when it
+        // starts a step, but this later bridge update must preserve it too.
+        float facingSign = corpseDragFacingSign(draggingCorpse);
+        if (bridgePathActive && bridgePathRouteReady && !bridgePathStopping
+                && !bridgeTacticalMovement && !attackOwnsFacing) {
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior != null && behavior.pathNextIsSet) {
+                float dx = behavior.pathNextX - getX();
+                float dy = behavior.pathNextY - getY();
+                float length = (float) Math.sqrt(dx * dx + dy * dy);
+                if (Float.isFinite(length) && length > 0.05f) {
+                    setForwardDirection(facingSign * dx / length,
+                            facingSign * dy / length);
+                    return;
+                }
+            }
+        }
+        // An active path never inherits bridgeMoveX/Y: those are the last
+        // manual steering request and may still point southeast from an old
+        // follow/combat step when the new route has no waypoint yet.
+        if (bridgePathActive) return;
+        if (!shouldBridgeMovementOwnFacing(isBridgeLocomotionActive(),
+                bridgeTacticalMovement, attackOwnsFacing)) {
+            return;
+        }
+        float length = (float) Math.sqrt(
+                bridgeMoveX * bridgeMoveX + bridgeMoveY * bridgeMoveY);
+        if (length > 0.0001f) {
+            setForwardDirection(facingSign * bridgeMoveX / length,
+                    facingSign * bridgeMoveY / length);
+        }
+    }
+
+    static float corpseDragFacingSign(boolean draggingCorpse) {
+        return draggingCorpse ? -1.0f : 1.0f;
+    }
+
+    /** Pure ownership rule kept testable against the installed game JAR. */
+    static boolean shouldBridgeMovementOwnFacing(boolean locomotionActive,
+            boolean tacticalMovement, boolean attackOwnsFacing) {
+        return locomotionActive && !tacticalMovement && !attackOwnsFacing;
+    }
+
+    /**
+     * The player action group has movement/run states but no pathfind state. A
+     * normal local player advances a click-to-walk request through its input/timed
+     * action controller, which this non-local actor must not run. Execute Build
+     * 42's stock PathFindState body inside the generic physics window instead;
+     * this preserves its route, collision, facing and terminal cleanup behavior
+     * while the ordinary player graph remains responsible for the visible walk.
+     */
+    /**
+     * Is a closed door the <em>only</em> thing between here and a point?
+     *
+     * <p>Build 42's own straight-line path test sets {@code LCC_IGNORE_DOORS}
+     * for every character that is not an animal or a zombie (see
+     * {@code IsoGameCharacter.pathToAux}), because a player is expected to open
+     * what it walks into. The engine pathfinder therefore plans straight
+     * through closed doors, and a detached companion -- whose contextual
+     * actions are deliberately suppressed, so nothing opens them -- walked
+     * through as if they were not there.
+     *
+     * <p>Asking the same question twice, once ignoring doors and once not,
+     * isolates exactly that case: clear when doors are ignored but blocked when
+     * they are not means a door and nothing else. A wall still behaves as it
+     * always did.
+     */
+    private boolean closedDoorBlocksStep(float toX, float toY, int level) {
+        try {
+            boolean blockedIgnoringDoors = PolygonalMap2.instance.lineClearCollide(
+                    getX(), getY(), toX, toY, level, this, true, true);
+            boolean blockedRespectingDoors = blockedIgnoringDoors
+                    || PolygonalMap2.instance.lineClearCollide(
+                            getX(), getY(), toX, toY, level, this, false, true);
+            return doorIsSoleObstruction(blockedIgnoringDoors, blockedRespectingDoors);
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing the probe must not invent a barrier that stops the actor.
+            return false;
+        }
+    }
+
+    /**
+     * A door is the sole obstruction when the step is clear with doors ignored
+     * and blocked once they are not. Blocked both ways is a wall, which was
+     * never the companion's problem; clear both ways is an open doorway.
+     */
+    static boolean doorIsSoleObstruction(boolean blockedIgnoringDoors,
+            boolean blockedRespectingDoors) {
+        return !blockedIgnoringDoors && blockedRespectingDoors;
+    }
+
+    /**
+     * True when the companion's next native path step would cross a closed
+     * door. Holding the step there turns silent clipping into an ordinary
+     * blocked-route condition, which the navigation layer already knows how to
+     * resolve: it opens the door, or reports the doorway blocked.
+     */
+    public boolean isCompanionPathBlockedByDoor() {
+        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return false;
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior == null || !behavior.pathNextIsSet) return false;
+        float dx = behavior.pathNextX - getX();
+        float dy = behavior.pathNextY - getY();
+        // An effectively-zero step carries no edge to cross.
+        if (dx * dx + dy * dy < 0.0001f) return false;
+        return closedDoorBlocksStep(behavior.pathNextX, behavior.pathNextY,
+                (int) Math.floor(getZ()));
+    }
+
+    /**
+     * The whole decision to advance one native path step, as a pure rule so it
+     * can be tested without a world. Every term is a refusal; a closed door is
+     * one of them, because stopping at a door is recoverable -- the navigation
+     * layer opens it on the same lease -- and crossing one is not.
+     */
+    static boolean shouldAdvanceBridgePath(boolean disabled, boolean inVehicle,
+            boolean pathActive, boolean nativeOwnsBody, boolean doorBlocked) {
+        return !disabled && !inVehicle && pathActive && !nativeOwnsBody && !doorBlocked;
+    }
+
+    private void advanceBridgePath() {
+        boolean doorBlocked = bridgePathActive && isCompanionPathBlockedByDoor();
+        if (!shouldAdvanceBridgePath(bridgeDisabled, getVehicle() != null,
+                bridgePathActive, nativeOwnsBody(), doorBlocked)) {
+            if (doorBlocked) bridgePathDoorHolds++;
+            return;
+        }
+        // Avoid a double step if a future Build 42 player graph gains a native
+        // pathfind state and the generic update has already executed it.
+        if (getStateMachine().getCurrent() != PathFindState.instance()) {
+            PathFindState.instance().execute(this);
+        }
+    }
+
+    private void consumeBridgeDeferredMovement() {
+        if (!hasAnimationPlayer()) return;
+        // A normal IsoPlayer applies animation-owned movement from
+        // IsoPlayer.updateInternal2().  The bridge deliberately omits that
+        // local-input update, but ClimbOverWallState (and the other native
+        // traversal states) still relies on its root motion to carry the
+        // collision body across the portal. PlayerSitOnFurnitureState also
+        // needs this movement: SeatingManager's entry point accounts for the
+        // displacement of the sit animation. PlayerOnBedState likewise moves
+        // from an offset entry post onto the mattress. Discarding either
+        // accumulator lets the animation play while the body stays outside
+        // the furniture despite its native pose flags.
+        // Apply it only while a verified native state owns movement;
+        // ordinary path/manual locomotion already translates through PFB or
+        // MoveForward and must continue to consume without applying a second
+        // displacement.
+        // An incoming reaction is the same case: PlayerHitReactionState,
+        // StaggerBackState and the knockdown/get-up states carry the body with
+        // root motion, and while one of them owns the actor the bridge
+        // contributes no translation of its own (advanceBridgePath and
+        // applyBridgeMovement both stand down below), so this is the only
+        // displacement applied -- not a second one.
+        if (nativeOwnsBody()) {
+            doDeferredMovement();
+            return;
+        }
+        // IsoPlayer.updateInternal2 normally calls doDeferredMovement, which
+        // resets the accumulator even when path2 owns translation. We omit that
+        // local-input update, so consume the accumulator after native state/PFB
+        // movement without applying its displacement a second time. The current
+        // deferred snapshot remains available until the next animation update.
+        getAnimationPlayer().resetDeferredMovementAccum();
+    }
+
+    /**
+     * Mirror the part of IsoPlayer.updateInternal2() that owns the player
+     * locomotion animation variables. WalkSpeed, RunSpeed and IdleSpeed all
+     * default to zero, so omitting this call enters the right state but freezes
+     * the animation while the physics body keeps moving (the moonwalk bug).
+     */
+    void synchronizePlayerLocomotion() {
+        boolean moving = isBridgeLocomotionActive();
+        isPlayerMoving = moving;
+        // Native endurance reads this player-owned speed field, rather than
+        // the generic character's movement flag. Mirror vanilla remote-player
+        // locomotion values so walking recovers and running pays its own cost.
+        currentSpeed = moving ? (isSprinting() ? 1.5f : isRunning() ? 1.0f : 0.5f) : 0.0f;
+        super.setMoving(moving);
+        applyCompanionTacticalMovement();
+        try {
+            updateMovementRates();
+        } catch (RuntimeException | LinkageError rateFailure) {
+            // updateMovementRates -> calculateWalkSpeed -> calculateSneakLimpSpeedScale
+            // reads a limp/sneak animation-variable slot that is momentarily null on
+            // a non-local companion (e.g. while limping from a leg wound). This is a
+            // non-critical per-frame speed refresh; skip it this frame (the rates
+            // keep their prior value) rather than letting the NPE fail the whole
+            // update and trip the health gate into a remove+respawn (the vanish).
+            bridgePostUpdateDiagnostic = "movement_rate_skipped:"
+                    + rateFailure.getClass().getSimpleName();
+        }
+    }
+
+    private boolean isBridgeLocomotionActive() {
+        if (getVehicle() != null) return false;
+        // PathFindBehavior2.shouldBeMoving() calls actor.shouldBeTurning(),
+        // which reaches IsoPlayer.isPlayerMoving() and therefore this method
+        // again. Own path activity explicitly instead of querying either the
+        // behavior or its callback-backed animation variable here.
+        // A ready route can start animation before the first root-motion frame;
+        // a pending route cannot. During stopping, retain the path OWNER but
+        // stop walk animation so its residual motion can drain to Succeeded.
+        return ((bridgeMoving || bridgeMoveRequested)
+                    && (!bridgeMoveRequested || manualInputAvailable(System.nanoTime(), bridgeMoveExpiresNanos,
+                            bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)))
+                || (bridgePathActive && !bridgePathStopping
+                    && (bridgePathRouteReady || bridgePathStartedThisRun));
+    }
+
+    /**
+     * After the generic character update advances the native pathfinder, clear
+     * bridgePathActive if the path has ended on its own (reached goal / failed /
+     * cancelled). Without this, a path that finishes during a generic update leaves
+     * isMoving()/isPlayerMoving()/hasPendingMovement() reporting a phantom active
+     * path. Reads the version-pinned PathFindBehavior2 state directly and never
+     * routes back through isMoving()/isPlayerMoving().
+     */
+    private void reconcileBridgePathState() {
+        if (bridgeDisabled || getVehicle() != null) return;
+        // Vanilla ISPathFindAction (including pathToSitOnFurniture and bed
+        // entry) starts PathFindBehavior2 itself. The non-local companion does
+        // not run IsoPlayer.updateInternal2, so it must adopt that timed path
+        // before our shared path step and animation-rate code can advance it.
+        if (!bridgePathActive && hasCompanionTimedPathAction()) {
+            // PFB may use a clear-line shortcut and leave bPathfind false;
+            // without local player input that shortcut animates in place.
+            forceBridgePathfindingState(true);
+        }
+        if (!bridgePathActive) return;
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior == null) return;
+        try {
+            boolean pathfindRequested = getVariableBoolean("bPathfind");
+            boolean cancelled = behavior.getIsCancelled();
+            var progress = getFinder().progress;
+            boolean failed = progress == AStarPathFinder.PathFindProgress.failed;
+            boolean ready = progress == AStarPathFinder.PathFindProgress.found;
+            bridgePathRouteReady = ready && pathfindRequested && !cancelled && !failed;
+            bridgePathStopping = bridgePathRouteReady && !behavior.isMovingUsingPathFind();
+            // Route readiness may start the walking animation before its first
+            // root-motion frame. hasStartedMoving is evidence, not permission:
+            // requiring it before animation would deadlock an idle character.
+            if (behavior.hasStartedMoving()) bridgePathStartedThisRun = true;
+            boolean startExpired = !bridgePathStartedThisRun
+                    && System.nanoTime() - bridgePathStartNanos > PATH_START_GRACE_NANOS;
+            if (pathRequestTerminal(pathfindRequested, cancelled, failed, startExpired)) {
+                behavior.cancel();
+                setVariable("bPathfind", false);
+                super.setMoving(false);
+                clearBridgePathContinuation();
+                bridgePathActive = false;
+                bridgePathStartedThisRun = false;
+                bridgePathRouteReady = false;
+                bridgePathStopping = false;
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            // Can't read the terminal status this frame; leave the flag untouched.
+        }
+    }
+
+    private boolean hasCompanionTimedPathAction() {
+        try {
+            var actions = getCharacterActions();
+            if (actions == null) return false;
+            for (BaseAction action : actions) {
+                if (action != null && action.isPathfinding()) return true;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // An unobservable action must not claim native path ownership.
+        }
+        return false;
+    }
+
+    static boolean pathRequestTerminal(boolean requested, boolean cancelled,
+            boolean failed, boolean startExpired) {
+        return !requested || cancelled || failed || startExpired;
+    }
+
+    private void clearBridgePathContinuation() {
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior != null) {
+            behavior.pathNextIsSet = false;
+            behavior.pathNextX = getX();
+            behavior.pathNextY = getY();
+        }
+        setPath2(null);
+    }
+
+    public String getCompanionPathStatus() {
+        if (!bridgePathActive) return "none";
+        if (!bridgePathRouteReady) return "pending";
+        if (bridgePathStopping) return "stopping";
+        return bridgePathStartedThisRun ? "moving" : "ready";
+    }
+
+    /**
+     * Start a native nearest-of-many request without exposing PolygonalMap2 or
+     * Kahlua internals to gameplay Lua.  A nearest request cannot safely use
+     * pathToAux()'s single-target direct-line shortcut, so it always enters the
+     * ordinary player pathfinding animation state.
+     */
+    public boolean bridgePathToNearest(KahluaTable locations,
+            float hintX, float hintY, float hintZ) {
+        if (locations == null || getVehicle() != null || bridgeDisabled) return false;
+        try {
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior == null) return false;
+            clearBridgePathContinuation();
+            behavior.pathToNearestTable(locations);
+            forceBridgePathfindingState(true);
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    private void suspendBridgeLocomotion() {
+        bridgeMoveRequested = false;
+        bridgeMoveHasTarget = false;
+        bridgeMoveExpiresNanos = 0L;
+        bridgeMoveFirstPending = false;
+        bridgeMoving = false;
+        bridgePathActive = false;
+        bridgePathRouteReady = false;
+        bridgePathStopping = false;
+        bridgePathStartedThisRun = false;
+        bridgeTacticalMovement = false;
+        bridgeStrafeX = 0.0f;
+        bridgeStrafeY = 0.0f;
+        try {
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior != null) behavior.cancel();
+        } catch (RuntimeException | LinkageError ignored) {}
+        super.setMoving(false);
+        setRunning(false);
+        setSprinting(false);
+        setSneaking(false);
+        // Sitting suspends walking, not an authorized passenger firearm aim.
+        // Clearing aim each frame prevents player-vehicle from ever entering
+        // its ranged substate, leaving DoAttack started without a collision.
+        setVariable("DeltaX", 0.0f);
+        setVariable("DeltaY", 0.0f);
+    }
+
+    private void updatePlayerVehicleState() {
+        if (PLAYER_VEHICLE_UPDATE == null) return;
+        boolean requestedAim = isAiming();
+        try {
+            PLAYER_VEHICLE_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("player vehicle update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("player vehicle update failed", cause);
+        } finally {
+            // Vanilla polls local aim input even for a non-local passenger.
+            // Retain the explicit action request for the subsequent animation
+            // update; isAimControlActive keeps mouse-driven attacks out of it.
+            setIsAiming(requestedAim && !isDead() && getVehicle() != null);
+        }
+    }
+
+    private void updatePlayerActionGroup() {
+        if (PLAYER_ACTION_GROUP_CHECK == null) return;
+        try {
+            PLAYER_ACTION_GROUP_CHECK.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("player action-group check is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("player action-group check failed", cause);
+        }
+    }
+
+    private void updatePlayerEmitter() {
+        if (PLAYER_EMITTER_UPDATE == null) {
+            throw new IllegalStateException("player sound-emitter update is unavailable");
+        }
+        try {
+            PLAYER_EMITTER_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("player sound-emitter update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("player sound-emitter update failed", cause);
+        }
+    }
+
+    /**
+     * IsoPlayer.update() is a local-player controller: in Build 42.20.4 it
+     * assigns the global player/camera owners, fires OnPlayerUpdate and reads
+     * player input even for an NPC.  Invoke IsoGameCharacter's private,
+     * non-virtual update body instead.  This retains character physics, state
+     * machines, wounds, timed actions and animation without entering the
+     * local-player controller or re-entering Lua through OnPlayerUpdate.
+     */
+    private void updateGenericCharacter() {
+        if (GENERIC_CHARACTER_UPDATE == null) {
+            throw new IllegalStateException("generic IsoGameCharacter update is unavailable");
+        }
+        try {
+            GENERIC_CHARACTER_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("generic IsoGameCharacter update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("generic IsoGameCharacter update failed", cause);
+        }
+    }
+
+    /** Advance only the native on-foot stamina path omitted with local input. */
+    void updateCompanionEndurance() {
+        // The stock method selects the sitting/resting branch itself.
+        if (!SystemDisabler.doCharacterStats || GameClient.client || GameServer.server
+                || this == IsoPlayer.getInstance() || isDead() || isAsleep() || isGodMod()
+                || getVehicle() != null || getStats() == null) return;
+        if (PLAYER_ENDURANCE_UPDATE == null) {
+            throw new IllegalStateException("native on-foot endurance update is unavailable");
+        }
+        try {
+            PLAYER_ENDURANCE_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("native on-foot endurance update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("native on-foot endurance update failed", cause);
+        }
+    }
+
+    /** The endurance-only part of IsoPlayer.updateStats_Sleeping in 42.21. */
+    void updateCompanionSleepEndurance() {
+        // WakeState reaches the native sleep update only for the singleton in
+        // single-player. Downtime owns this companion's bed/tiredness recovery;
+        // restore only its missing stamina, without repeating the other stats.
+        if (!SystemDisabler.doCharacterStats || GameClient.client || GameServer.server
+                || this == IsoPlayer.getInstance() || isDead() || !isAsleep() || isGodMod()
+                || getStats() == null) return;
+        GameTime time = GameTime.getInstance();
+        SandboxOptions sandbox = SandboxOptions.instance;
+        if (time == null || sandbox == null) return;
+        float sleepScale = 2.0f;
+        if (IsoPlayer.allPlayersAsleep()) sleepScale *= time.getDeltaMinutesPerDay();
+        float recovery = (float) (ZomboidGlobals.imobileEnduranceReduce
+                * sandbox.getEnduranceRegenMultiplier() * getRecoveryMod()
+                * time.getMultiplier() * sleepScale);
+        if (Float.isFinite(recovery) && recovery > 0) getStats().add(CharacterStat.ENDURANCE, recovery);
+    }
+
+    private static Method resolveGenericCharacterUpdate() {
+        try {
+            Method method = IsoGameCharacter.class.getDeclaredMethod("updateInternal");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolvePlayerVehicleUpdate() {
+        try {
+            Method method = IsoPlayer.class.getDeclaredMethod("updateWhileInVehicle");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolvePlayerActionGroupCheck() {
+        try {
+            Method method = IsoPlayer.class.getDeclaredMethod("checkActionGroup");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolvePlayerEmitterUpdate() {
+        return resolveDeclaredNoArg(IsoPlayer.class, "updateEmitter");
+    }
+
+    private static Method resolveDeclaredNoArg(Class<?> owner, String methodName) {
+        Class<?> current = owner;
+        while (current != null) {
+            try {
+                Method method = current.getDeclaredMethod(methodName);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException failure) {
+                current = current.getSuperclass();
+            } catch (RuntimeException failure) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static Method resolveCombatManagerGetWeapon() {
+        try {
+            Method method = Class.forName("zombie.CombatManager")
+                    .getMethod("getWeapon", IsoGameCharacter.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponIsAimedFirearm() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("isAimedFirearm");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponSoundById() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getSoundByID", String.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponSwingSound() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getSwingSound");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponZombieHitSound() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getZombieHitSound");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponIsRanged() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("isRanged");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveCharacterPlaySound() {
+        try {
+            Method method = IsoGameCharacter.class.getMethod("playSound", String.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolvePlayerMethod(String name, Class<?>... parameters) {
+        try {
+            return IsoPlayer.class.getMethod(name, parameters);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveStatic(String className, String methodName) {
+        try {
+            Method method = Class.forName(className).getMethod(methodName);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Class<?> resolveBallisticClass(String name) {
+        try {
+            return Class.forName(name, false, SCNativeCompanion.class.getClassLoader());
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Method resolveBallisticMethod(Class<?> owner, String name, Class<?>... parameters) {
+        try {
+            return owner.getMethod(name, parameters);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Field resolveBallisticField(Class<?> owner, String name) {
+        try {
+            return owner.getField(name);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Method resolveNoArg(Class<?> owner, String methodName) {
+        try {
+            Method method = owner.getMethod(methodName);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object resolveAttackType(String name) {
+        if (name == null || name.isEmpty()) return null;
+        try {
+            Class<?> attackType = Class.forName("zombie.AttackType");
+            if (!attackType.isEnum()) return null;
+            // The anim-event parameter (e.g. "MeleeSwing") corresponds to the
+            // enum's id, which toString() returns lowercased ("meleeswing") --
+            // not the constant name ("MELEE_SWING"). Try the constant name first,
+            // then a case-insensitive match on the id.
+            try {
+                return Enum.valueOf((Class<? extends Enum>) attackType, name);
+            } catch (IllegalArgumentException notAConstantName) {
+                for (Object value : attackType.getEnumConstants()) {
+                    if (name.equalsIgnoreCase(String.valueOf(value))) return value;
+                }
+                return null;
+            }
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveAttackCollisionCheck() {
+        try {
+            Class<?> combatManager = Class.forName("zombie.CombatManager");
+            Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
+            Class<?> swipeState = Class.forName("zombie.ai.states.SwipeStatePlayer");
+            Class<?> attackType = Class.forName("zombie.AttackType");
+            Method method = combatManager.getMethod("attackCollisionCheck",
+                    IsoGameCharacter.class, handWeapon, swipeState, attackType);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /**
+     * Fail-closed contract for every private Build 42 method used by the
+     * native actor.  Checking only the generic update method allowed a bridge
+     * to report ready and then silently skip vehicle or animation work after
+     * a game update renamed one of the other methods.
+     */
+    static String runtimeContractFailure() {
+        String injected = RUNTIME_CONTRACT_FAILURE_FOR_TESTS;
+        if (!injected.isEmpty()) return injected;
+        String failure = reflectedMethodFailure(GENERIC_CHARACTER_UPDATE,
+                IsoGameCharacter.class, "updateInternal");
+        if (!failure.isEmpty()) return failure;
+        failure = reflectedMethodFailure(PLAYER_VEHICLE_UPDATE,
+                IsoPlayer.class, "updateWhileInVehicle");
+        if (!failure.isEmpty()) return failure;
+        failure = reflectedMethodFailure(PLAYER_ENDURANCE_UPDATE,
+                IsoPlayer.class, "updateEndurance");
+        if (!failure.isEmpty()) return failure;
+        return reflectedMethodFailure(PLAYER_ACTION_GROUP_CHECK,
+                IsoPlayer.class, "checkActionGroup");
+    }
+
+    /**
+     * Capability contract for the swing/floor collision driver (review 4.3).
+     * Unlike {@link #runtimeContractFailure()}, a missing combat reflection does
+     * NOT fail the whole bridge -- a non-combat companion is still valid -- but it
+     * must be surfaced, because {@link #driveCompanionAttackCollision(String)}
+     * fails closed silently, which otherwise leaves a combat companion swinging
+     * without ever landing a hit while the bridge reports ready. Returns "" when
+     * the swing collision path is fully wired, else the first missing handle.
+     */
+    static String combatCollisionFailure() {
+        if (COMBAT_MANAGER_INSTANCE == null) return "CombatManager.getInstance is unavailable";
+        if (SWIPE_STATE_INSTANCE == null) return "SwipeStatePlayer.instance is unavailable";
+        if (ATTACK_COLLISION_CHECK == null) return "CombatManager.attackCollisionCheck is unavailable";
+        if (GET_USE_HAND_WEAPON == null) return "IsoGameCharacter.getUseHandWeapon is unavailable";
+        if (GET_ATTACK_TYPE == null) return "IsoPlayer.getAttackType is unavailable";
+        return "";
+    }
+
+    static boolean combatCollisionReady() {
+        return combatCollisionFailure().isEmpty();
+    }
+
+    /**
+     * The stomp finisher additionally needs the STOMP AttackType enum constant to
+     * resolve. A missing floor attack disables only the downed-target stomp, not
+     * general melee/ranged combat.
+     */
+    static boolean floorAttackReady() {
+        return combatCollisionReady() && resolveAttackType("STOMP") != null;
+    }
+
+    private static String reflectedMethodFailure(Method method, Class<?> owner, String name) {
+        if (method == null) return owner.getSimpleName() + "." + name + " is unavailable";
+        if (method.getDeclaringClass() != owner || !method.getName().equals(name)
+                || method.getParameterCount() != 0 || method.getReturnType() != void.class) {
+            return owner.getSimpleName() + "." + name + " has an incompatible signature";
+        }
+        try {
+            if (!method.trySetAccessible()) {
+                return owner.getSimpleName() + "." + name + " is inaccessible";
+            }
+        } catch (RuntimeException failure) {
+            return owner.getSimpleName() + "." + name + " access failed: "
+                    + failure.getClass().getSimpleName();
+        }
+        return "";
+    }
+
+    /** Package-private real-JAR test seam for the version-pinned update path. */
+    static boolean hasGenericCharacterUpdate() {
+        return runtimeContractFailure().isEmpty();
+    }
+
+    /** Package-private negative readiness seam; never exposed through Kahlua. */
+    static void failRuntimeContractForTests(String failure) {
+        RUNTIME_CONTRACT_FAILURE_FOR_TESTS = failure == null ? "" : failure.trim();
+    }
+
+    /** Package-private real-JAR test seam for the deferred physics request. */
+    public boolean hasPendingMovement() {
+        return (bridgeMoveRequested && manualInputAvailable(System.nanoTime(), bridgeMoveExpiresNanos,
+                bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)) || bridgePathActive;
+    }
+
+    public boolean isBridgeHealthy() {
+        return !bridgeDisabled && bridgeFailure.isEmpty();
+    }
+
+    public String getBridgeFailure() {
+        return bridgeFailure;
+    }
+
+    public boolean isCorpseReady() {
+        return corpseReady;
+    }
+
+    /** The exact native corpse delivered by the game's death callback. */
+    public IsoDeadBody getCompanionCorpse() {
+        return bridgeCorpse;
+    }
+
+    public boolean wasCompanionCorpseListedAtCallback() {
+        return bridgeCorpseListedAtCallback;
+    }
+
+    public void disableBridge(String reason) {
+        bridgeFailure = cleanReason(reason);
+        bridgeDisabled = true;
+        bridgeStoryZombieIgnored = false;
+        try { setCompanionTacticalMovement(false, 0.0f, 0.0f); }
+        catch (RuntimeException | LinkageError ignored) {}
+        try { setMoving(false); } catch (RuntimeException | LinkageError ignored) {}
+        try { setRunning(false); } catch (RuntimeException | LinkageError ignored) {}
+        try { setSprinting(false); } catch (RuntimeException | LinkageError ignored) {}
+        try { setSneaking(false); } catch (RuntimeException | LinkageError ignored) {}
+    }
+
+    /** Package-private so the real-JAR control can prove rollback independently. */
+    static final class LocalPlayerState {
+        private final IsoPlayer[] slots;
+        private final IsoPlayer[] values;
+        private final int playerCount;
+        private final IsoPlayer singleton;
+        private final IsoGameCharacter cameraCharacter;
+
+        private LocalPlayerState(IsoPlayer[] slots, IsoPlayer[] values,
+                int playerCount, IsoPlayer singleton, IsoGameCharacter cameraCharacter) {
+            this.slots = slots;
+            this.values = values;
+            this.playerCount = playerCount;
+            this.singleton = singleton;
+            this.cameraCharacter = cameraCharacter;
+        }
+
+        static LocalPlayerState capture() {
+            IsoPlayer[] current = IsoPlayer.players;
+            if (current == null || current.length != 4) return null;
+            return new LocalPlayerState(current, current.clone(),
+                    IsoPlayer.numPlayers, IsoPlayer.getInstance(), IsoCamera.getCameraCharacter());
+        }
+
+        boolean slotsMatch() {
+            if (IsoPlayer.players != slots || slots.length != values.length
+                    || IsoPlayer.numPlayers != playerCount) return false;
+            for (int index = 0; index < values.length; index++) {
+                if (slots[index] != values[index]) return false;
+            }
+            return true;
+        }
+
+        boolean ownersMatch() {
+            return IsoPlayer.getInstance() == singleton
+                    && IsoCamera.getCameraCharacter() == cameraCharacter;
+        }
+
+        boolean matches() {
+            return slotsMatch() && ownersMatch();
+        }
+
+        boolean restore() {
+            try {
+                if (IsoPlayer.players != slots || slots.length != values.length) return false;
+                System.arraycopy(values, 0, slots, 0, values.length);
+                IsoPlayer.numPlayers = playerCount;
+                IsoPlayer.setInstance(singleton);
+                IsoCamera.setCameraCharacter(cameraCharacter);
+                return matches();
+            } catch (RuntimeException | LinkageError failure) {
+                return false;
+            }
+        }
+    }
+
+    private static String cleanReason(String reason) {
+        String clean = reason == null ? "unknown native companion failure" : reason.trim();
+        if (clean.isEmpty()) clean = "unknown native companion failure";
+        return clean.length() > 240 ? clean.substring(0, 240) : clean;
+    }
+
+    private static String cleanMessage(String message) {
+        if (message == null || message.isBlank()) return "";
+        String clean = message.replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (clean.length() > 160) clean = clean.substring(0, 160);
+        return ": " + clean;
+    }
+
+    private static String cleanLocation(Throwable failure) {
+        StackTraceElement[] trace = failure == null ? null : failure.getStackTrace();
+        if (trace == null || trace.length == 0) return "";
+        StringBuilder location = new StringBuilder(" at ");
+        int included = 0;
+        for (StackTraceElement element : trace) {
+            String className = element.getClassName();
+            if (included == 0 || className.startsWith("zombie.")) {
+                if (included > 0) location.append(" <- ");
+                location.append(className).append('.').append(element.getMethodName())
+                        .append(':').append(element.getLineNumber());
+                included++;
+                if (included == 4) break;
+            }
+        }
+        return location.toString();
+    }
+
+    private static float clampUnit(float value) {
+        if (!Float.isFinite(value)) return 0.0f;
+        return Math.max(-1.0f, Math.min(1.0f, value));
+    }
+}

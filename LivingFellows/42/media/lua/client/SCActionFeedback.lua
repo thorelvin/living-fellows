@@ -1,0 +1,259 @@
+-- SPDX-License-Identifier: MIT
+-- Player wording only: reading feedback never starts, retries or cancels work.
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
+SC.ActionFeedback = SC.ActionFeedback or {}
+local F = SC.ActionFeedback
+
+local wording = {
+    no_stitching_kit = { "No usable stitching kit is available.", "Provide a suture needle, or a needle and thread, with a fresh dressing." },
+    glass_before_stitching = { "Glass must be removed before this wound can be stitched.", "Provide usable tweezers or a needle holder for the glass first." },
+    no_painkillers = { "No usable painkillers are available.", "Give the companion an unprotected bottle of painkillers." },
+    painkillers_still_working = { "The previous painkiller dose is still working.", "Another dose can wait until its effects have ended.", true },
+    painkiller_daily_limit = { "This companion has already had four painkiller doses today.", "The next dose can be given tomorrow." },
+    no_painkiller_need = { "The companion's pain does not need another dose.", "Painkillers are saved for stronger pain." },
+    no_antibiotics = { "No usable antibiotics are available.", "Keep an unprotected dose available for a persistent wound infection." },
+    antibiotics_still_working = { "The previous antibiotic dose is still working.", "Another course waits until its effects have ended.", true },
+    antibiotics_waiting_disinfect = { "This wound can be disinfected first.", "Antibiotics are reserved for infection lasting twelve hours after disinfection, or when disinfectant is unavailable." },
+    antibiotics_reserved_for_worst = { "The remaining antibiotics are reserved for the worst wound infection.", "Stock another dose or let the medic treat the higher-priority patient first.", true },
+    no_local_wound_infection = { "There is no local wound infection to treat with antibiotics.", "Antibiotics do not treat Knox infection." },
+    player_takes_own_medicine = { "You take your own medicine.", "Companions administer medicine only to companions." },
+    medical_supplies_unreadable = { "Available camp medicines could not be checked completely.", "Let nearby storage load and check its withdrawal permissions.", true },
+    medical_medicine_unreadable = { "The companion's previous medicine effects could not be confirmed.", "Check their recent care before offering another dose." },
+    medical_metadata_unavailable = { "The companion's care record could not be confirmed.", "Check their recent medical problems before retrying treatment." },
+    medical_context_changed = { "The care plan changed while treatment was being prepared.", "The helper will check the patient and supplies again.", true },
+    no_tweezers = { "A usable pair of tweezers or suture needle holder is needed.", "Give the helper an available tool, then retry treatment." },
+    no_disinfectant = { "No suitable disinfectant is available.", "Provide alcohol wipes, disinfectant, rubbing alcohol or spare strong spirits." },
+    no_clean_dressing_for_burn = { "Burn care needs a cleaning dressing and a fresh dressing.", "Provide two separate clean dressings suitable for the burn." },
+    no_clean_dressing_for_procedure = { "Treatment is waiting for a fresh dressing.", "Provide a clean dressing. The current covering stays on until supplies are ready." },
+    medical_need_changed = { "This wound's care needs have changed.", "The helper will check it again before starting another treatment.", true },
+    medical_medic_wait = { "Waiting for the camp medic.", "The resident can handle their own care if no medic becomes available.", true },
+    medical_patient_unavailable = { "The patient is no longer available for camp treatment.", "Return them to duty in camp to arrange another visit." },
+    medical_patient_busy = { "Someone else is treating this patient.", "Waiting for that care to finish.", true },
+    medical_patient_in_danger = { "The patient needs to move to safety.", "Treatment will wait until both people are safe.", true },
+    medical_care_handed_off = { "The camp visit ended with care still pending.", "Keep suitable supplies available so care can resume when it is safe." },
+    medical_recovery_required = { "Medical care has an unfinished supply return or dressing.", "Keep the patient and helper nearby and check their supplies before retrying." },
+    medical_care_uncertain = { "The treatment result needs checking.", "Inspect the patient and their supplies before retrying." },
+    medical_procedure_unverified = { "The treatment result could not be confirmed.", "Check the wound before retrying. Its supplies have been kept." },
+    medical_needs_active = { "The helper is finishing personal care first.", "Treatment can continue when that task finishes.", true },
+    medical_pending_owned = { "The previous helper is finishing this treatment.", "Keep both companions available while its supplies are settled.", true },
+    medical_consumption_uncertain = { "A treatment supply could not be accounted for.", "Inspect the helper's supplies. The procedure will not be repeated to replace a missing item." },
+    medical_return_uncertain = { "A returned medical supply could not be confirmed.", "Inspect the helper's inventory. Another copy will not be created on retry." },
+    medical_helper_busy = { "The helper is already treating another wound.", "Wait for that treatment to finish.", true },
+    medical_visit_invalid = { "The camp treatment could not be checked safely.", "The camp will reassess the visit before treatment starts." },
+    medical_recovery_unreadable = { "Saved treatment details could not be confirmed.", "Inspect the patient's wounds and supplies before further elective care." },
+    medical_resources_unreadable = { "The helper's medical supplies could not be checked completely.", "Keep the required supplies in an accessible bag with room for returned dressings." },
+    medical_recovery_capacity = { "Other unfinished treatments need attention first.", "Check existing medical problems before starting another procedure." },
+    medical_recovery_handed_off = { "Care is ready for another helper to finish.", "Keep a clean dressing available so treatment can resume safely." },
+    medical_visit_owner_changed = { "The camp treatment assignment changed.", "The camp will check who can finish the patient's care." },
+    medical_visit_not_allied = { "These companions cannot share this treatment.", "The patient can arrange care with their own group." },
+    medical_visit_owner_busy = { "The helper is finishing another treatment.", "The patient can handle their own care if the medic stays busy.", true },
+    medical_visit_patient_left = { "The patient has left camp duty.", "Camp visits can resume when the patient returns to duty in camp." },
+    medical_visit_medic_left = { "The medic has left camp duty.", "The resident will handle their own care when it is safe." },
+    medical_visit_urgent_bleeding = { "Urgent bleeding needs attention first.", "The wound must be dressed before elective treatment continues.", true },
+    medical_visit_player_care = { "You are treating this patient.", "The medic will wait until that care finishes.", true },
+    medical_visit_patient_missing = { "Waiting for the patient to be nearby again.", "The camp visit and any unfinished treatment have been kept.", true },
+    medical_visit_recovery_pending = { "This visit has unfinished treatment supplies.", "Keep the helper available so the treatment can finish safely.", true },
+    expired_medical_visit_owner_missing = { "Waiting for the original medic to return.", "The unfinished treatment has been kept for recovery.", true },
+    no_clean_dressing_for_stitches = { "Stitch removal is waiting for a fresh dressing.", "Provide an unprotected clean dressing. The current dressing stays on until one is available." },
+    stitches_not_ready = { "The stitches still need time.", "They will be checked again after more healing." },
+    fracture_not_healed = { "The bone still needs its splint.", "The splint stays on until the fracture has healed." },
+    medical_maintenance_unverified = { "The treatment result could not be confirmed.", "Check the companion's wound before retrying." },
+    medical_redress_pending = { "Medical care is finishing its dressing or supply return.", "Keep the patient and helper nearby, with a clean dressing available if needed." },
+    no_water_for_bandages = { "No clean water source in camp to wash bandages.", "Provide a reachable clean water source with enough water." },
+    dressing_stock_missing = { "No usable dirty dressings remain in permitted camp storage.", "Personal supplies, reserved stock and protected items stay with their owners." },
+    dressing_storage_missing = { "Clean dressings are waiting for Medical storage.", "Allow deposits and make room on a shelf marked Medical." },
+    dressing_wash_uncertain = { "The previous wash result needs checking.", "Look for the dressing and check the washing supplies before trying again." },
+    dressing_native_owner_busy = { "The companion is finishing another task first.", "The washing job will wait until the current task finishes.", true },
+    base_watch_leader_on_duty = { "This companion is running Base Watch.", "End Base Watch before changing their duty." },
+    base_watch_radio_required = { "This resident is outside ordinary command range.", "Send a radio order or return to camp." },
+    haul_source_marker_missing = { "The haul's original storage is no longer marked.", "Verified carried stock stays with the companion for later delivery." },
+    haul_source_storage_changed = { "The haul's original storage is unavailable.", "Verified carried stock stays with the companion for later delivery." },
+    haul_cargo_owner_unknown = { "The haul item's current owner could not be confirmed.", "Existing items are preserved; no missing cargo will be recreated." },
+    base_work_cancel_failed = { "The companion could not finish handing back their previous work.", "Check the current job and its supplies, then retry the order." },
+    base_duty_change_failed = { "The companion's base duty could not be released.", "Check the current job, then retry the order." },
+    base_duty_release_unavailable = { "Base duty cannot be released right now.", "The camp service must be available before changing this order." },
+    base_order_pending = { "Finishing previous work first (up to 20 seconds).", "Work on the new order starts once the companion finishes with the supplies.", true },
+    base_order_cargo_retained = { "Carried camp stock is being kept for later delivery.", "The companion can follow now and store it when suitable storage is available." },
+    base_order_superseded = { "The queued order was replaced by a newer command.", "The newer command has been kept." },
+    force_open_failed = { "The crowbar attempt failed.", "Choose Retry forcing to try again. Another attempt may damage the tool or window." },
+    force_open_not_forceable = { "This target cannot be forced open.", "Security and jail doors, barricaded openings and unsupported portals are excluded." },
+    force_crowbar_missing = { "A usable crowbar is needed.", "Allow borrowing from marked camp storage, or put an unbroken crowbar in the companion's inventory before leaving." },
+    force_tool_return_pending = { "The borrowed crowbar is waiting to be returned.", "Keep its storage accessible with deposits allowed and room available. Full Tools storage can use another marked Tools container. The return retries after three minutes." },
+    storage_full = { "Destination storage is full.", "Free space or permit another destination." },
+    storage_missing = { "No permitted storage is available.", "Mark a suitable destination and allow deposits." },
+    unloaded = { "The destination is not loaded.", "Return nearby; the task can continue when the area loads." },
+    path = { "A route could not be found.", "Check access to the destination, including doors and stairs." },
+    crowded = { "Another person is in the way.", "Waiting for the way to clear.", true },
+    supplies = { "Required supplies are unavailable.", "Check permitted storage, available stock and other workers' claims." },
+    tool = { "A usable tool is missing.", "Provide an unbroken tool in permitted storage or the companion's inventory." },
+    capacity = { "There is not enough safe carrying space.", "Free carrying space or provide a suitable bag or vehicle." },
+    unsafe = { "Work paused because the area is unsafe.", "The companion will reassess after the danger passes.", true },
+    night = { "Outdoor work is paused for the night.", "Work can resume in daylight or after a night-work policy change.", true },
+    interrupted = { "The action was interrupted.", "It can be attempted again after the current activity finishes." },
+    uncertain = { "The previous item transfer needs checking.", "Check who has the item before trying again." },
+    watch = { "Under watch: indoor duties only.", "Review the camp decision to change the restriction." },
+    restricted = { "Camp work is paused by a camp decision.", "Review the decision; food, drink, rest and medical care remain available." },
+    preparing = { "Still looking for usable supplies.", "The search is continuing in bounded steps.", true },
+    animal_zone = { "The animal enclosure could not be checked safely.", "Keep the whole enclosure within reach, normally up to 30 meters beyond camp. Stay nearby so the farmer can check it." },
+    animal_native = { "Animal care stopped before its result was confirmed.", "Check the animal, trough or hutch. The farmer will retry without replacing missing items." },
+    animal_feed_trough_missing = { "Animals need a separate feed trough.", "Place an empty trough in the animal zone. Each trough holds feed or water." },
+    animal_water_trough_missing = { "Animals need a separate water trough.", "Place an empty trough in the animal zone. Existing feed will be left intact." },
+    animal_hutch_missing = { "The chicken pen has no usable hutch.", "Place a compatible hutch inside its animal zone." },
+    animal_roost_delayed = { "Some chickens have not returned to shelter.", "The farmer is leaving the door open. Check the hutch entrance and any birds still outside." },
+    animal_cattle_enclosure_small = { "The pasture is too small for the animals that live there.", "Expand or connect the animal zone. Care will continue without moving the herd." },
+    animal_cattle_unsafe = { "Animal care is paused near an agitated bull or ram.", "Keep the farmer clear until the animal settles. The job will retry." },
+    animal_shear_stressed = { "The sheep is too stressed to shear safely.", "Let it settle. Collected wool is preserved and the farmer will retry." },
+    animal_shear_not_ready = { "No eligible adult sheep could be confirmed.", "Shearing needs a healthy, unled sheep at least 200 days old, with a full enough fleece. Lambs are left alone." },
+    animal_shear_tool_unavailable = { "The farmer needs usable shears.", "Put unbroken manual shears or charged electric shears in permitted Farming or Tools storage." },
+    animal_wool_storage_missing = { "Wool delivery is waiting for storage with room.", "Allow deposits and clear space in Crafting or General storage. No more fleece is cut while delivery is blocked." },
+    animal_shear_load_full = { "The farmer has reached a safe wool carrying limit.", "The current batch will be delivered before shearing continues. Clear unnecessary carried gear if even one wool item will not fit." },
+    animal_shear_uncertain = { "A shearing result could not be confirmed safely.", "Inspect the sheep and its nearby wool. Existing items are preserved; missing or ambiguous wool will never be replaced." },
+    animal_wool_missing = { "The farmer could not find the shorn wool.", "Check the pasture and the pack of the farmer who sheared the animal." },
+    animal_shear_floor_unavailable = { "The sheep's ground could not be checked safely.", "Let the area load and clear loose clutter beside the animal, then retry." },
+    animal_milk_stressed = { "The animal is too stressed to milk safely.", "Farmers can calm animals in managed pens. Keep water, feed and a safe approach available; milking will retry after a pause." },
+    animal_soothe_unavailable = { "The animal cannot be approached safely for calming.", "Keep it in its managed pen, unled and out of danger. Farmers use the ordinary petting action when it permits handling." },
+    animal_soothe_uncertain = { "The calming action could not be confirmed.", "The animal has been released. This attempt will not be replayed; a later visit can be offered after the cooldown." },
+    farm_water_carry_capacity_low = { "The farmer cannot safely carry another watering dose.", "Free some carrying space or let the exhausted farmer rest. Existing water and borrowed equipment are preserved." },
+    animal_milk_food_storage_missing = { "Milk delivery is waiting for storage with room.", "Mark an empty compatible barrel as Milk, or clear space in Fresh food or Regular food storage. Cow and sheep milk remain separate. Retry is automatic after three minutes." },
+    milk_storage_incompatible = { "This container cannot store milk safely.", "Use an empty compatible fluid barrel or one containing only cow or sheep milk. Existing water or other contents will not be discarded." },
+    animal_manure_storage_missing = { "Manure delivery is waiting for storage.", "Mark a composter or a spare crate as Manure and allow deposits. Full composters use marked crates as overflow. Retry is automatic after three minutes." },
+    animal_manure_capacity = { "This pile is more than the farmer can carry.", "Free enough room for the whole pile or clear part of it yourself. The farmer can keep doing other chores." },
+    animal_manure_uncertain = { "The collected manure could not be confirmed safely.", "Check the farmer who collected it and the spot where the pile stood." },
+    medic_kit_unavailable = { "No first aid kit is available.", "Put a compatible kit in permitted Medical storage or give one to the Medic. Loose supplies remain usable." },
+    medic_kit_supplies_missing = { "The Medic is short of usable supplies.", "Stock two clean dressings, painkillers, a splint and a stitching kit in permitted storage. Kit stocking retries after three minutes and does not prevent urgent treatment." },
+    animal_milk_container_unavailable = { "The farmer needs an empty milk container.", "Put an empty, compatible bucket, pot or bottle in permitted Farming storage, with carrying room available." },
+    animal_milk_approach_timeout = { "The farmer could not settle beside the animal.", "Keep a clear space beside it. It has been released and the job will retry." },
+    animal_milk_daylight = { "Milking is waiting for daylight.", "Farmers milk between 07:00 and 20:00. Collected milk can still be delivered." },
+    animal_milk_not_ready = { "The animal is not ready for milking.", "Check that the cow or ewe is healthy, grown, untethered and giving milk." },
+    animal_milk_daily_limit = { "Milking is paused by the daily limit.", "The farmer can finish delivering this animal's milk and milk again tomorrow." },
+    animal_milk_cow_unavailable = { "The animal could not be confirmed in its loaded camp pasture.", "The farmer will retry when it returns. Existing milk is preserved." },
+    animal_milk_approach_missing = { "Neither side of the animal is accessible for milking.", "Clear space around it and the trough. The farmer will retry without moving the animal." },
+    animal_milk_resting = { "The animal is resting after interrupted milking.", "The farmer will try again after at least one hour and keep any milk already collected." },
+    animal_milk_container_missing = { "The borrowed milk container could not be located safely.", "Check the farmer's pack and the pasture for the borrowed container." },
+    animal_milk_uncertain = { "Milking stopped because its measurements could not be confirmed.", "The exact container is retained for recovery. No milk will be added to compensate." },
+    animal_milk_container_changed = { "The borrowed milk container is no longer empty or compatible.", "Its contents will be preserved. Return an empty compatible container to Farming storage." },
+    animal_zone_limit = { "The camp already tracks its maximum number of animal zones.", "Use an existing enclosure. Known flock identities are retained so missing birds cannot be locked outside." },
+    radio_work_no_power = { "Radio watch is paused: the computer has no power.", "Restore its power. Shift progress is saved and the job retries automatically.", true },
+    radio_work_radio_missing = { "The computer's two-way radio is missing or broken.", "Mount a working walkie-talkie; the operator's progress is saved." },
+    radio_work_locked = { "The assigned computer is locked.", "Unlock it to resume the saved radio shift." },
+    fire_spread = { "The fire spread beyond the pyre.", "Check the area and put out any fire. Burning stays paused until you press Retry." },
+    unknown = { "The task stopped before completion.", "Review its details and available retry controls." },
+    quarantine_area_missing = { "Quarantine is pending: no area is marked.", "Mark a reachable quarantine area. Indoor duties continue under watch." },
+    quarantine_area_unloaded = { "Quarantine is pending: the area is not loaded.", "Return nearby. Indoor duties continue under watch." },
+    quarantine_unreachable = { "Quarantine is pending: the area cannot be reached.", "Check its doors and stairs, or move the area. Indoor duties continue under watch." },
+    exile_route_unavailable = { "Departure is pending: no safe route out was found.", "Clear an exit, retry departure or release the restriction." },
+    authorization_expired = { "The final decision needs confirmation again.", "Review the current situation before authorizing an irreversible action." },
+    final_action_needs_review = { "A previous irreversible action needs inspection.", "Check the companion and release the decision when appropriate. It will not be replayed automatically." },
+    mercy_executor_unavailable = { "The chosen companion cannot carry out this decision.", "Choose the outcome again to select an available companion, or choose a reversible option." },
+    crisis_decision_changed = { "The camp decision changed while this control was open.", "Review the updated decision before trying again." },
+    private_camp_decision = { "Camp duties are restricted.", "Review or release the restriction; its private cause has not been disclosed." },
+    waiting_for_safety = { "Waiting for a safe, free moment.", "Urgent orders, self-care and nearby danger take priority. The decision remains pending.", true },
+    final_action_requires_weapon = { "The chosen companion has no usable weapon for this decision.", "Provide equipment and review the decision, or choose a reversible option." },
+    native_final_action_unavailable = { "This final action could not start.", "Review the companion and equipment, or choose a reversible option." },
+    native_end_life_unavailable = { "This cannot be done right now.", "Check Support for details or choose a reversible option." },
+    native_bleach_drink_unavailable = { "The required drinking action is unavailable.", "Check Support or choose a reversible option." },
+    bleach_missing = { "The companion has no usable bleach for this decision.", "Check the supplies or choose a different outcome." },
+    bite_not_confirmed = { "A bite has not been confirmed to you.", "Review witnessed reports or medical findings before considering a final outcome." },
+    safety_delay_active = { "The decision is still in its safety delay.", "Wait briefly, then review and confirm it deliberately." },
+    crisis_actor_busy = { "This person is already involved in another final decision.", "Resolve that decision or choose another available companion." },
+}
+local exact = {
+    destination_full = "storage_full", floor_storage_full = "storage_full", haul_destinations_full = "storage_full",
+    floor_storage_missing = "storage_missing", floor_storage_unavailable = "storage_missing",
+    floor_pickup_animation_replaced = "interrupted", loot_animation_replaced = "interrupted",
+    work_side_busy = "crowded", watch_indoor_duty = "watch", infection_restriction = "restricted",
+    cleaning_supplies_scanning = "preparing", haul_scan_pending = "preparing",
+    force_open_carry_limit = "capacity", force_open_unsafe = "unsafe",
+    force_open_busy = "crowded", force_open_no_approach = "path",
+    force_open_approach_timeout = "path", force_open_interrupted = "interrupted",
+    log_yard_rope_missing = "supplies", log_yard_rope_search_pending = "preparing",
+    log_yard_rope_moved = "supplies", log_yard_unloaded = "unloaded",
+    log_yard_craft_receipt_uncertain = "uncertain",
+    log_yard_unstack_receipt_uncertain = "uncertain", log_yard_bundle_metadata_missing = "uncertain",
+    log_yard_unstack_reconciling = "preparing",
+    animal_audit_pending = "preparing", animal_audit_incomplete = "animal_zone",
+    animal_flock_not_loaded = "animal_zone", animal_zone_unavailable = "animal_zone",
+    animal_zone_outside_camp = "animal_zone", animal_action_incomplete = "animal_native",
+    animal_sheep_unsafe = "animal_cattle_unsafe", animal_shear_capacity_unknown = "capacity",
+    animal_wool_carrier_unavailable = "animal_wool_missing",
+    animal_egg_recovery_pending = "uncertain", farm_food_storage_missing = "storage_missing",
+    production_fire_spread = "fire_spread",
+}
+
+function F.text(key, fallback, ...)
+    local value
+    if type(getText) == "function" then
+        local ok, translated = pcall(getText, "UI_SC_Feedback_" .. key, ...)
+        if ok then value = translated end
+    end
+    if value and value ~= "UI_SC_Feedback_" .. key then return value end
+    local args = { ... }
+    local result = (fallback or key):gsub("%%(%d+)", function(index) return tostring(args[tonumber(index)] or "") end)
+    return result
+end
+
+function F.reason(reason)
+    reason = tostring(reason or "unknown")
+    local code = reason:match("^([^:]+)") or reason
+    local kind = exact[code] or (wording[code] and code)
+    if not kind then
+        if code:find("unverified", 1, true) or code:find("unaccounted", 1, true)
+            or code:find("owner_unknown", 1, true) then kind = "uncertain"
+        elseif code:find("unloaded", 1, true) then kind = "unloaded"
+        elseif code:find("path", 1, true) or code:find("route", 1, true)
+            or code:find("approach_failed", 1, true) then kind = "path"
+        elseif code:find("reserved", 1, true) or code:find("crowd", 1, true) then kind = "crowded"
+        elseif code:find("capacity", 1, true) or code:find("carry", 1, true)
+            or code == "floor_worker_full" then kind = "capacity"
+        elseif code:find("tool_missing", 1, true) or code == "missing_tool" then kind = "tool"
+        elseif code:find("missing", 1, true) or code:find("supply", 1, true) then kind = "supplies"
+        elseif code:find("unsafe", 1, true) or code:find("danger", 1, true) then kind = "unsafe"
+        elseif code:find("night", 1, true) then kind = "night"
+        elseif code:find("planning", 1, true) or code:find("scan_pending", 1, true) then kind = "preparing"
+        elseif code:find("interrupt", 1, true) or code:find("replaced", 1, true) then kind = "interrupted"
+        else kind = "unknown" end
+    end
+    local row = wording[kind]
+    return { cause = F.text(kind .. "_cause", row[1]), nextStep = F.text(kind .. "_next", row[2]),
+        waiting = row[3] == true, kind = kind, known = kind ~= "unknown", rawReason = reason }
+end
+
+function F.failure(summary)
+    if type(summary) ~= "table" then return nil end
+    local failure = summary.feedbackVersion == 1 and summary.blocker
+        or (summary.feedbackVersion == nil and not summary.active and summary.lastFailure)
+    if type(failure) ~= "table" then return nil end
+    local result = F.reason(failure.reason)
+    result.action, result.targetLabel = failure.action, failure.targetLabel
+    local retry = summary.retry
+    if retry and retry.action == failure.action and retry.targetKey == failure.targetKey then
+        result.remainingMs = math.max(0, tonumber(retry.remainingMs) or 0)
+        result.automatic = retry.exhausted ~= true
+    end
+    result.at = failure.at
+    return result
+end
+
+function F.describe(result)
+    if not result then return nil end
+    local value = result.cause .. " " .. result.nextStep
+    if result.automatic and (result.remainingMs or 0) > 0 then
+        value = value .. " " .. F.text("retry", "Retrying in %1 seconds.", math.ceil(result.remainingMs / 1000))
+    end
+    return value
+end
+
+function F.crisis(row)
+    if row.pendingReason then return F.describe(F.reason(row.pendingReason)) end
+    if row.stage == "awaiting_authorization" then
+        return F.text("final_wait", "The camp proposed an irreversible outcome. Your confirmation is required; ordinary care continues.")
+    end
+    if row.finalAuthorized then return F.text("final_safe", "Authorized; waiting for a safe opportunity to carry out the decision.") end
+    if row.restriction == "watch" then return F.describe(F.reason("watch_indoor_duty")) end
+    if row.restriction == "quarantine" then return F.text("quarantined", "At the quarantine area. Work is paused; self-care remains available.") end
+    if row.restriction == "exiled" then return F.text("exiled", "Ordered to leave camp. Review the decision to recall this companion.") end
+    return F.text("discovered", "The camp is discussing a reported bite or observed symptoms. Review the known evidence and available choices.")
+end
+
+return F
