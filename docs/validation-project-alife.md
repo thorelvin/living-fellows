@@ -8,11 +8,21 @@ The [Project A-Life 1.5.4 Workshop package](https://steamcommunity.com/sharedfil
 
 The adapter and hardening fixtures pass **56** and **35** checks. The original **1.4.6** source still passes **928** checks. The unchanged **1.5.4** source passes **932**, including four checks for separate LF identities in the upstream defense ledger, faction-standing preservation during defense, and retention after the short aggression window expires. The test runner loads the owning combat core and uses fixture audio and body boundaries. Live verification is recorded separately.
 
+### Living Fellows 0.27.101 reciprocal combat
+
+The instrumented run `SC-Harness-20261127-175732-9e36427d` found a hostile A-Life shell in stock cell lists and LF's perception. The companion saw it about 2.45 tiles away while an ordinary zombie was about 19 tiles away. LF reached its zombie combat delegate and did not fire at the selected A-Life actor. Decision now passes a visible, urgent external human to the human combat delegate when nearby zombies and encirclement allow it. The `human-combat` regression covers A-Life and Bandits, with controls for nearby zombies, immediate danger to the leader, encirclement, an unseen human and Close Defense. Substituting the previous Decision file fails the distant-zombie assertion.
+
+`SC-Harness-20261127-180512-41b3dd42` passes reciprocal combat with A-Life loaded after LF. The recruited LF police officer fired an exact native `Base.Pistol` head hit against the selected A-Life body. A-Life's own hit callback settled **57.778** damage and its health went from **200 to 142.222**. A later unarmed contact took it to **136.720**. A-Life applied one native wound to that LF actor, whose health went from **100 to 98.965**. The primary player stayed in slot zero with key `sp:0`, native player count **1** and engine player-list size **4**.
+
+The passing scene retained ordinary zombies and standard A-Life armor. It used the owner spawner's **200 HP** and `damageOutput=3` settings, with hostility and firing enabled after normal spawn grace expired. An earlier instrumented run, `SC-Harness-20261127-180018-de7d4dbd`, began firing during grace and reached stock pistol impacts without a settled owner damage event. Native acceptance for 1.5.4 here covers a recruited companion in this load order.
+
+### Living Fellows 0.27.100 reload and combat attempts
+
 Cold reload passed from `SC-Harness-20261127-155445-d9466ede` to `SC-Harness-20261127-155634-a52e2fa6`. The original A-Life UID and shell returned under A-Life ownership. The LF UUID resolved to exactly one restored native body, with all **12** stable item identities and types intact. The primary retained reputation key `sp:0`, native player count 1 and engine player-list size 4.
 
 The combat run `SC-Harness-20261127-155232-0f466884` passed adapter activation, primary isolation and actual incoming wounds to the selected LF body. The private probe now waits for A-Life's normal post-spawn grace to expire before provoking its actor. LF initially aimed at a different nearby threat, then spent the remaining time on emergency treatment. It retained all 15 pistol rounds and issued no attack receipt before death.
 
-The quiet retry `SC-Harness-20261127-161548-58561fbf` used an outdoor lane with fewer nearby bodies and equipped the LF actor with real bandages. Incoming wounds and primary isolation passed again. The last sample before death counted **13** incoming wounds. LF queued and animated emergency treatment, retained all **15** pistol rounds, and its native attack serial stayed at zero. A-Life's actor remained at full health. These two runs leave reciprocal fire open at the point of initiating an LF attack.
+The quiet retry `SC-Harness-20261127-161548-58561fbf` used an outdoor lane with fewer nearby bodies and equipped the LF actor with real bandages. Incoming wounds and primary isolation passed again. The last sample before death counted **13** incoming wounds. LF queued and animated emergency treatment, retained all **15** pistol rounds, and its native attack serial stayed at zero. A-Life's actor remained at full health.
 
 ## October 26, 2026 compatibility baseline
 

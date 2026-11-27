@@ -109,6 +109,67 @@ function SC_HUMAN_COMBAT_REGRESSIONS(f)
     SC.ALifeAdapter = oldCorneredALife
     SC.FactionBehavior.releaseActor(actor)
     place(enemy, 2, -3)
+
+    do
+        local oldHumanCombat, oldZombieCombat = SC.FactionBehavior.updateHumanCombat, SC.Combat.update
+        local oldALife, oldDoctrine = SC.ALifeAdapter, commands.combatDoctrine
+        local delegated
+        SC.ALifeAdapter = oldALife or {}
+        SC.FactionBehavior.updateHumanCombat = function(_, _, _, target)
+            delegated = target
+            return true, "human_combat"
+        end
+        SC.Combat.update = function()
+            delegated = "zombie"
+            return true, "zombie_combat"
+        end
+        local distant = f.zombie(-8, -3, {})
+        distant.getX = function() return actor:getX() - 19 end
+        local remoteZombie = { actor = distant, distance = 19, distanceSq = 361, visible = true }
+        local health = { health = 100, bleedingCount = 0 }
+        local function routed(external, overrides)
+            local contact = human()
+            contact.external = external
+            local inputs = { humanThreat = contact, threats = { remoteZombie }, threatCount = 1,
+                immediateCount = 0, closeThreatCount = 0, pressure = 0, escapeSquares = {},
+                player = { danger = 0, immediateThreats = 0, actor = f.player } }
+            for key, value in pairs(overrides or {}) do inputs[key] = value end
+            delegated = nil
+            local candidates = SC.Decision._evaluateForTests(actor, f.player, inputs,
+                commands, health, {}, {}, f.clock)
+            for _, candidate in ipairs(candidates) do
+                if candidate.kind == "combat" then
+                    local handled = SC.Decision._delegateForTests(candidate, actor, f.player,
+                        { snapshot = inputs }, commands, inputs, {}, health)
+                    return handled and delegated or nil, contact
+                end
+            end
+        end
+        commands.combatDoctrine = "weapons_free"
+        for _, external in ipairs({ "bandits2", "project_alife" }) do
+            local selected, contact = routed(external)
+            check(selected == contact, external .. " visible urgent human reaches its combat delegate with a distant zombie present")
+        end
+        for _, control in ipairs({
+            { "immediate zombie", { immediateCount = 1 } },
+            { "close zombie", { closeThreatCount = 1 } },
+            { "immediate leader danger", { player = { danger = 1, immediateThreats = 1 } } },
+            { "encirclement", { encircled = true } },
+            { "unseen human contact", { humanThreat = { actor = enemy, external = "project_alife", visible = false } } },
+        }) do
+            check(routed("project_alife", control[2]) == "zombie", control[1] .. " retains the zombie combat delegate")
+        end
+        commands.combatDoctrine = "close_defense"
+        place(enemy, 17, -3)
+        check(routed("project_alife") == "zombie", "distant non-attacking human does not interrupt Close Defense")
+        place(enemy, 2, -3)
+        for index = #distant.square.moving, 1, -1 do
+            if distant.square.moving[index] == distant then table.remove(distant.square.moving, index) end
+        end
+        SC.FactionBehavior.updateHumanCombat, SC.Combat.update = oldHumanCombat, oldZombieCombat
+        SC.ALifeAdapter, commands.combatDoctrine = oldALife, oldDoctrine
+    end
+
     commands.combatDoctrine, actor.body.health = "stealth", 100
     local walker = f.zombie(-8, -3, {})
     local undead = { { actor = walker, x = walker:getX(), y = walker:getY(), z = 0 } }

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Loaded only in a disposable world with the official PZ_Optimization agent.
+-- Loaded in a disposable world to verify the official optimizer or Workshop preloader.
 local SC = SurvivorCompanion
 local state = { phase = "menu", zombies = {}, priorHits = {}, priorAttacks = {},
     targetTicks = 0, starts = 0, hits = 0, fallbackWounds = 0 }
@@ -75,7 +75,7 @@ local function step()
         assert(SCBridge and ZombieBuddy, "game did not load LF through ZombieBuddy")
         assert(not SCBridge.isCompanion(state.player) and state.player:getPlayerNum() == 0,
             "primary player identity changed before the trial")
-        SCBridge.configurePZOptimizerAdapter(state.mode == "enabled" or state.mode == "inactive")
+        SCBridge.configurePZOptimizerAdapter(state.mode == "enabled" or state.mode == "inactive" or state.mode == "coexist")
         state.adapter = SCBridge.getPZOptimizerAdapterState()
         state.adapterReason = SCBridge.getPZOptimizerAdapterReason()
         if state.mode == "inactive" then
@@ -84,7 +84,11 @@ local function step()
             return
         end
         local expected = state.mode == "enabled" and "active" or "disabled"
-        assert(state.adapter == expected, state.adapterReason)
+        if state.mode == "coexist" then
+            assert(state.adapter ~= "active", "official agent adapter unexpectedly claimed the preloader")
+        else
+            assert(state.adapter == expected, state.adapterReason)
+        end
         state.inlineBefore = SCBridge.getPZOptimizerInlineCalls()
         state.square = assert(arena(state.player), "no clear loaded combat arena")
         for _, actor in ipairs(SC.Registry.living()) do SC.Actor.remove(actor) end
@@ -131,8 +135,14 @@ local function step()
         state.wounds = wounds(actor) - state.initialWounds
         state.healthLoss = state.initialHealth - U.nativeHealth(actor)
         state.inline = SCBridge.getPZOptimizerInlineCalls() - state.inlineBefore
-        if state.mode == "enabled" and state.hits > 0 and state.wounds > 0 and state.healthLoss > 0 then
-            assert(state.inline > 0 and state.fallbackWounds == 0, "native result did not isolate the patched path")
+        if (state.mode == "enabled" or state.mode == "coexist")
+            and state.hits > 0 and state.wounds > 0 and state.healthLoss > 0 then
+            assert(state.fallbackWounds == 0, "expected native damage without synthetic fallback")
+            if state.mode == "coexist" then
+                assert(state.inline == 0, "preloader coexistence used the LF inline path")
+            else
+                assert(state.inline > 0, "native result did not isolate the patched path")
+            end
             assert(not SCBridge.isCompanion(state.player) and state.player:getPlayerNum() == 0,
                 "primary player identity changed during combat")
             finish("PASS", "native_impact_and_wound")

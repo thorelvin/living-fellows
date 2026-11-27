@@ -149,7 +149,7 @@ Startup classpath and normal ZombieBuddy dynamically registered mod JARs
 both pass. Controls cover reversed or missing agents, missing patch host,
 changed optimizer metadata, prop11 PZO alone, and real-player and unowned
 target delegation. The Workshop PZ Optimization Preloader is a separate
-loading route and has no combat acceptance under this profile.
+loading route. Its coexistence check appears below.
 cache/Screenshots/*-optimizer-2-native-hit (native unmodified PNG, no extension)
 acceptance-launch.json (command, classpath, hashes and resource settings)
 Convenient screenshot copy: build/combat-tester-20261106/live-confirmation/native-impact.png.
@@ -177,3 +177,27 @@ No local install was performed. Installed launcher and game JAR remained
 byte-identical after the live run, and no game client remained running:
 launcher E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
 game JAR E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33
+
+Workshop Preloader 1.12 coexistence on Build 42.22.2
+--------------------------------------------------
+
+The official Workshop package has manifest 4810628569887296282 and JAR
+SHA-256 1a83d52131b8db43d8626fa2ef84959b0c23087e60e9295ce85ac643f4748670.
+https://github.com/antikristianos/PZOptPreloader/tree/v1.12
+
+ZombieBuddy 2.3.4 verified and preloaded the Workshop JAR. The Preloader
+reported 267 client class definitions using xD3I commit 20f89d32 in the
+disposable cache, with parallel action evaluation enabled. Living Fellows
+0.27.100 used its ordinary native combat path. The official-agent hook
+stayed inactive because the Preloader's ActionEval resource has separate
+bytes.
+
+The live coexistence fixture observed 405 natural target samples. The first
+native impact wounded the LF companion and reduced health by 1.90 in 5.467
+seconds. LF recorded zero inline calls and zero fallback wounds. The human
+observer stayed in slot zero. This receipt applies to the tested Preloader
+and optimizer pair on Build 42.22.2.
+
+The final 0.27.101 payload repeated the native check. It observed 255 natural
+target samples and a native impact with a wound at 3.699 seconds. The inline
+and fallback counters both stayed at zero.

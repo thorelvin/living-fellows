@@ -659,3 +659,28 @@ Run the source check against the current Workshop payload with:
 ```powershell
 ./tests/gameplay/run_bandits_adapter_tests.ps1 -RequireBanditsSource
 ```
+
+### Same-fight firearms follow-up
+
+`SC-Harness-20261127-175027-3636fa40` passed all **14 live checks** on Build
+42.22.2 with Workshop manifest `9123322409688064143`. Six files in the isolated
+Bandits payload matched their pinned fingerprints. The follow-up harness ran
+against the 0.27.100 combat payload and bridge `487c2075932c…`.
+
+The empty-roster Sandbox clone admitted one stock Officer. A natural shot
+reduced the selected LF companion's body-part health total from 1700 to
+1656.30. LF's normal Hold Fire order was lifted after the wound. The same
+companion then landed one native `Base.Pistol` hit that damaged the same
+Officer. Both actors fired two rounds. The primary player's identity and
+native slots stayed stable. The fixture used normal stock combat decisions
+and observed the original hit and wound callbacks.
+
+The final 0.27.101 payload repeated the exchange in
+`SC-Harness-20261127-180653-3c4dd6f1`. All 14 live checks passed. Native
+damage was recorded in both directions with two rounds spent by each actor.
+The primary player's identity and slots stayed stable.
+
+To reproduce this case, start with an empty LF roster and pass
+`-BanditsAdapterProbe -BanditsCombatScenario firearms -BanditsCombatants 1`
+to `scripts/Invoke-LiveSandboxTests.ps1`. The probe creates the LF actor it
+needs for the fight.

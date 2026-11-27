@@ -187,7 +187,7 @@ function Adapter.invalidate()
     roster, rosterAt, rosterVersion = nil, -math.huge, nil
 end
 function Adapter.status()
-    return { state = state, active = active(), reason = detail, profile = "ProjectALife/1.4.6/42.21",
+    return { state = state, active = active(), reason = detail, profile = "ProjectALife/Interop-v1",
         listBuilds = metrics.listBuilds, wounds = metrics.wounds, rejected = metrics.rejected,
         lastVictim = metrics.lastVictim }
 end

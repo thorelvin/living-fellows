@@ -53,7 +53,7 @@ param(
     [switch]$BanditsEnabled,
     [ValidateSet('legacy', 'firearms', 'firearms_zombie_control', 'melee', 'unarmed', 'infected', 'lifecycle', 'armor', 'vehicle_window', 'vehicle_bullets', 'solid_wall', 'protected_lane')][string]$BanditsCombatScenario = 'legacy',
     [ValidateSet('random', 'policeofficer', 'veteran', 'unemployed')][string]$BanditsLFProfession = 'random',
-    [ValidateSet(2, 4)][int]$BanditsCombatants = 2,
+    [ValidateSet(1, 2, 4)][int]$BanditsCombatants = 2,
     [ValidateSet('weapons_free', 'close_defense', 'ranged_support', 'stealth')][string]$BanditsCombatDoctrine = 'weapons_free',
     [ValidateSet('before', 'after')][string]$BanditsLoadOrder = 'after',
     [ValidateSet('saved', 'resident', 'household', 'strange_folk', 'strange_folk_save', 'performance', 'reload')][string]$BanditsLFRole = 'saved',
@@ -489,6 +489,10 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $UserCache = [System.IO.Path]::GetFullPath($UserCache)
+if ($BanditsCombatants -eq 1 -and (-not $BanditsAdapterProbe -or
+    $BanditsCombatScenario -ne 'firearms' -or $CompanionFirearmsProbe)) {
+    throw '-BanditsCombatants 1 requires the Bandits firearms probe.'
+}
 if ($SplitScreenOnly -and ($PathingOnly -or $FactionMapOnly -or $BaseLayoutOnly)) {
     throw '-SplitScreenOnly cannot be combined with another focused mode.'
 }

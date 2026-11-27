@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.101 - Mixed-threat compatibility
+
+- Let companions respond to an urgent, visible A-Life or Bandits2 hostile when the only zombies in sight are distant. Close or immediate zombie danger still takes priority.
+- Use a version-neutral A-Life Interop profile in support data.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.100 - Workshop compatibility refresh
 
 - Validate the official signed-game PZ_Optimization agent and both action evaluation routes before enabling the existing companion-targeted combat adapter. Support identifies the verified optimizer build or explains why the adapter is unavailable.

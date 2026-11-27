@@ -83,6 +83,36 @@ local function isolationDetail(f, P)
         .. "; list=" .. tostring(IsoPlayer.getPlayers():size()) .. "/" .. tostring(f.nativeSize)
         .. "; key=" .. tostring(P.Reputation.playerKey(f.player)) .. "/" .. tostring(f.key)
 end
+local function traceSelectedPerception(SC, f)
+    local U = SC.GameplayUtil
+    local record = SC.Registry.byId(f.id)
+    local senses = record and record.runtime and record.runtime.senses or {}
+    local snapshot = senses.current or {}
+    local human = snapshot.humanThreat
+    local packed, contained = {}, false
+    local count
+    local accepted, value = SC.Call.static(SCBridge, "fillZombieSnapshot", packed, 8192)
+    if accepted and type(value) == "number" and value >= 0 then
+        count = value
+        for index = 1, count * 4, 4 do
+            if packed[index] == f.shell then contained = true break end
+        end
+    end
+    local zombies = getCell():getZombieList()
+    local commands = SC.Commands.peek(f.actor)
+    local clear, line = pcall(LosUtil.lineClear, getCell(), math.floor(f.actor:getX()), math.floor(f.actor:getY()),
+        math.floor(f.actor:getZ()), math.floor(f.shell:getX()), math.floor(f.shell:getY()), math.floor(f.shell:getZ()), false)
+    print("SC_REAL_SANDBOX|ALIFE_SELECTED_PERCEPTION|binding=" .. tostring(ProjectALife.Watchdog.bindings[f.uid].shell == f.shell)
+        .. "|nativeList=" .. tostring(zombies:contains(f.shell)) .. "|snapshotCount=" .. tostring(count)
+        .. "|nativeSnapshot=" .. tostring(contained) .. "|seenAt=" .. tostring(senses.alifeNpcs and senses.alifeNpcs[f.shell])
+        .. "|humanSelected=" .. tostring(human and human.actor == f.shell)
+        .. "|relationship=" .. tostring(SC.Factions.relationshipBetween(f.actor, f.shell, f.player))
+        .. "|gone=" .. tostring(U.isGoneTarget(f.shell)) .. "|canSee=" .. tostring(U.canSee(f.actor, f.shell))
+        .. "|gridLos=" .. tostring(clear and line)
+        .. "|sameFloor=" .. tostring(U.sameFloor(f.actor, f.shell)) .. "|distance=" .. tostring(U.distance(f.actor, f.shell))
+        .. "|doctrine=" .. tostring(commands and commands.combatDoctrine)
+        .. "|holdFire=" .. tostring(commands and commands.holdFire))
+end
 local function reload(H, current, check, result, setPhase, SC, P)
     local proof = ModData.getOrCreate("LF_ALIFE_ACCEPTANCE")
     local record = proof.id and SC.Registry.byId(proof.id)
@@ -241,6 +271,7 @@ function Probe.step(H, current, check, result, setPhase)
         require "SCBanditsCombatAcceptance"
         local shared = SCRealSandboxHarnessProbes.SCBanditsCombatAcceptance.shared
         local combat = H.config.project_alife_scenario == "combat"
+        f.pistolExchange = combat and f.role == "member" and H.config.project_alife_weapon ~= "melee"
         f.scene = combat and combatField(shared, SC, player) or shared.field(SC, player, 24, 44)
         if not f.scene then finish(H, current, result, setPhase, false, "No surveyed outdoor combat corridor") return end
         player:setX(f.scene.observer:getX() + 0.5)
@@ -251,6 +282,7 @@ function Probe.step(H, current, check, result, setPhase)
             local square = f.scene.fellow
             if not square then finish(H, current, result, setPhase, false, "No clear outdoor native LF spawn") return end
             local ticket, reason = SC.Actor.beginSpawn(square, { recruited = true,
+                background = f.pistolExchange and { profession = "policeofficer" } or nil,
                 identity = { forename = "Aster", surname = "Green", gender = "woman", outfit = "Generic01" } })
             if not ticket then finish(H, current, result, setPhase, false, tostring(reason)) return end
             f.ticket = ticket
@@ -278,6 +310,10 @@ function Probe.step(H, current, check, result, setPhase)
         if f.role == "member" or f.role == "resident" then
             local accepted, why = SC.Commands.issue(f.id, "stay", {}, f.player)
             if not check("alife_stay_command", accepted == true, tostring(why)) then setPhase("finish", current) return end
+        end
+        if f.pistolExchange then
+            local ordered, detail = SC.Commands.issue(f.id, "set_combat_doctrine", "weapons_free", f.player)
+            if not ordered then finish(H, current, result, setPhase, false, "Weapons Free: " .. tostring(detail)) return end
         end
         local commands = SC.Commands.peek(actor)
         commands.combatDoctrine, commands.combatMode, commands.holdFire = "weapons_free", "aggressive", true
@@ -331,11 +367,12 @@ function Probe.step(H, current, check, result, setPhase)
             playerKeepOut = 0, spawnDelayMs = 0, arrival = "instant",
             slots = { { x = f.spawn.x + 0.5, y = f.spawn.y + 0.5, z = f.spawn.z } },
             playerStance = "neutral", stationary = true, persistent = true,
-            health = 100, damageOutput = 3,
+            health = f.pistolExchange and 200 or 100, damageOutput = 3,
         }, true)
         if not accepted then finish(H, current, result, setPhase, false, "A-Life spawn: " .. tostring(why)) return end
         result("PASS", "alife_fixture", "owner spawner; surveyed clear lane; observer relocated only in clone; native " .. weaponType
-            .. "; pistol has two magazines and Hold Fire until first incoming wound; melee equips its real bat after that wound"
+            .. (f.pistolExchange and "; armed LF police officer; stock grace expires before provocation; owner health=200 and stock armor"
+                or "; Hold Fire until first incoming wound; melee equips its real bat after that wound")
             .. "; authored A-Life damageOutput=3"
             .. (H.config.project_alife_scenario == "combat" and "; combat kit includes bandages" or "")
             .. "; ordinary zombies retained; role=" .. f.role)
@@ -371,15 +408,16 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if f.observerReady and current < f.observerReady then return end
         local invulnerable = P.Health.invulnerable(f.shell)
-        if invulnerable and P.LoadSafe and type(P.LoadSafe.graced) == "function"
-            and P.LoadSafe.graced(f.shell) and current - H.phaseStartedAt < 45000 then return end
+        local graced = invulnerable and P.LoadSafe and type(P.LoadSafe.graced) == "function" and P.LoadSafe.graced(f.shell)
+        if graced and current - H.phaseStartedAt < 45000 then return end
         local alias = SC.ALifeAdapter.idFor(f.actor)
-        P.Combat.faceTarget(f.shell, f.actor)
+        if not f.pistolExchange then P.Combat.faceTarget(f.shell, f.actor) end
         check("alife_native_identity", alias == "lf:" .. f.id and P.Reputation.playerKey(f.actor) == alias
             and P.Reputation.playerKey(f.player) == f.key, "distinct LF identity and untouched primary key")
         check("alife_initial_neutral", SC.ALifeAdapter.relationship(f.shell, f.actor) == "neutral", "native neutral scene before provocation")
         if not check("alife_native_scene", invulnerable ~= true and f.actor:isNpc() == true,
-            "A-Life invulnerable=" .. tostring(invulnerable) .. "; LF native NPC=" .. tostring(f.actor:isNpc())
+            "A-Life invulnerable=" .. tostring(invulnerable) .. "; stock grace=" .. tostring(graced == true)
+                .. "; LF native NPC=" .. tostring(f.actor:isNpc())
                 .. "; primary sees target=" .. tostring(SC.GameplayUtil.canSee(f.player, f.shell))) then
             setPhase("finish", current) return
         end
@@ -393,19 +431,26 @@ function Probe.step(H, current, check, result, setPhase)
         elseif H.config.project_alife_scenario == "performance" then
             setPhase("alife_adapter_performance", current) return
         end
-        P.HostileAct.writeWindow({ f.uid }, alias, current)
-        result("PASS", "alife_targeted_fixture", "owner HostileAct window for exact LF alias; no player reputation mutation; other LF actors remain in normal play")
         f.beforeForeign = P.ShellSimulation.trueHealth(f.shell)
-        f.hitObserver = function(body, attacker)
-            if body == f.shell and attacker == f.actor then f.outgoing = f.outgoing + 1 end
+        f.hitObserver = function(body, attacker, damage)
+            if body == f.shell and attacker == f.actor and type(damage) == "number" and damage > 0 then
+                f.outgoing = f.outgoing + 1
+                print("SC_REAL_SANDBOX|ALIFE_OWNER_IMPACT|damage=" .. damage
+                    .. "|foreignHealth=" .. tostring(P.ShellSimulation.trueHealth(f.shell)))
+            end
         end
         Events.ProjectALife_NpcHit.Add(f.hitObserver)
         f.nativeHitObserver = function(body, attacker, part, weapon)
             if attacker == f.actor then
-                if body == f.shell and call(weapon, "getFullType") == f.expectedWeapon then f.exactHits = f.exactHits + 1 end
+                local selected = body == f.shell
+                if selected and call(weapon, "getFullType") == f.expectedWeapon then f.exactHits = f.exactHits + 1 end
+                local fence = P.AIFence
+                local pending = selected and fence and fence.pendingHit and fence.pendingHit[body]
                 print("SC_REAL_SANDBOX|ALIFE_NATIVE_IMPACT|selected=" .. tostring(body == f.shell)
                     .. "|body=" .. tostring(body) .. "|part=" .. tostring(part)
                     .. "|weapon=" .. tostring(call(weapon, "getFullType"))
+                    .. "|ownerPending=" .. tostring(pending and pending.before) .. "->" .. tostring(pending and pending.target)
+                    .. "|ownerBlocked=" .. tostring(pending and pending.blocked)
                     .. "|foreignHealth=" .. tostring(P.ShellSimulation.trueHealth(f.shell)))
             end
         end
@@ -422,6 +467,12 @@ function Probe.step(H, current, check, result, setPhase)
                 .. "|aim=" .. tostring(call(f.actor, "getCompanionRangedReadiness")))
         end
         Events.OnWeaponSwingHitPoint.Add(f.swingObserver)
+        if f.pistolExchange then
+            local armed, reason = SC.Commands.issue(f.id, "set_hold_fire", { enabled = false }, f.player)
+            if not armed then finish(H, current, result, setPhase, false, "Fire at will: " .. tostring(reason)) return end
+        end
+        P.HostileAct.writeWindow({ f.uid }, alias, current)
+        result("PASS", "alife_targeted_fixture", "owner HostileAct window for exact LF alias; no player reputation mutation; other LF actors remain in normal play")
         setPhase("alife_adapter_combat", current)
     elseif H.phase == "alife_adapter_combat" then
         local f, status = H.alifeAdapter, SC.ALifeAdapter.status()
@@ -442,6 +493,11 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if current >= (f.nextTrace or 0) then
             f.nextTrace = current + 2000
+            if f.pistolExchange and (f.perceptionTraceCount or 0) < 4 then
+                local traced, reason = pcall(traceSelectedPerception, SC, f)
+                if not traced then print("SC_REAL_SANDBOX|ALIFE_SELECTED_PERCEPTION_ERROR|" .. tostring(reason)) end
+                f.perceptionTraceCount = (f.perceptionTraceCount or 0) + 1
+            end
             local held = P.Perception.engagements[f.uid]
             local decision = SC.Decision.peek(f.actor) or {}
             local nativeRecord = P.ActorRegistry.peek(f.uid)
@@ -465,13 +521,23 @@ function Probe.step(H, current, check, result, setPhase)
         end
         local incoming = status.wounds > f.woundsBefore and afterLF and afterLF < f.beforeLF
         local outgoing = f.outgoing > 0 and f.exactHits > 0 and afterForeign < f.beforeForeign
-        if incoming and not f.fireReleased then
-            if f.meleeWeapon then f.actor:setPrimaryHandItem(f.meleeWeapon) end
-            local commands = SC.Commands.peek(f.actor)
-            commands.holdFire = false
-            SC.Commands.persist(f.actor)
-            f.fireReleased = true
-            result("PASS", "alife_incoming_wound", "owner applied native wound to exact LF body; release Hold Fire for reciprocal response")
+        if outgoing and f.pistolExchange and not f.outgoingSeen then
+            f.outgoingSeen = true
+            result("PASS", "alife_outgoing_hit", "exact native LF pistol hit confirmed by A-Life ownership and health")
+            if not incoming then
+                local held, reason = SC.Commands.issue(f.id, "set_hold_fire", { enabled = true }, f.player)
+                if not held then finish(H, current, result, setPhase, false, "Hold Fire: " .. tostring(reason)) return end
+            end
+        end
+        if incoming and not f.incomingSeen then
+            f.incomingSeen = true
+            if not f.pistolExchange then
+                if f.meleeWeapon then f.actor:setPrimaryHandItem(f.meleeWeapon) end
+                local commands = SC.Commands.peek(f.actor)
+                commands.holdFire = false
+                SC.Commands.persist(f.actor)
+            end
+            result("PASS", "alife_incoming_wound", "owner applied native wound to exact LF body")
         end
         if incoming and outgoing then
             check("alife_main_player_isolation", getSpecificPlayer(0) == f.player and nativeCount() == f.nativeCount

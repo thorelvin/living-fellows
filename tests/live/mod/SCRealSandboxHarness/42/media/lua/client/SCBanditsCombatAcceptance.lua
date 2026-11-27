@@ -230,7 +230,7 @@ function Probe.step(H, current, check, result, setPhase)
     local regular = H.config.companion_firearms_probe == "true"
     local f = H.banditsAcceptance
     if not f then
-        if not SC.State.active or SC.Registry.count() == 0 then return end
+        if not SC.State.active then return end
         if current - H.startedAt < 10000 then return end
         if regular then
             if not check("regular_lf_bandits_absent", SC.BanditsAdapter.status().state == "absent"
@@ -246,9 +246,11 @@ function Probe.step(H, current, check, result, setPhase)
         if not site then finish(H, current, check, result, setPhase, false, "no loaded open 18-tile outdoor scene") return end
         primary.player:teleportTo(site.observer:getX() + 0.5, site.observer:getY() + 0.5, site.observer:getZ())
         getGameTime():setTimeOfDay(12)
+        local combatants = tonumber(H.config.bandits_combatants)
+        if combatants ~= 1 and combatants ~= 4 then combatants = 2 end
         f = { primary = primary, site = site, bandits = {}, banditBefore = {}, rounds = {}, outgoing = 0,
             banditHealth = {}, targetIDs = {}, retired = {}, deadTargets = {}, hitTargets = {}, lastTasks = {},
-            combatants = tonumber(H.config.bandits_combatants) == 4 and 4 or 2,
+            combatants = combatants,
             lfRounds = 0, banditShots = 0, started = current, stage = "spawn_lf", nextTrace = current }
         H.banditsAcceptance = f
         for id in pairs(banditCache()) do f.banditBefore[id] = true end
