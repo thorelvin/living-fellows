@@ -24,7 +24,75 @@ function Get-NativeProbeHistoricalRoot([string]$ProjectRoot, [string]$Historical
     if (-not $HistoricalRunRoot) {
         $HistoricalRunRoot = Join-Path $ProjectRoot 'build\live-sandbox-runs\SC-Harness-20261026-185641-59f036f8'
     }
-    return [IO.Path]::GetFullPath($HistoricalRunRoot)
+    # Resolve a relative root against the PowerShell location. Windows
+    # PowerShell 5.1 does not move the process directory that GetFullPath uses.
+    $resolved = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HistoricalRunRoot)
+    return [IO.Path]::GetFullPath($resolved)
+}
+
+# The controls scenarios that continue a save instead of reseeding. Only
+# savesetup starts that save; each resuming scenario continues the latest one.
+function Get-NativeProbeReceiptTarget([string]$Receipt) {
+    if (-not (Test-Path -LiteralPath $Receipt -PathType Leaf)) { return '' }
+    try { return [string](Get-Content -LiteralPath $Receipt -Raw -Encoding utf8 | ConvertFrom-Json).targetSave }
+    catch { return '' }
+}
+
+function Get-NativeProbeResumeSave([string]$Receipt, [string]$HistoricalRunRoot) {
+    if (-not (Test-Path -LiteralPath $Receipt -PathType Leaf)) {
+        throw "Run savesetup first: there is no savesetup receipt at $Receipt"
+    }
+    $last = Get-Content -LiteralPath $Receipt -Raw -Encoding utf8 | ConvertFrom-Json
+    if ([string]$last.origin -cne 'savesetup') {
+        throw "Run savesetup first: $Receipt was not written by a savesetup lineage."
+    }
+    if ([string]$last.history -ne $HistoricalRunRoot) {
+        throw "Run savesetup first: the receipt belongs to another historical run: $($last.history)"
+    }
+    $target = [string]$last.targetSave
+    if (-not $target -or -not (Test-Path -LiteralPath (Join-Path $target 'global_mod_data.bin') -PathType Leaf)) {
+        throw "Run savesetup first: the receipt's save is missing: $target"
+    }
+    return $target
+}
+
+function Write-NativeProbeResumeReceipt([string]$Receipt, [string]$HistoricalRunRoot,
+        [string]$TargetSave, [string]$Scenario) {
+    $next = [ordered]@{
+        origin = 'savesetup'; scenario = $Scenario
+        history = $HistoricalRunRoot; targetSave = $TargetSave
+    } | ConvertTo-Json
+    New-Item -ItemType Directory -Path (Split-Path -Parent $Receipt) -Force | Out-Null
+    $temporary = $Receipt + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    [IO.File]::WriteAllText($temporary, $next, [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $Receipt -Force
+}
+
+# Each run stages a full save and mod copy. Keep the newest few per probe and
+# any run that holds a save still needed; never recurse into a junction.
+function Remove-StaleNativeProbeRuns([string]$ProjectRoot, [string]$ProbeName,
+        [string[]]$Preserve = @(), [int]$Keep = 2) {
+    $probes = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'build\native-probes'))
+    if (-not (Test-Path -LiteralPath $probes -PathType Container)) { return }
+    $pattern = '^' + [regex]::Escape($ProbeName) + '-[0-9a-f]{8}$'
+    $kept = @($Preserve | Where-Object { $_ } | ForEach-Object {
+        $path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($_)
+        [IO.Path]::GetFullPath($path).TrimEnd('\') + '\'
+    })
+    $runs = @(Get-ChildItem -LiteralPath $probes -Directory |
+        Where-Object { $_.Name -match $pattern } | Sort-Object CreationTimeUtc -Descending)
+    foreach ($run in @($runs | Select-Object -Skip $Keep)) {
+        $prefix = $run.FullName.TrimEnd('\') + '\'
+        if (@($kept | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) }).Count) {
+            continue
+        }
+        if (($run.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            @(Get-ChildItem -LiteralPath $run.FullName -Recurse -Force -Attributes ReparsePoint).Count) {
+            Write-Warning "Native probe run contains a junction and was kept: $($run.FullName)"
+            continue
+        }
+        Remove-Item -LiteralPath $run.FullName -Recurse -Force
+    }
 }
 
 function Get-NativeProbeLoadingAgent([string]$HistoricalRunRoot) {
@@ -109,18 +177,20 @@ Events.OnMainMenuEnter.Add(loadNativeProbeFixture)
 function New-HistoricalNativeProbeFixture {
     param(
         [string]$ProjectRoot, [string]$HistoricalRunRoot, [string]$ProbeName,
-        [string]$InputSave = '', [switch]$UseSeedSave
+        [string]$InputSave = '', [switch]$UseSeedSave, [string[]]$Preserve = @()
     )
 
     $HistoricalRunRoot = Get-NativeProbeHistoricalRoot $ProjectRoot $HistoricalRunRoot
-    $history = Get-Content -LiteralPath (Join-Path $HistoricalRunRoot 'run-manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $historyManifest = Join-Path $HistoricalRunRoot 'run-manifest.json'
+    $history = Get-Content -LiteralPath $historyManifest -Raw -Encoding utf8 | ConvertFrom-Json
     $inputCache = Join-Path $HistoricalRunRoot 'cache'
     if (-not $InputSave) {
         $InputSave = if ($UseSeedSave) { $history.seedSave }
         else { Join-Path $inputCache ('Saves\' + $history.gameMode + '\' + $history.runId) }
     }
-    if (-not $InputSave) { throw 'The controls fixture needs a seed save to reset.' }
+    if (-not $InputSave) { throw "Historical run manifest has no seedSave: $historyManifest" }
     $agent = Get-NativeProbeLoadingAgent $HistoricalRunRoot
+    Remove-StaleNativeProbeRuns $ProjectRoot $ProbeName (@($InputSave) + $Preserve)
     $name = $ProbeName + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
     $runRoot = Join-Path $ProjectRoot ('build\native-probes\' + $name)
     return New-NativeProbeFixture -ProjectRoot $ProjectRoot -RunRoot $runRoot -InputCache $inputCache `
@@ -134,9 +204,10 @@ function Get-NativeProbeLauncher([string]$GameRoot, [string]$SourceBridge) {
     $launcher.classpath = @($launcher.classpath | Where-Object {
         [IO.Path]::GetFileName($_.Trim('"')) -notin $oldBridgeNames
     }) + @($SourceBridge)
+    # Match Install-NativeBridge.ps1: a launcher tool may quote the whole argument.
     $launcher.vmArgs = @($launcher.vmArgs | Where-Object {
-        $_ -notmatch '^-javaagent:(.+?)(?:=.*)?$' -or
-        [IO.Path]::GetFileName($Matches[1].Trim('"')) -notin $oldBridgeNames
+        $_.Trim('"') -notmatch '^-javaagent:(.+?)(?:=.*)?$' -or
+        [IO.Path]::GetFileName($Matches[1].Trim('"').Replace('/', '\')) -notin $oldBridgeNames
     })
     return $launcher
 }

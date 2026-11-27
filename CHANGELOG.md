@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.106 - Stricter ownership and resumable native probes
+
+- Repair and forced uninstall accept a generation with damaged mod metadata only when most of its Living Fellows code still matches its install receipt. One unchanged file left in a different mod is no longer enough.
+- Install and uninstall leave a mod whose ID differs from Living Fellows only by case, such as `survivorcompanion`, in the mod list. Build 42 treats it as a different mod.
+- The native controls probes that continue a save (`saveverify`, `knowledge`, `radiodevices`, `followersitting`) refuse to run unless `savesetup` prepared it for the same historical run, and refuse `-SeedSave`. Reseeding scenarios no longer replace the save they continue.
+- Native probes resolve a relative `-HistoricalRunRoot` from the current PowerShell folder, drop a quoted installed bridge agent from the launcher, and keep only the two newest earlier runs of each probe under `build\native-probes`.
+- Native bridge protocol `42.22-isocompanion-38`.
+
 ## 0.27.105 - Installer ownership and diagnostic fixtures
 
 - Repair and forced uninstall verify original Living Fellows files when mod metadata is damaged. Conflicting Living Fellows IDs are rejected in both metadata files.

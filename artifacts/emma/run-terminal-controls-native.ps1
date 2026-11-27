@@ -6,6 +6,11 @@ param(
     [string]$SeedSave = ''
 )
 $ErrorActionPreference = 'Stop'
+# These continue the save savesetup prepared; the others reseed.
+$resuming = $Scenario -in @('saveverify','knowledge','radiodevices','followersitting')
+if ($resuming -and $SeedSave) {
+    throw "-SeedSave applies to scenarios that start from a seed save; $Scenario continues the savesetup save."
+}
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $captureRoot = Join-Path $project ('build\computer-controls\native\' + $Scenario)
 $probeName = if ($Scenario -eq 'followersitting') { 'follower-sitting-native.lua' } elseif ($Scenario -eq 'radiodevices') { 'taxi-radio-devices-native.lua' } elseif ($Scenario -eq 'knowledge') { 'terminal-knowledge-native.lua' } elseif ($Scenario.StartsWith('save')) { 'terminal-controls-save-native.lua' } elseif ($Scenario.StartsWith('trip')) { 'terminal-controls-trip-native.lua' } elseif ($Scenario -eq 'power') { 'terminal-controls-power-native.lua' } else { 'terminal-controls-native.lua' }
@@ -15,15 +20,10 @@ New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
 . (Join-Path $PSScriptRoot '..\NativeProbeFixture.ps1')
 $HistoricalRunRoot = Get-NativeProbeHistoricalRoot $project $HistoricalRunRoot
 $session = Join-Path $project 'build\computer-controls\native\last-fixture.json'
-$resuming = $Scenario -in @('saveverify','knowledge','radiodevices','followersitting')
-$inputSave = if ($resuming) {
-    if (Test-Path -LiteralPath $session -PathType Leaf) {
-        $last = Get-Content -LiteralPath $session -Raw -Encoding utf8 | ConvertFrom-Json
-        if ($last.history -eq $HistoricalRunRoot) { $last.targetSave }
-    }
-} else { $SeedSave }
+$inputSave = if ($resuming) { Get-NativeProbeResumeSave $session $HistoricalRunRoot } else { $SeedSave }
 $manifest = New-HistoricalNativeProbeFixture -ProjectRoot $project -HistoricalRunRoot $HistoricalRunRoot `
-    -ProbeName "terminal-controls-$Scenario" -InputSave $inputSave -UseSeedSave:(-not $resuming)
+    -ProbeName "terminal-controls-$Scenario" -InputSave $inputSave -UseSeedSave:(-not $resuming) `
+    -Preserve @(Get-NativeProbeReceiptTarget $session)
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
 if ($resuming -and -not (Test-Path -LiteralPath (Join-Path $manifest.targetSave 'global_mod_data.bin'))) {
     throw 'Run savesetup before saveverify.'
@@ -77,7 +77,8 @@ try {
 } finally {
     if (-not $owned.HasExited) { Stop-Process -InputObject $owned -Force }
 }
-$next = @{ history = $HistoricalRunRoot; targetSave = $manifest.targetSave } | ConvertTo-Json
-$receipt = Join-Path $manifest.runRoot 'controls-fixture.json'
-[IO.File]::WriteAllText($receipt, $next, [Text.UTF8Encoding]::new($false))
-Move-Item -LiteralPath $receipt -Destination $session -Force
+# Only savesetup and the scenarios that continue its save move the receipt on.
+# A reseeding scenario such as controls must not replace the savesetup save.
+if ($Scenario -eq 'savesetup' -or $resuming) {
+    Write-NativeProbeResumeReceipt $session $HistoricalRunRoot $manifest.targetSave $Scenario
+}

@@ -194,7 +194,7 @@ try {
     }
     # Install.bat repairs, and Uninstall.bat -Force removes, a damaged mod.info.
     foreach ($variant in @('missing', 'edited', 'conflict', 'local',
-            'duplicate-id-conflict', 'versioned-id-conflict', 'foreign-replacement')) {
+            'duplicate-id-conflict', 'versioned-id-conflict', 'foreign-replacement', 'partial-fork')) {
         Add-InstallerCase 'damaged-mod-info' $variant
     }
     foreach ($variant in @('wrong-root', 'wrong-versioned', 'duplicate-versioned')) {

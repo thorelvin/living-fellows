@@ -12,9 +12,11 @@ $LivingFellowsWrapperMain = 'livingfellows/bridge/SCLauncher'
 $LivingFellowsLegacyWrapperMain = 'survivorcompanion/bridge/SCLauncher'
 
 function Get-LivingFellowsProfilePattern([string[]]$Ids) {
-    # ActiveModsFile accepts a leading backslash as well as a bare mod ID.
+    # ActiveModsFile accepts a leading backslash as well as a bare mod ID. Like
+    # scripts\ActiveModList.ps1, fold the key's case but not the ID's: Build 42
+    # treats survivorcompanion as a different mod from SurvivorCompanion.
     $alternatives = ($Ids | ForEach-Object { [regex]::Escape($_) }) -join '|'
-    return '(?im)^([ \t]*mod[ \t]*=[ \t]*\\*)(?:' + $alternatives + ')([ \t]*,?[ \t]*)(\r?\n|$)'
+    return '(?m)^([ \t]*(?i:mod)[ \t]*=[ \t]*\\*)(?:' + $alternatives + ')([ \t]*,?[ \t]*)(\r?\n|$)'
 }
 $LivingFellowsProfileEntry = Get-LivingFellowsProfilePattern $LivingFellowsModIds
 $LivingFellowsLegacyProfileEntry = Get-LivingFellowsProfilePattern @($LivingFellowsLegacyModId)
@@ -53,10 +55,11 @@ function Get-LivingFellowsAdditionalModInfoPaths([string]$GenerationPath) {
 }
 
 function Test-LivingFellowsPayloadOwnership([string]$GenerationPath, $Manifest) {
-    # A retained manifest or a common asset such as the license is not enough.
-    # Check for code that still matches the installed generation's receipt.
+    # A retained manifest, a common asset such as the license, or a few copied
+    # scripts are not enough: most of the code the installed generation's
+    # receipt lists must still match it.
     $mediaPrefix = [IO.Path]::GetFullPath((Join-Path $GenerationPath '42\media')) + '\'
-    foreach ($property in $Manifest.files.PSObject.Properties) {
+    $code = @(foreach ($property in $Manifest.files.PSObject.Properties) {
         $relative = [string]$property.Name
         if ($relative -notmatch '^42/media/(lua|java)/.+\.(lua|jar)$' -or
             $relative -match '[:\\]|(?:^|/)\.\.?(?:/|$)' -or
@@ -64,11 +67,21 @@ function Test-LivingFellowsPayloadOwnership([string]$GenerationPath, $Manifest) 
             continue
         }
         $path = [IO.Path]::GetFullPath((Join-Path $GenerationPath $relative.Replace('/', '\')))
-        if ($path.StartsWith($mediaPrefix, [StringComparison]::OrdinalIgnoreCase) -and
-            (Test-Path -LiteralPath $path -PathType Leaf) -and
-            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $property.Value) {
-            return $true
+        if ($path.StartsWith($mediaPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            [pscustomobject]@{ path = $path; hash = [string]$property.Value }
         }
+    })
+    $needed = [math]::Floor($code.Count / 2) + 1
+    $matched = 0
+    $remaining = $code.Count
+    foreach ($file in $code) {
+        $remaining--
+        if ((Test-Path -LiteralPath $file.path -PathType Leaf) -and
+            (Get-FileHash -LiteralPath $file.path -Algorithm SHA256).Hash -eq $file.hash) {
+            $matched++
+        }
+        if ($matched -ge $needed) { return $true }
+        if ($matched + $remaining -lt $needed) { return $false }
     }
     return $false
 }

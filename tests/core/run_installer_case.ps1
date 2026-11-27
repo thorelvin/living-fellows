@@ -94,9 +94,10 @@ switch ($Case) {
     $save = Join-Path $fixture.root 'Saves\Sandbox\Test World'
     New-Item -ItemType Directory -Path $save | Out-Null
     $saveMods = Join-Path $save 'mods.txt'
+    # Mod IDs are case-sensitive, so survivorcompanion is another mod and stays.
     $profile = "VERSION = 1,`r`nmods`r`n{`r`n    mod = OtherFirst,`r`n" +
-        "    mod = \SurvivorCompanion,`r`n    mod = OtherSecond,`r`n    mod = LivingFellows,`r`n" +
-        "}`r`nmaps`r`n{`r`n    map = ForeignMap,`r`n}`r`n"
+        "    mod = \SurvivorCompanion,`r`n    mod = OtherSecond,`r`n    mod = survivorcompanion,`r`n" +
+        "    mod = LivingFellows,`r`n}`r`nmaps`r`n{`r`n    map = ForeignMap,`r`n}`r`n"
     [IO.File]::WriteAllText($profilePath, $profile)
     [IO.File]::WriteAllText($saveMods, $profile)
     $saveHash = (Get-FileHash -LiteralPath $saveMods).Hash
@@ -174,7 +175,8 @@ switch ($Case) {
         if ((Test-Path -LiteralPath $fixture.target) -or (Test-Path -LiteralPath $legacyTarget) -or
             (Test-Path -LiteralPath $nativeManifestPath) -or
             (Get-FileHash -LiteralPath $fixture.config).Hash -cne $originalConfigHash -or
-            [IO.File]::ReadAllText($profilePath) -match '(?im)^\s*mod\s*=\s*\\?(LivingFellows|SurvivorCompanion),' -or
+            [IO.File]::ReadAllText($profilePath) -cmatch '(?m)^\s*(?i:mod)\s*=\s*\\?(LivingFellows|SurvivorCompanion),' -or
+            [IO.File]::ReadAllText($profilePath) -cnotmatch '(?m)^    mod = survivorcompanion,\r?$' -or
             (Get-FileHash -LiteralPath $saveMods).Hash -cne $saveHash) {
             throw 'Uninstall did not fully retire the managed generations and restore the original launcher.'
         }
@@ -944,6 +946,18 @@ switch ($Case) {
         [IO.File]::WriteAllText($info, "name=Different Mod`r`nid=DifferentMod`r`n")
         [IO.File]::WriteAllText($versionedInfo, [IO.File]::ReadAllText($info))
         [IO.File]::WriteAllText((Join-Path $foreignScripts 'DifferentMod.lua'), 'DifferentMod = {}')
+        $refusalPattern = 'metadata and payload do not verify ownership'
+    } elseif ($Variant -eq 'partial-fork') {
+        # A fork that kept the manifest and one untouched script is still not ours.
+        $original = Join-Path $damaged.root 'previous-owned-copy'
+        Move-Item -LiteralPath $damaged.target -Destination $original
+        $keptScript = '42\media\lua\shared\SCNamespace.lua'
+        New-Item -ItemType Directory -Path (Split-Path -Parent (Join-Path $damaged.target $keptScript)) -Force |
+            Out-Null
+        Copy-Item -LiteralPath (Join-Path $original '.sc-install-manifest.json') -Destination $damaged.target
+        Copy-Item -LiteralPath (Join-Path $original $keptScript) -Destination (Join-Path $damaged.target $keptScript)
+        [IO.File]::WriteAllText($info, "name=My Fork`r`nid=MyFork`r`n")
+        [IO.File]::WriteAllText($versionedInfo, [IO.File]::ReadAllText($info))
         $refusalPattern = 'metadata and payload do not verify ownership'
     } elseif ($Variant -eq 'edited') {
         [IO.File]::WriteAllText($info, $infoText.Replace('id=LivingFellows', 'id=MyRenamedCopy'))
