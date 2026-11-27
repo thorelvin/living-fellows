@@ -351,16 +351,51 @@ final class SCVehicleSaveBarrier {
         return false;
     }
 
-    /** SELECT only; SQLite's separate read-only connection cannot see uncommitted native writes. */
-    static Row readCommitted(Path database, int sqlId) throws SQLException {
-        if (!Files.isRegularFile(database)) return null;
+    private static Connection openReadOnly(Path database) throws SQLException {
         try { Class.forName("org.sqlite.JDBC"); }
         catch (ClassNotFoundException failure) { throw new SQLException("SQLite read-only driver unavailable", failure); }
         Properties properties = new Properties();
         properties.setProperty("open_mode", "1");
         properties.setProperty("busy_timeout", "25");
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath().normalize(), properties)) {
-            if (!connection.isReadOnly()) throw new SQLException("vehicle proof connection is not read-only");
+        Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath().normalize(), properties);
+        if (connection.isReadOnly()) return connection;
+        connection.close();
+        throw new SQLException("vehicle proof connection is not read-only");
+    }
+
+    /** Read after a tagged save receipt. A missing or busy database proves nothing. */
+    static String retirementStatus(KahluaTable receipt) {
+        try {
+            requireThread();
+            Context context = environment.context();
+            int sqlId = integer(receipt, "sqlId", 1, Integer.MAX_VALUE);
+            String tag = string(receipt, "tagUUID", 44);
+            validateTag(tag);
+            if (integer(receipt, "worldVersion", 1, 10000000) != context.worldVersion) return "conflict";
+            Path database = context.saveDir.resolve("vehicles.db");
+            if (!Files.isRegularFile(database)) return "unknown";
+            try (Connection connection = openReadOnly(database);
+                    PreparedStatement query = connection.prepareStatement(
+                        "SELECT worldversion, CASE WHEN length(data) BETWEEN 1 AND ? THEN data END FROM vehicles WHERE id=?")) {
+                query.setInt(1, MAX_BYTES);
+                query.setInt(2, sqlId);
+                try (ResultSet row = query.executeQuery()) {
+                    if (!row.next()) return "absent";
+                    byte[] bytes = row.getBytes(2);
+                    return row.getInt(1) == context.worldVersion && bytes != null && containsTag(bytes, tag)
+                            ? "present" : "conflict";
+                }
+            }
+        } catch (Exception | LinkageError failure) {
+            lastFailure = clean(failure);
+            return "unknown";
+        }
+    }
+
+    /** SELECT only; SQLite's separate read-only connection cannot see uncommitted native writes. */
+    static Row readCommitted(Path database, int sqlId) throws SQLException {
+        if (!Files.isRegularFile(database)) return null;
+        try (Connection connection = openReadOnly(database)) {
             try (PreparedStatement query = connection.prepareStatement(
                     "SELECT id,wx,wy,x,y,worldversion,data FROM vehicles WHERE id=? AND length(data) BETWEEN 1 AND ?")) {
                 query.setInt(1, sqlId); query.setInt(2, MAX_BYTES);

@@ -46,13 +46,27 @@ local definitions = {
         module = "OddballLoretta" },
     { id = "milli_tea_and_trouble", name = "Milli Wilson",
         archetype = "oddball_resident", kind = "resident",
-        recruitment = true, trade = true, firstEligibleOffsetDays = 3,
+        recruitment = true, trade = true, firstEligibleOffsetDays = 3, residentSite = true,
         identity = { forename = "Milli", surname = "Wilson",
             gender = "female", outfit = "Retiree",
             extras = { "Base.Jumper_DiamondPatternTINT",
                 "Base.Trousers_WhiteTINT", "Base.Shoes_Slippers" },
             dirt = 0.1, visualSeed = 3100225 },
         module = "OddballMilli" },
+    { id = "evacuation", name = "The Evacuation",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = false, trade = false, firstEligibleOffsetDays = 4,
+        residentSite = true, roomGuard = false, memberCountMin = 2, memberCountMax = 2,
+        identity = { forename = "Joy", surname = "Barrett", gender = "female",
+            outfit = "Nurse", visualSeed = 3100244 },
+        memberIdentities = {
+            { forename = "Joy", surname = "Barrett", gender = "female",
+                outfit = "Nurse", visualSeed = 3100244 },
+            { forename = "Brock", surname = "Danner", gender = "male",
+                outfit = "Generic02", gore = 0.75, dirt = 0.4, visualSeed = 3100245 },
+        },
+        memberRoles = { "nurse", "patient" }, kit = { weapon = "Base.Crowbar" },
+        module = "OddballEvacuation" },
     { id = "grocery_gale_mercer", name = "Gale Mercer",
         archetype = "oddball_psycho", kind = "resident",
         trade = true, recruitment = false, firstEligibleOffsetDays = 3,
@@ -761,6 +775,11 @@ local function roomGuard(method, ...)
     return called and result ~= false, called and reason or tostring(result)
 end
 
+local function usesRoomGuard(story)
+    local definition = byId[story.id]
+    return not definition or definition.roomGuard ~= false
+end
+
 local function worldDay()
     if type(getGameTime) == "function" then
         local ok, gameTime = pcall(getGameTime)
@@ -840,6 +859,8 @@ end
 
 local function isResidentRoom(id, name)
     if type(name) ~= "string" then return false end
+    local definition = byId[id]
+    if definition and definition.residentSite == true then return true end
     if id == "window_spiffo_kevin" then
         return string.find(name, "spiff", 1, true) ~= nil
             or string.find(name, "clothingstore", 1, true) ~= nil
@@ -969,11 +990,6 @@ local function isResidentRoom(id, name)
         return true
     end
     if id == "spiffo_dressup_ambush" then return name == "livingroom" end
-    if id == "milli_tea_and_trouble" then
-        -- The sampled ground-floor tile may be a kitchen while the child's
-        -- bedroom is upstairs. Milli.siteFor inspects this building's rooms.
-        return true
-    end
     if id == "pyromaniac_earl_kessler" then return true end
     if id == "bitten_hershel_combs" then return name == "bathroom" end
     if id == "dad_joke_feud" then return name == "livingroom" end
@@ -2703,15 +2719,18 @@ local residentSiteConfigurators = {
 
 local function siteForResident(square, player, definition, name, allowSeen)
     if not isResidentRoom(definition.id, name) then return nil end
+    local behavior
+    if definition.residentSite == true then
+        behavior = SC[definition.module]
+        if type(behavior) ~= "table" or type(behavior.siteFor) ~= "function" then return nil end
+        if type(behavior.available) == "function" then
+            local called, available = pcall(behavior.available)
+            if not called or available ~= true then return nil end
+        end
+    end
     local house = SC.Factions.oddballHouseAt(square, player, allowSeen)
     if not house then return nil end
-    if definition.id == "milli_tea_and_trouble" then
-        local milli = SC.OddballMilli
-        if type(milli) ~= "table" or type(milli.siteFor) ~= "function" then
-            return nil
-        end
-        return milli.siteFor(house, player, allowSeen)
-    end
+    if behavior then return behavior.siteFor(house, player, allowSeen) end
     if definition.id == "bedridden_arthur_hale" then
         return bedriddenSite(house, player, allowSeen)
     end
@@ -3372,6 +3391,10 @@ end
 -- the faction default:
 --   memberDeparted   function(story, readOnly) -> true when the authored
 --                    member has left for good
+--   prepareFirstSpawn function(group, player) -> ready, pending or failed;
+--                     commit sceneSecured before returning ready
+--   ownsLifecycle    function(story) -> true while the scene manages its actors
+--   recoverMember    function(group, record, player) -> true after recovery
 --   keepsAfterDeath  function(story) -> true to keep the household settled
 --   takingAllowed    function(story) -> true when taking is not theft
 --   shoplifted       function(group, player, count) -> true when handled
@@ -3730,7 +3753,7 @@ function Oddballs.pulseGroup(group, player, current, remainingBudget)
     if pulse.phase == "setups" then pulse.phase = "guard" end
     if pulse.phase == "guard" then
         if not backgroundAvailable(remainingBudget) then return backgroundPending() end
-        roomGuard("pulse", group, player, current)
+        if usesRoomGuard(group.oddball) then roomGuard("pulse", group, player, current) end
         pulse.phase = "story"
     end
     if pulse.phase == "story" then
@@ -3840,9 +3863,9 @@ function Oddballs.sealedDoorGroup(object, player)
     return nil
 end
 
-function Oddballs.menuOptions(group, player)
+function Oddballs.menuOptions(group, player, sourceActor)
     if type(group) ~= "table" or type(group.oddball) ~= "table" then return {} end
-    local options = callModule(group, "menuOptions", group, player)
+    local options = callModule(group, "menuOptions", group, player, sourceActor)
     return type(options) == "table" and options or {}
 end
 
@@ -3974,7 +3997,7 @@ function Oddballs.spawned(group, actor)
     end
     if state.pending and state.pending.groupId == group.id then state.pending = nil end
     story.spawned = true
-    roomGuard("register", group, nil, U().nowMs())
+    if usesRoomGuard(story) then roomGuard("register", group, nil, U().nowMs()) end
     if actor == nil then return true, story.id end
     local actorId = U().idOf(actor)
     local member = setupMember(group, actorId)
@@ -4019,7 +4042,8 @@ end
 function Oddballs.spawnFailed(group, reason)
     local story = Oddballs.state(group)
     if not story then return false end
-    roomGuard("abort", group.id)
+    if usesRoomGuard(story) then roomGuard("abort", group.id) end
+    callModule(group, "onSpawnFailed", group, reason)
     if state.pending and state.pending.groupId == group.id then state.pending = nil end
     if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
         SC.Diagnostics.report("oddballs", group.id,
@@ -4031,7 +4055,9 @@ end
 function Oddballs.retire(group, reason)
     local story = Oddballs.state(group)
     if not story then return false, "not_an_oddball" end
-    roomGuard("release", group.id)
+    if usesRoomGuard(story) then roomGuard("release", group.id) end
+    callModule(group, "onRetire", group, reason)
+    pendingSetups[group.id] = nil
     state.retired[story.id] = tostring(reason or "resolved")
     if state.pending and state.pending.groupId == group.id then state.pending = nil end
     if story.id == "milli_tea_and_trouble" and story.keeperDead == true then

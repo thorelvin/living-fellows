@@ -1432,14 +1432,20 @@ Factions._chooseMemberSquareForTests = chooseMemberSquare
 -- A Strange Folk story's own answer to a faction question
 -- (SC.Oddballs.storyRules(id)[name]), or nil when it has none. A hook that
 -- throws counts as no answer, so the faction default applies.
-local function storyHook(story, name, ...)
+local function storyCallback(story, name)
     local rules = type(story) == "table" and SC.Oddballs
         and type(SC.Oddballs.storyRules) == "function"
         and SC.Oddballs.storyRules(story.id) or nil
     local hook = rules and rules[name]
-    if type(hook) ~= "function" then return nil end
-    local called, result = pcall(hook, ...)
-    if called then return result end
+    return type(hook) == "function" and hook or nil
+end
+
+local function storyHook(story, name, ...)
+    local hook = storyCallback(story, name)
+    if hook then
+        local called, result, reason = pcall(hook, ...)
+        if called then return result, reason end
+    end
     return nil
 end
 
@@ -1482,11 +1488,15 @@ local function advanceSpawnSquare(entry, group)
     return true
 end
 
-local function rollbackGroupCreation(group)
+local function clearGroupSpawnQueue(group)
     for index = #spawnQueue, 1, -1 do
         if spawnQueue[index].groupId == group.id then table.remove(spawnQueue, index) end
     end
     for _, member in ipairs(group.members or {}) do member.spawnQueued = false end
+end
+
+local function rollbackGroupCreation(group)
+    clearGroupSpawnQueue(group)
     groups[group.id] = nil
     for index = #groupOrder, 1, -1 do
         if groupOrder[index] == group.id then table.remove(groupOrder, index) break end
@@ -1790,7 +1800,7 @@ local function hasOpenJobs(group)
     return false
 end
 
-local function beginNextSpawn()
+local function beginNextSpawn(player)
     if spawnTicket ~= nil or #spawnQueue == 0 then return false, "spawn_queue_idle" end
     local entry = table.remove(spawnQueue, 1)
     local group = groups[entry.groupId]
@@ -1804,11 +1814,24 @@ local function beginNextSpawn()
         if member then member.spawnQueued, member.waking = false, false end
         return false, "member_unavailable"
     end
+    local story = group.oddball
+    local prepare = entry.snapshot == nil and type(story) == "table"
+        and story.spawned ~= true and storyCallback(story, "prepareFirstSpawn") or nil
+    -- Scenes with first-spawn preparation keep their first authored member in
+    -- front even when its tile streams out and other groups get a turn to spawn.
+    if prepare and entry.memberIndex ~= 1 then
+        spawnQueue[#spawnQueue + 1] = entry
+        return false, "waiting_for_first_scene_member"
+    end
     local square = entry.square
     if type(square) == "table" and square.x ~= nil then
         square = U().gridSquare(square.x, square.y, square.z or 0)
     end
     if square == nil then
+        if prepare then
+            spawnQueue[#spawnQueue + 1] = entry
+            return false, "member_square_unloaded"
+        end
         -- Streaming is temporary. Release the queue claim so lifecyclePulse can
         -- retry once the household is loaded instead of losing this member.
         member.spawnQueued = false
@@ -1827,6 +1850,18 @@ local function beginNextSpawn()
     local clear, clearReason = U().isClearActorSpawnSquare(square)
     local ticket, reason
     if clear then
+        if prepare and story.sceneSecured ~= true then
+            local called, status, detail = pcall(prepare, group, player)
+            if called and status == "pending" then
+                spawnQueue[#spawnQueue + 1] = entry
+                return false, detail or "oddball_scene_pending"
+            end
+            if not called or status ~= "ready" or story.sceneSecured ~= true then
+                local failure = called and (detail or "oddball_scene_unavailable") or status
+                discardUnspawnedOddball(group, entry, failure)
+                return false, failure
+            end
+        end
         local profile = profileFor(group, member, entry.snapshot)
         ticket, reason = SC.Actor.beginSpawn(square, profile)
     else
@@ -1869,7 +1904,7 @@ end
 
 Factions._beginNextSpawnForTests = beginNextSpawn
 
-local function pollSpawn()
+local function pollSpawn(player)
     local departingGroup = spawnEntry and groups[spawnEntry.groupId]
     if spawnTicket ~= nil and authoredMemberDeparted(departingGroup) then
         local cancelled, reason = SC.Actor.cancelSpawn(spawnTicket)
@@ -1883,7 +1918,7 @@ local function pollSpawn()
         spawnTicket, spawnEntry = nil, nil
         return false, "member_departed"
     end
-    if spawnTicket == nil then return beginNextSpawn() end
+    if spawnTicket == nil then return beginNextSpawn(player) end
     local actor, reason = SC.Actor.pollSpawn(spawnTicket)
     if actor == nil and reason == "spawn_pending" then return false, reason end
     local entry = spawnEntry
@@ -2790,6 +2825,44 @@ function Factions.completeMemberRecruitment(id, memberKey, actorId)
     return true, member
 end
 
+-- Native actor removal belongs to the story. Releasing these persistent rows
+-- beforehand could let a partly retired scene spawn another copy of a member.
+function Factions.retireOddballMembers(group, reason)
+    if type(group) ~= "table" or groups[group.id] ~= group
+        or type(group.oddball) ~= "table" then return false, "oddball_group_unavailable" end
+    if group.lifecycle == "destroyed" then return true, "oddball_already_retired" end
+    if spawnEntry and spawnEntry.groupId == group.id then return false, "oddball_spawn_active" end
+    for _, member in ipairs(group.members or {}) do
+        local actorId = member.actorId
+        if actorId and ((SC.Registry and SC.Registry.byId(actorId))
+            or (SC.Persistence and type(SC.Persistence.isPending) == "function"
+                and SC.Persistence.isPending(actorId))) then return false, "oddball_actor_active" end
+    end
+
+    clearGroupSpawnQueue(group)
+    for _, member in ipairs(group.members or {}) do
+        local actorId = member.actorId
+        if actorId then
+            membersByActorId[actorId] = nil
+            releaseMemberJobs(group, actorId)
+        end
+        if member.alive ~= false then
+            member.departed = true
+            member.departedActorId = actorId or member.departedActorId
+            member.departedDay = member.departedDay or worldDay()
+        end
+        member.actorId, member.away, member.snapshot = nil, nil, nil
+        member.waking, member.hibernated = false, false
+        member.oddballKitPending, member.oddballScenePending = nil, nil
+        member.oddballSetupModuleReady = nil
+    end
+    group.lifecycle = "destroyed"
+    if SC.Oddballs and type(SC.Oddballs.retire) == "function" then
+        SC.Oddballs.retire(group, reason or "evacuated")
+    end
+    return true, reason or "evacuated"
+end
+
 function Factions.atPosition(position)
     return groupAtPosition(position)
 end
@@ -3273,6 +3346,11 @@ function Factions.handleMissingSquare(record, player)
     local affiliation = Factions.affiliation(record)
     if not affiliation then return false, "not_a_faction_member" end
     local group = affiliation.group
+    if storyHook(group.oddball, "ownsLifecycle", group.oddball) == true then
+        local recovered, reason = storyHook(group.oddball, "recoverMember", group, record, player)
+        if recovered == true then return true, reason or "authored_member_recovered" end
+        return true, reason or "authored_recovery_deferred"
+    end
     for index, member in ipairs(group.members or {}) do
         if member.actorId == record.id then
             if type(group.oddball) == "table" and group.oddball.site
@@ -3291,6 +3369,7 @@ end
 
 local function lifecyclePulse(group, player, remainingBudget, cursor)
     if group.lifecycle == "destroyed" or player == nil or not group.house then return end
+    if storyHook(group.oddball, "ownsLifecycle", group.oddball) == true then return end
     local departed = authoredMemberDeparted(group)
     -- Old saves already in the body scene have no departure flag. Keep their
     -- story pulsing, but never recreate the living passenger beside her body.
@@ -3628,7 +3707,7 @@ local function pulseBackground(player, current, remainingBudget)
     current = current or nowMs()
     -- A pending native spawn gets its bounded poll even if optional work used
     -- this frame's allowance. The queue itself retains exact member ownership.
-    pollSpawn()
+    pollSpawn(player)
     local pulse = backgroundPulse
     if not pulse or pulse.orderRef ~= groupOrder then
         pulse = { order = {}, orderRef = groupOrder, groupIndex = 1, groupPhase = 1, phase = "observations", lifecycle = {} }

@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.27.98 - The Evacuation
+
+- Meet Joy and Brock in a locked room. Joy guards the door with a crowbar while Brock rests an injured leg. Bring them a running car and tell Joy it is ready to receive two antibiotics and two bandages. The pair leave in the car you give them, with its cargo.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.97 - One set of Strange Folk helpers
 
 - Share the small helpers that most Strange Folk encounters each carried a copy of: finding the member's actor, checking whether the player stands close and can see them, reading the story, searching an inventory, taking lines in turn, the radio-edit text, saved numbers and the world clock. Sixty-three encounters now use one shared set; about a thousand lines of copies go, and nothing a player sees changes.

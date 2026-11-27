@@ -15,6 +15,12 @@
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Client 'SCOddballKit.lua'),
     (Join-Path $Core 'oddball_kit_harness.lua')) }
+@{ Name = 'oddball-evacuation'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'),
+    (Join-Path $Core 'oddball_evacuation_fixture.lua'),
+    (Join-Path $Client 'SCOddballEvacuation.lua'),
+    (Join-Path $Core 'oddball_evacuation_harness.lua')) }
 @{ Name = 'behaviour.gunshop-siege'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Shared 'SCCall.lua'),

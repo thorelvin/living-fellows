@@ -61,6 +61,9 @@ require "SCOddballSpiffo"
 require "SCOddballWendell"
 require "SCOddballLoretta"
 require "SCOddballMilli"
+require "SCOddballEvacuationShelter"
+require "SCOddballEvacuationVehicle"
+require "SCOddballEvacuation"
 require "SCOddballGale"
 require "SCOddballButch"
 require "SCOddballCecil"
@@ -575,6 +578,8 @@ local function onGameStart()
         SC.State.active = false
         SC.State.disabledReason = runtimeReason
         SC.Diagnostics.report("bootstrap", nil, "runtime start failed", runtimeReason)
+    elseif SC.OddballEvacuationShelter then
+        SC.OddballEvacuationShelter.reconcileLoaded()
     end
     if SC.Handover then SC.Handover.install() end
     if SC.HandoverUI then SC.HandoverUI.install() end
@@ -621,15 +626,22 @@ local function onMainMenuEnter()
     if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
     if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end
     if SC.TerminalLocks then SC.TerminalLocks.reset() end
+    if SC.OddballEvacuationShelter then SC.OddballEvacuationShelter.reset() end
     SC.Runtime.onMainMenuEnter()
     if SC.GridControl then SC.GridControl.reset() end
     if SC.GridRadio then SC.GridRadio.reset() end
 end
 
-local function onTerminalSquareLoaded(square)
+local function onSquareLoaded(square)
     if SC.TerminalHardware then
         local ok,reason=pcall(SC.TerminalHardware.observeSquare,square)
         if not ok then SC.Diagnostics.report("terminal-load",nil,"radio restore failed",reason) end
+    end
+    if SC.OddballEvacuationShelter then
+        local okay, reason = pcall(SC.OddballEvacuationShelter.onSquareLoaded, square)
+        if not okay then
+            SC.Diagnostics.report("evacuation", nil, "safe-room door restore failed", reason)
+        end
     end
 end
 local function onObjectAdded(object)
@@ -653,7 +665,7 @@ local lifecycleDefinitions = {
     { event = function() return Events and Events.OnMainMenuEnter end,
         callback = onMainMenuEnter, name = "OnMainMenuEnter" },
     { event = function() return Events and Events.LoadGridsquare end,
-        callback = onTerminalSquareLoaded, name = "LoadGridsquare" },
+        callback = onSquareLoaded, name = "LoadGridsquare" },
     { event = function() return Events and Events.OnObjectAdded end,
         callback = onObjectAdded, name = "OnObjectAdded" },
 }

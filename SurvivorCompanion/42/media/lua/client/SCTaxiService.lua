@@ -1067,14 +1067,14 @@ local function onlyMarkusAboard(car, chauffeur)
     return true
 end
 
-local function departureHeading(car)
+local function departureHeading(car, departure)
     if Vector3f ~= nil then
         local forward = call(car, "getForwardVector", Vector3f.new())
         local x, y = tonumber(call(forward, "x")), tonumber(call(forward, "z"))
         local length = x and y and math.sqrt(x * x + y * y) or 0
         if length > 0.1 then return x / length, y / length end
     end
-    local from, to = visit and visit.pickup, visit and visit.dropoff
+    local from, to = departure.pickup, departure.dropoff
     local x, y = from and to and to.x - from.x,
         from and to and to.y - from.y
     local length = x and y and math.sqrt(x * x + y * y) or 0
@@ -1085,13 +1085,13 @@ end
 -- Prefer the road ahead, but permit a side street or diagonal when the road
 -- bends. A dead end may require one return to the dropoff junction before a
 -- different outward leg is available.
-local function departureGoal(car)
+local function departureGoal(car, departure, planRoad)
     local origin = point(car)
-    if not origin or not SC.ExpeditionRoute
-        or type(SC.ExpeditionRoute.planFromPoint) ~= "function" then
+    planRoad = planRoad or SC.ExpeditionRoute and SC.ExpeditionRoute.planFromPoint
+    if not origin or type(planRoad) ~= "function" then
         return nil, "departure_road_unavailable"
     end
-    local hx, hy = departureHeading(car)
+    local hx, hy = departureHeading(car, departure)
     local directions = { { hx, hy }, { -hy, hx },
         { hy, -hx }, { -hx, -hy } }
     local diagonal = 0.70710678118655
@@ -1109,8 +1109,7 @@ local function departureGoal(car)
                 and target.y >= 0 and target.y <= 30000
                 and U().gridSquare(math.floor(target.x),
                     math.floor(target.y), 0) then
-                local route, _, native = SC.ExpeditionRoute.planFromPoint(
-                    origin, target, true)
+                local route, _, native = planRoad(origin, target, true)
                 local entry = native and { x = tonumber(native.entryX),
                     y = tonumber(native.entryY) }
                 local exit = native and { x = tonumber(native.exitX),
@@ -1122,23 +1121,23 @@ local function departureGoal(car)
                     and distanceSquared(entry, origin) <= 144
                     and distanceSquared(exit, target) <= 64
                     and distanceSquared(exit, origin) >= 625
-                    and (not visit.dropoff or distanceSquared(exit, visit.dropoff)
-                        > distanceSquared(origin, visit.dropoff) + 100)
-                    and (not visit.departureGoal
-                        or distanceSquared(exit, visit.departureGoal) >= 100)
-                    and (not visit.departurePreviousGoal
-                        or distanceSquared(exit, visit.departurePreviousGoal) >= 100) then
+                    and (not departure.dropoff or distanceSquared(exit, departure.dropoff)
+                        > distanceSquared(origin, departure.dropoff) + 100)
+                    and (not departure.departureGoal
+                        or distanceSquared(exit, departure.departureGoal) >= 100)
+                    and (not departure.departurePreviousGoal
+                        or distanceSquared(exit, departure.departurePreviousGoal) >= 100) then
                     local goal = { x = exit.x, y = exit.y, z = 0 }
-                    if outsideViews(goal.x, goal.y) then return goal end
-                    fallback = fallback or goal
+                    local access = { x = entry.x, y = entry.y, z = 0 }
+                    if outsideViews(goal.x, goal.y) then return goal, nil, access end
+                    if not fallback then fallback = { goal = goal, access = access } end
                 end
             end
         end
     end
-    if not fallback and not visit.departureBacktracked and visit.dropoff
-        and distanceSquared(origin, visit.dropoff) >= 625 then
-        local route, _, native = SC.ExpeditionRoute.planFromPoint(
-            origin, visit.dropoff, true)
+    if not fallback and not departure.departureBacktracked and departure.dropoff
+        and distanceSquared(origin, departure.dropoff) >= 625 then
+        local route, _, native = planRoad(origin, departure.dropoff, true)
         local entry = native and { x = tonumber(native.entryX),
             y = tonumber(native.entryY) }
         local exit = native and { x = tonumber(native.exitX),
@@ -1148,12 +1147,17 @@ local function departureGoal(car)
             and finite(exit.x) and finite(exit.y)
             and length and length >= 25 and length <= 140
             and distanceSquared(entry, origin) <= 144
-            and distanceSquared(exit, visit.dropoff) <= 64 then
-            return { x = exit.x, y = exit.y, z = 0 }, true
+            and distanceSquared(exit, departure.dropoff) <= 64 then
+            return { x = exit.x, y = exit.y, z = 0 }, true,
+                { x = entry.x, y = entry.y, z = 0 }
         end
     end
-    return fallback, fallback and nil or "departure_road_unavailable"
+    if fallback then return fallback.goal, nil, fallback.access end
+    return nil, "departure_road_unavailable"
 end
+
+Service.outsideViews = outsideViews
+Service.departureGoal = departureGoal
 
 local function startDeparture(current)
     if current < nextDepartureAt then return true end
@@ -1174,7 +1178,7 @@ local function startDeparture(current)
     end
     local clear, why = SC.TaxiFares.retirementStatus(car)
     if not clear then visit.reason = why return true end
-    local goal, backtrackingOrReason = departureGoal(car)
+    local goal, backtrackingOrReason = departureGoal(car, visit)
     local goalReason = type(backtrackingOrReason) == "string"
         and backtrackingOrReason or nil
     if not goal then

@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'evacuation-vehicle'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCOddballEvacuationVehicle.lua'),
+    (Join-Path $Core 'oddball_evacuation_vehicle_harness.lua')) }
+
 @{ Name = 'sorting-receipts-and-expedition-departure'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

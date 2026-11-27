@@ -89,6 +89,17 @@ $interfaceContextFiles = @(
 @{ Name = 'interface-grid-radio-context'; Files = $interfaceContextFiles + @(
     (Join-Path $UI 'SCGridRadioContextTests.lua')
 ) }
+@{ Name = 'oddball-evacuation-shelter'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Client 'SCGameplayUtil.lua'),
+    (Join-Path $Client 'SCSpawnSafety.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'),
+    (Join-Path $Client 'SCOddballEvacuationShelter.lua'),
+    (Join-Path $Core 'oddball_evacuation_shelter_harness.lua')
+) }
 
 $interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'),
     (Join-Path $Client 'SCContextMenu.lua'),

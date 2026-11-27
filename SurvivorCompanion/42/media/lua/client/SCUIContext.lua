@@ -667,7 +667,7 @@ local function talkableOddballs(player)
     return result
 end
 
-local function oddballStoryAction(_target, groupId, action, player, payload, sourceRow)
+local function oddballStoryAction(_target, groupId, action, player, payload, sourceRow, confirmation)
     local group = SC.Factions and SC.Factions.group and SC.Factions.group(groupId)
     local memberCurrent, reachable = sourceRow == nil, sourceRow == nil
     if sourceRow then
@@ -681,10 +681,18 @@ local function oddballStoryAction(_target, groupId, action, player, payload, sou
     end
     local available = false
     for _, choice in ipairs(memberCurrent and reachable and group and group.lifecycle ~= "destroyed"
-        and SC.Oddballs and SC.Oddballs.menuOptions and SC.Oddballs.menuOptions(group, player) or {}) do
+        and SC.Oddballs and SC.Oddballs.menuOptions
+        and SC.Oddballs.menuOptions(group, player, sourceRow and sourceRow.actor) or {}) do
         if choice.id == action and choice.enabled == true then available = true break end
     end
     if not available then
+        safeMethod(player, "setHaloNote", text("UI_SC_Oddball_ChoiceChanged"))
+        return
+    end
+    if confirmation then
+        if SC.UI and SC.UI.confirmBaseAction and SC.UI.confirmBaseAction(confirmation, function()
+            oddballStoryAction(nil, groupId, action, player, payload, sourceRow)
+        end) then return end
         safeMethod(player, "setHaloNote", text("UI_SC_Oddball_ChoiceChanged"))
         return
     end
@@ -720,7 +728,7 @@ local function addOddballStoryChoices(menu, group, player, sourceRow, options)
             item = addUnavailableOption(menu, label)
         elseif type(row.id) == "string" then
             item = menu:addOption(label, nil, oddballStoryAction,
-                group.id, row.id, player, row.payload, sourceRow)
+                group.id, row.id, player, row.payload, sourceRow, row.confirm)
         end
         local detail = row.detail or row.reason
         if item and detail and type(ISToolTip) == "table" then
@@ -1598,7 +1606,7 @@ local function addTalkFromContext(menu, row, player, label)
     if group and group.oddball then
         local option = Menus.action(menu, key, label, nil, nil)
         local options = group.lifecycle ~= "destroyed" and SC.Oddballs.menuOptions
-            and SC.Oddballs.menuOptions(group, player) or {}
+            and SC.Oddballs.menuOptions(group, player, row.actor) or {}
         if #options == 0 then
             Menus.reason(option, text("UI_SC_Oddball_NoAction"))
             return option, true

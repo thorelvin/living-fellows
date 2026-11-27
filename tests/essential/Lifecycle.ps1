@@ -104,6 +104,10 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Core 'persistence_bootstrap_harness.lua')) }
+@{ Name = 'evacuation-pending-restoration'; Files = @($lifecycleArrivalFiles) + @(
+    (Join-Path $Shared 'SCRegistry.lua'),
+    (Join-Path $Client 'SCPersistence.lua'),
+    (Join-Path $Core 'evacuation_pending_restore_harness.lua')) }
 @{ Name = 'restore-square-context'; Files = @($lifecycleArrivalFiles) + @(
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
@@ -652,6 +656,17 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Client 'SCTerminalLamp.lua'),
     (Join-Path $Client 'SCBootstrap.lua'),
     (Join-Path $Core 'faction_lifecycle_harness.lua')) }
+@{ Name = 'evacuation-faction-lifecycle'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Core 'faction_lifecycle_fixture.lua'),
+    (Join-Path $Client 'SCFactions.lua'),
+    (Join-Path $Client 'SCOddballs.lua'),
+    (Join-Path $Core 'evacuation_faction_harness.lua')) }
 @{ Name = 'subsystem-restore-integrity'; Extended = $true; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

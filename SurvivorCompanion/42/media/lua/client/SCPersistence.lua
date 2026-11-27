@@ -4728,6 +4728,54 @@ function persistence.isPending(id)
     return type(id) == "string" and pending[id] ~= nil
 end
 
+local function ownedFactionRecord(record, id, groupId)
+    return type(record) == "table" and record.id == id and record.factionId == groupId
+        and (record.recruited == nil or record.recruited == false)
+end
+
+-- A story calls this after verifying permanent departure. The exact current
+-- member may still be waiting for an unloaded square after a cold reload.
+function persistence.retirePendingFactionActor(id, groupId)
+    if not SC.Registry.isValidId(id) or type(groupId) ~= "string" then
+        return false, "faction_actor_identity_invalid"
+    end
+    local group = SC.Factions and type(SC.Factions.group) == "function"
+        and SC.Factions.group(groupId) or nil
+    local memberOwned = false
+    for _, member in ipairs(group and group.members or {}) do
+        if member.actorId == id then memberOwned = true break end
+    end
+    if not memberOwned then return false, "faction_actor_owner_changed" end
+    if SC.Registry.byId(id) ~= nil or SC.Vehicle and type(SC.Vehicle.contains) == "function"
+        and SC.Vehicle.contains(id) then return false, "faction_actor_still_owned" end
+
+    local entry = pending[id]
+    local quarantine = quarantined.factionActors[id]
+    if quarantined.companions[id] ~= nil
+        or entry and (entry.bucket ~= "factionActors" or entry.remoteToken ~= nil
+            or entry.handover == true or not ownedFactionRecord(entry.record, id, groupId)
+            or entry.raw ~= nil and not ownedFactionRecord(entry.raw, id, groupId))
+        or quarantine and not ownedFactionRecord(quarantine.raw, id, groupId) then
+        return false, "faction_actor_restore_owner_changed"
+    end
+    if entry == nil and quarantine == nil then return true, "faction_actor_restore_absent" end
+
+    local cancelled, reason = cancelEntryTicket(id, entry, "faction actor retirement")
+    if not cancelled then return false, reason end
+    if pending[id] ~= entry or quarantined.factionActors[id] ~= quarantine
+        or SC.Registry.byId(id) ~= nil then
+        return false, "faction_actor_restore_changed"
+    end
+    -- A partially staged save might already contain this row. Keep the last
+    -- durable document intact and let the caller save the completed story.
+    persistence.cancelPendingSave("faction actor retirement")
+    pending[id], quarantined.factionActors[id] = nil, nil
+    for index = #pendingOrder, 1, -1 do
+        if pendingOrder[index] == id then table.remove(pendingOrder, index) end
+    end
+    return true, "faction_actor_restore_retired"
+end
+
 function persistence.pendingRestoreStatus(id)
     local entry = pending[id]
     if entry then

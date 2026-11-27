@@ -839,7 +839,7 @@ function Car.boardMember(actor, order, snapshot)
     local sx, sy = U.position(squares[1])
     local gap = x and sx and math.sqrt((x - sx)^2 + (y - sy)^2) or 0
     local accepted, moveReason = SC.Navigation.requestAny(actor, squares,
-        gap > 8 and "run" or "walk", {
+        order.gait or (gap > 8 and "run" or "walk"), {
             action = waiting and "rally_vehicle" or "approach_vehicle", vehicle = car, object = car, seat = seat,
             snapshot = snapshot, desiredDistance = 0,
             arrivalDistance = 0.15, continuousApproach = true,

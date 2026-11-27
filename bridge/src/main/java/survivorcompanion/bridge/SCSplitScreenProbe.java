@@ -873,6 +873,8 @@ public final class SCSplitScreenProbe {
 
     public static boolean cancelHomeVehicleSave(long ticket) { return SCVehicleSaveBarrier.cancel(ticket); }
 
+    public static String vehicleRetirementStatus(KahluaTable receipt) { return SCVehicleSaveBarrier.retirementStatus(receipt); }
+
     public static boolean attachRemoteArrivalVehicleSave(long leaseToken, long ticket) {
         SCRemoteArrival.Lease lease = requireRemoteArrival(leaseToken);
         lease.requireContext(leader);

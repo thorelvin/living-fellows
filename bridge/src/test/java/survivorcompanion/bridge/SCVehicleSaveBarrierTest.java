@@ -217,6 +217,25 @@ public final class SCVehicleSaveBarrierTest {
                         && ((String) receipt.rawget("sha256")).length() == 64
                         && fake.tag.equals(receipt.rawget("tagUUID")), "receipt omitted its stable bounded native proof fields");
 
+                require("present".equals(SCSplitScreenProbe.vehicleRetirementStatus(receipt)),
+                        "the exact tagged vehicle was not recognized before retirement");
+                try (Statement remove = writer.createStatement()) {
+                    remove.executeUpdate("DELETE FROM vehicles WHERE id=17");
+                }
+                require("present".equals(SCSplitScreenProbe.vehicleRetirementStatus(receipt)),
+                        "an uncommitted delete passed the retirement proof");
+                writer.commit();
+                require("absent".equals(SCSplitScreenProbe.vehicleRetirementStatus(receipt)),
+                        "the committed vehicle delete did not pass");
+                write(writer, fake.snapshot, new byte[0]); writer.commit();
+                require("conflict".equals(SCSplitScreenProbe.vehicleRetirementStatus(receipt)),
+                        "a replacement or malformed row counted as an absent car");
+                fake.contextFails = true;
+                require("unknown".equals(SCSplitScreenProbe.vehicleRetirementStatus(receipt)),
+                        "an unavailable database counted as an absent car");
+                fake.contextFails = false;
+                write(writer, fake.snapshot, fake.snapshot.bytes()); writer.commit();
+
                 SCVehicleSaveBarrier.Row row = SCVehicleSaveBarrier.readCommitted(database, 17);
                 require(SCVehicleSaveBarrier.rowMatches(fake.snapshot, row), "committed native SQL columns/bytes mismatch");
                 require(!SCVehicleSaveBarrier.rowMatches(fake.snapshot, new SCVehicleSaveBarrier.Row(18, row.wx(), row.wy(), row.x(), row.y(), row.worldVersion(), row.bytes())), "wrong SQL id passed");
