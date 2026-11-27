@@ -108,6 +108,12 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Core 'evacuation_pending_restore_harness.lua')) }
+@{ Name = 'wade-riverbank-site'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCFishing.lua'),
+    (Join-Path $Client 'SCOddballWadeBank.lua'),
+    (Join-Path $Core 'wade_riverbank_harness.lua')) }
 @{ Name = 'restore-square-context'; Files = @($lifecycleArrivalFiles) + @(
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),

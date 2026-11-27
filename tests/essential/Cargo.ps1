@@ -630,6 +630,15 @@
     (Join-Path $Client 'SCGameplayUtil.lua'),
     (Join-Path $Client 'SCBaseLife.lua'),
     (Join-Path $Gameplay 'sorting_storage_harness.lua')) }
+@{ Name = 'fishing-scripted-cast'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Client 'SCGameplayUtil.lua'),
+    (Join-Path $Client 'SCFishing.lua'),
+    (Join-Path $Gameplay 'fishing_scripted_harness.lua')
+) }
 @{ Name = 'fishing'; Extended = $true; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

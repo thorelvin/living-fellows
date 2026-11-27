@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.27.99 - The One That Got Away
+
+- Find Wade Hensley at a secluded riverbank or hear his call on 90 MHz. Bring one spool of line and watch him get a bite six seconds after his bobber hits the water. Wade gets his old lure back and shares a fish fillet.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.98 - The Evacuation
 
 - Meet Joy and Brock in a locked room. Joy guards the door with a crowbar while Brock rests an injured leg. Bring them a running car and tell Joy it is ready to receive two antibiotics and two bandages. The pair leave in the car you give them, with its cargo.

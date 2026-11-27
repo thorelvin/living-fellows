@@ -220,5 +220,94 @@ assert(Radio.answer(group.id, player) == true and answered == 1
 assert(#transmissions >= 3
     and transmissions[#transmissions].frequency == channel,
     "native radio dispatch carries the answer on 90 MHz")
+assert(transmissions[#transmissions].message == "I hear you. I'm coming. Mark your location.",
+    "the original rescue still uses its default answer")
+
+local wade = {
+    id = "wade-test", name = "Wade Hensley", lifecycle = "settled", members = group.members,
+    oddball = { id = "wade_hensley", site = group.oddball.site },
+}
+SC.Factions.list = function() return { group, wade } end
+SC.Factions.group = function(id) return id == wade.id and wade or nil end
+local wadeReplies = 0
+SC.OddballWade = {
+    radioOffer = function() return { frequency = channel, text = "Wade: Had a big one on the line." } end,
+    radioRespond = function()
+        wadeReplies = wadeReplies + 1
+        return true, "answered", "Wade: I'm on the riverbank."
+    end,
+}
+assert(Radio.register("wade_hensley", "OddballWade", {
+    replyLabel = "Ask Wade where he is", replyText = "I hear you. Whereabouts on the river?",
+    mapLabel = "Wade's fishing camp",
+}))
+delivered = false
+assert(not Radio.pulse(wade, player, 9000) and #Radio.replyOptions(player) == 0,
+    "Wade cannot be answered without a native delivery")
+delivered = true
+assert(Radio.pulse(wade, player, 15000), "Wade did not receive a native call receipt")
+local options = Radio.replyOptions(player)
+assert(#options == 1 and options[1].groupId == wade.id and options[1].label == "Ask Wade where he is",
+    "the authored Wade reply label is missing")
+player.x = 29
+assert(not Radio.answer(wade.id, player) and not annotations["Wade's fishing camp"],
+    "an out-of-range Wade reply marked the map")
+player.x = 100
+assert(Radio.answer(wade.id, player) and wadeReplies == 1 and wade.oddball.radioAnswered,
+    "the Wade response did not commit exactly once")
+assert(wade.oddball.radioMapText == "Wade's fishing camp"
+    and annotations["Wade's fishing camp"].x == survivor.x
+    and transmissions[#transmissions].message == "I hear you. Whereabouts on the river?",
+    "Wade's reply broadcast or exact source marker used rescue defaults")
+assert(not Radio.answer(wade.id, player) and #Radio.replyOptions(player) == 0 and wadeReplies == 1)
+
+local inventory, items, added = {}, {}, 0
+local operator = {
+    getInventory = function() return inventory end,
+    getEquipedRadio = function(self) return self.nativeHeld end,
+    getSecondaryHandItem = function(self) return self.held end,
+    setSecondaryHandItem = function(self, item) self.held = item end,
+}
+local radioData = data()
+radioData.battery, radioData.power, radioData.on, radioData.channel = false, 0, false, 88000
+function radioData:getHasBattery() return self.battery end
+function radioData:addBattery(battery)
+    self.battery, self.power = true, battery:getCurrentUsesFloat()
+    for index, item in ipairs(items) do if item == battery then table.remove(items, index) break end end
+end
+function radioData:setChannel(value) self.channel = value end
+function radioData:setDeviceVolume(value) self.volume = value end
+function radioData:setIsTurnedOn(value) self.on = value end
+local ownedRadio = {
+    kind = "Base.WalkieTalkie2", container = inventory,
+    getDeviceData = function() return radioData end,
+    getContainer = function(self) return self.container end,
+}
+SC.GameplayUtil.inventory = function(actor) return actor:getInventory() end
+SC.GameplayUtil.inventoryItems = function() return items end
+SC.GameplayUtil.inventoryItemsDeep = SC.GameplayUtil.inventoryItems
+SC.GameplayUtil.itemType = function(item) return item.kind end
+SC.GameplayUtil.instanceOf = function(item, kind) return item == ownedRadio and kind == "Radio" end
+SC.GameplayUtil.addItem = function(owner, kind)
+    assert(owner == inventory)
+    added = added + 1
+    local item = kind == ownedRadio.kind and ownedRadio
+        or { kind = kind, getCurrentUsesFloat = function() return 1 end }
+    items[#items + 1] = item
+    return item
+end
+assert(not Radio.provisionRadio(operator, false) and added == 0, "a missing radio reappeared")
+local ready, issued = Radio.provisionRadio(operator, true)
+assert(ready and issued == ownedRadio and added == 2 and operator.held == issued,
+    "the native radio cache did not wait for the next character update")
+assert(Radio.equippedRadio(operator, true, channel) == nil, "radio dispatch accepted a stale native endpoint")
+operator.nativeHeld = issued
+assert(Radio.equippedRadio(operator, true, channel) == issued, "native cache refresh did not enable the new endpoint")
+radioData.channel, operator.held = 88000, nil
+assert(Radio.provisionRadio(operator, false) and added == 2 and operator.held == issued,
+    "re-equipping the issued talkie manufactured a new item")
+radioData.power = 0
+assert(not Radio.provisionRadio(operator, false) and added == 2,
+    "an exhausted talkie manufactured another battery after initial setup")
 Radio.remove()
 print("Oddball distress radio checks passed")

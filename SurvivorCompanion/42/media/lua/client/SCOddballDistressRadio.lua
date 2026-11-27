@@ -1,16 +1,15 @@
 -- SPDX-License-Identifier: MIT
--- Two authored rescue calls on the ordinary 90 MHz radio channel. The native
--- radio system delivers the text; this module only offers an answer after the
--- player's actual tuned receiver has heard it.
+-- Authored calls on the ordinary 90 MHz radio channel. An answer is available
+-- only after the player's tuned receiver hears the actual native transmission.
 
 local SC = SurvivorCompanion
 SC.OddballDistressRadio = SC.OddballDistressRadio or {}
 local Radio = SC.OddballDistressRadio
 
 local CHANNEL = 90000
-local rescueModules = {
-    garage_rescue_eli_rourke = "OddballGarageRescue",
-    radio_rescue_nate_duvall = "OddballDehydrated",
+local registrations = {
+    garage_rescue_eli_rourke = { module = "OddballGarageRescue" },
+    radio_rescue_nate_duvall = { module = "OddballDehydrated" },
 }
 local pending
 local hooked = false
@@ -25,15 +24,27 @@ end
 
 local function actorFor(group) return SC.OddballKit.recordActor(group) end
 
-local function equippedRadio(actor, transmit, channel)
-    if not actor then return nil end
-    local inventory = call(actor, "getInventory")
-    local radio = call(actor, "getEquipedRadio")
-    local primary = call(actor, "getPrimaryHandItem")
-    local secondary = call(actor, "getSecondaryHandItem")
-    local back = call(actor, "getClothingItem_Back")
-    if not radio or radio ~= primary and radio ~= secondary and radio ~= back
-        or call(radio, "getContainer") ~= inventory then return nil end
+-- The two original rescue stories use the default wording. Other callers can
+-- provide their own menu label, map annotation and answer over the air.
+function Radio.register(id, moduleName, labels)
+    local existing = registrations[id]
+    if type(id) ~= "string" or id == "" or type(moduleName) ~= "string" or moduleName == ""
+        or existing and existing.module ~= moduleName then return false end
+    labels = type(labels) == "table" and labels or {}
+    local registration = { module = moduleName }
+    for _, key in ipairs({ "replyLabel", "replyText", "mapLabel" }) do
+        if type(labels[key]) == "string" and labels[key] ~= "" then registration[key] = labels[key] end
+    end
+    registrations[id] = registration
+    return true
+end
+
+local function registered(story)
+    local registration = story and registrations[story.id]
+    return registration, registration and SC[registration.module]
+end
+
+local function operationalData(radio, transmit, channel)
     if not U().instanceOf(radio, "Radio") then return nil end
     local data = call(radio, "getDeviceData")
     -- ZomboidRadio.DistributeToPlayer hands a call to any portable radio that
@@ -52,10 +63,71 @@ local function equippedRadio(actor, transmit, channel)
             or call(data, "isNoTransmit") == true) then
         return nil
     end
-    return radio, data
+    return data
+end
+
+local function equippedRadio(actor, transmit, channel)
+    if not actor then return nil end
+    local inventory = call(actor, "getInventory")
+    local radio = call(actor, "getEquipedRadio")
+    local primary = call(actor, "getPrimaryHandItem")
+    local secondary = call(actor, "getSecondaryHandItem")
+    local back = call(actor, "getClothingItem_Back")
+    if not radio or radio ~= primary and radio ~= secondary and radio ~= back
+        or call(radio, "getContainer") ~= inventory then return nil end
+    local data = operationalData(radio, transmit, channel)
+    if data then return radio, data end
 end
 -- Shared eligibility for authored calls; receiving stays distinct from transmitting.
 Radio.equippedRadio = equippedRadio
+
+local function chargedBattery(inventory)
+    for _, item in ipairs(U().inventoryItems(inventory, 160)) do
+        if U().itemType(item) == "Base.Battery"
+            and (number(call(item, "getCurrentUsesFloat")) or 0) > 0 then return item end
+    end
+end
+
+-- Seed the owned talkie once. Later calls can unpack/retune it, but with
+-- allowCreate=false a missing radio or exhausted battery stays that way.
+function Radio.provisionRadio(actor, allowCreate)
+    local inventory = actor and U().inventory(actor)
+    if not inventory then return false, "radio_inventory_unavailable" end
+    local item = SC.OddballKit.itemOfType(actor, "Base.WalkieTalkie2", 160, 8)
+    if not item then
+        if allowCreate ~= true then return false, "radio_missing" end
+        item = U().addItem(inventory, "Base.WalkieTalkie2")
+    end
+    if not item or not U().instanceOf(item, "Radio") then return false, "native_radio_unavailable" end
+    local source = call(item, "getContainer")
+    if source ~= inventory and (not source or U().transferItemVerified(source, inventory, item) ~= true) then
+        return false, "radio_could_not_be_unpacked"
+    end
+    local data = call(item, "getDeviceData")
+    if not data or call(data, "getIsTwoWay") ~= true or call(data, "getIsPortable") ~= true then
+        return false, "two_way_radio_unavailable"
+    end
+    local hasBattery = call(data, "getHasBattery") == true
+    if not hasBattery or (number(call(data, "getPower")) or 0) <= 0 then
+        local battery = chargedBattery(inventory)
+        if not battery and allowCreate == true then battery = U().addItem(inventory, "Base.Battery") end
+        if not battery then return false, "radio_battery_unavailable" end
+        if hasBattery then U().call(data, "getBattery", inventory) end
+        U().call(data, "addBattery", battery)
+    end
+    U().call(data, "setChannel", CHANNEL)
+    U().call(data, "setDeviceVolume", 0.8)
+    U().call(data, "setMicIsMuted", false)
+    U().call(data, "setIsTurnedOn", true)
+    U().call(actor, "setSecondaryHandItem", item)
+    -- Vanilla refreshes getEquipedRadio on the next character update. Verify
+    -- the actual inventory and hand now, and await the cached endpoint in pulse.
+    if call(actor, "getSecondaryHandItem") ~= item or call(item, "getContainer") ~= inventory
+        or not operationalData(item, true) or not operationalData(item, false) then
+        return false, "radio_readback_failed"
+    end
+    return true, item
+end
 
 local function inRange(a, b, range)
     local ax, ay = U().position(a)
@@ -150,8 +222,7 @@ function Radio.pulse(group, player, current)
         pending = nil
     end
     local story = group and group.oddball
-    local moduleName = story and rescueModules[story.id]
-    local behavior = moduleName and SC[moduleName]
+    local _, behavior = registered(story)
     if not behavior or type(behavior.radioOffer) ~= "function"
         or not player or not actorFor(group) or story.radioAnswered == true then
         return false, "no_rescue_call"
@@ -199,12 +270,13 @@ function Radio.replyOptions(player)
     local options = {}
     for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
         local story = group.oddball
-        if story and rescueModules[story.id] and story.radioHeard == true
+        local registration = registered(story)
+        if registration and story.radioHeard == true
             and story.radioAnswered ~= true and group.lifecycle ~= "destroyed"
             and actorFor(group) then
             options[#options + 1] = {
                 groupId = group.id,
-                label = "Reply to " .. tostring(story.radioReplyLabel
+                label = registration.replyLabel or "Reply to " .. tostring(story.radioReplyLabel
                     or group.name or "distress call") .. " on 90 MHz",
             }
         end
@@ -215,8 +287,7 @@ end
 function Radio.answer(groupId, player)
     local group = SC.Factions and SC.Factions.group(groupId)
     local story = group and group.oddball
-    local moduleName = story and rescueModules[story.id]
-    local behavior = moduleName and SC[moduleName]
+    local registration, behavior = registered(story)
     if not behavior or type(behavior.radioRespond) ~= "function"
         or story.radioHeard ~= true or story.radioAnswered == true then
         return false, "rescue_call_unavailable"
@@ -233,7 +304,7 @@ function Radio.answer(groupId, player)
             number(call(receiverData, "getTransmitRange")) or 0) then
         return false, "radios_out_of_range"
     end
-    local marker = "[LF] " .. tostring(group.name or "Rescue")
+    local marker = registration.mapLabel or "[LF] " .. tostring(group.name or "Rescue")
         .. " rescue, 90 MHz"
     local life = SC.FactionLife
     if not life or type(life.addMapAnnotation) ~= "function" then
@@ -244,7 +315,7 @@ function Radio.answer(groupId, player)
         story.radioSourceY or story.site.spawn.y,
         { 0.35, 0.8, 0.95, 1.0 })
     if marked ~= true then return false, markReason end
-    local textValue = "I hear you. I'm coming. Mark your location."
+    local textValue = registration.replyText or "I hear you. I'm coming. Mark your location."
     local sent, reason = send(player, data, textValue,
         "LF-RESCUE-" .. tostring(group.id), "REPLY")
     if not sent then

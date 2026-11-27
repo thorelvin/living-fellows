@@ -935,6 +935,7 @@ for _, entry in ipairs({
     { id = "dewey_prentice_hollowell", count = 3, weapon = nil },
     { id = "werewolf_dalton_reese", count = 3, weapon = nil },
     { id = "man_in_the_chair", count = 3, weapon = nil },
+    { id = "wade_hensley", count = 5, weapon = nil },
 }) do
     local subject = { inventory = {} }
     function subject:setPrimaryHandItem(item) self.primary = item end
@@ -945,6 +946,13 @@ for _, entry in ipairs({
         and (entry.weapon == nil and subject.primary == nil
             or subject.primary and subject.primary.kind == entry.weapon),
         "authored kit gives the correct weapon and inventory to " .. entry.id)
+    if entry.id == "wade_hensley" then
+        local has = {}
+        for _, item in ipairs(subject.inventory) do has[item.kind] = true end
+        check(has["Base.FishingRod"] and has["Base.FishingHook"] and has["Base.Worm"]
+            and not has["Base.FishingLine"] and not has["Base.PremiumFishingLine"],
+            "Wade spawns with the parts he needs apart from the donated line")
+    end
     check(SC.Oddballs._seedPersonalKitForTests(kitGroup, subject) == true
         and #subject.inventory == entry.count,
         "an encounter reawaken does not duplicate " .. entry.id .. "'s kit")

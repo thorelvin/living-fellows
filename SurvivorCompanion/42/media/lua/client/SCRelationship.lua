@@ -777,6 +777,7 @@ local doingLabels = {
     approach_vehicle = "reaching the passenger door",
     evacuation_driver_stage = "walking to the driver's door",
     walk_to_square = "heading back to the safe room",
+    wade_return_bank = "heading back to the riverbank",
     logistics_pack = "repacking my gear",
     logistics_deposit = "putting surplus gear into storage",
     logistics_drop = "dropping surplus gear",

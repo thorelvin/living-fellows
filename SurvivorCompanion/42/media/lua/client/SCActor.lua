@@ -1100,9 +1100,9 @@ local function validateSpawnRequest(square, profile)
     return profile
 end
 
-local function wornType(actor, fullType)
+local function wornItem(actor, fullType)
     local wornOk, worn = invoke(actor, "getWornItems")
-    if not wornOk or not worn then return false end
+    if not wornOk or not worn then return nil end
     local sizeOk, size = invoke(worn, "size")
     for index = 0, sizeOk and math.min(tonumber(size) or 0, 64) - 1 or -1 do
         local entryOk, entry = invoke(worn, "get", index)
@@ -1110,29 +1110,60 @@ local function wornType(actor, fullType)
         if entryOk then itemOk, item = invoke(entry, "getItem") end
         local typeOk, itemType = false, nil
         if itemOk then typeOk, itemType = invoke(item, "getFullType") end
-        if typeOk and itemType == fullType then return true end
+        if typeOk and itemType == fullType then return item end
     end
-    return false
+end
+
+local function applyIdentityHair(actor, hair)
+    if type(hair) ~= "table" then return false end
+    local found, visual = invoke(actor, "getHumanVisual")
+    if not found or visual == nil then return false end
+    local changed = false
+    if type(hair.model) == "string" then changed = invoke(visual, "setHairModel", hair.model) end
+    if type(hair.beard) == "string" then
+        changed = invoke(visual, "setBeardModel", hair.beard) or changed
+    end
+    local gray = tonumber(hair.gray)
+    if gray and gray >= 0 and gray <= 1 then
+        local immutable = type(_G) == "table" and rawget(_G, "ImmutableColor") or nil
+        local made, color = staticInvoke(immutable, "new", gray, gray, gray, 1)
+        if made and color then
+            for _, setter in ipairs({ "setHairColor", "setNaturalHairColor",
+                "setBeardColor", "setNaturalBeardColor" }) do
+                changed = invoke(visual, setter, color) or changed
+            end
+        end
+    end
+    return changed
 end
 
 local function applyAppearanceDetails(actor, identity, restored)
     if restored == true or type(identity) ~= "table" then return end
-    local changed = false
+    local changed = applyIdentityHair(actor, identity.hair)
     if type(identity.extras) == "table" then
         local inventoryOk, inventory = invoke(actor, "getInventory")
         if inventoryOk and inventory then
             for index = 1, math.min(#identity.extras, 8) do
                 local fullType = identity.extras[index]
-                if type(fullType) == "string" and fullType:match("^Base%.[%w_]+$")
-                    and not wornType(actor, fullType) then
-                    local addedOk, item = invoke(inventory, "AddItem", fullType)
-                    local locationOk, location = false, nil
-                    if addedOk then
-                        locationOk, location = invoke(item, "getBodyLocation")
+                if type(fullType) == "string" and fullType:match("^Base%.[%w_]+$") then
+                    local item = wornItem(actor, fullType)
+                    if not item then
+                        local added, created = invoke(inventory, "AddItem", fullType)
+                        if added then
+                            local locationOk, location = invoke(created, "getBodyLocation")
+                            if locationOk and location then
+                                local equippedOk, equipped = invoke(actor, "setWornItem", location, created)
+                                if equippedOk and equipped ~= false then item, changed = created, true end
+                            end
+                        end
                     end
-                    if locationOk and location then
-                        local equippedOk, equipped = invoke(actor, "setWornItem", location, item)
-                        changed = changed or (equippedOk and equipped ~= false)
+                    local texture = identity.baseTextures and identity.baseTextures[fullType]
+                    if item and type(texture) == "number" then
+                        local found, visual = invoke(item, "getVisual")
+                        if found and invoke(visual, "setBaseTexture", texture) then
+                            invoke(item, "synchWithVisual")
+                            changed = true
+                        end
                     end
                 end
             end

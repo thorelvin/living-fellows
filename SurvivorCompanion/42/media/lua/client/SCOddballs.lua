@@ -554,7 +554,7 @@ local definitions = {
         module = "OddballGarageRescue" },
     { id = "survivalist05_mid_storyteller", name = "Walt Reed",
         archetype = "oddball_resident", kind = "forest_camp",
-        recruitment = true, firstEligibleOffsetDays = 3,
+        recruitment = true, firstEligibleOffsetDays = 3, outdoorSite = true,
         identity = { forename = "Walt", surname = "Reed",
             gender = "male", outfit = "Survivalist05_Mid",
             dirt = 0.22, visualSeed = 3100228 },
@@ -564,6 +564,17 @@ local definitions = {
                 "Base.WaterBottle", "Base.CannedSardines",
                 "Base.TinOpener" } },
         module = "OddballCampStoryteller" },
+    { id = "wade_hensley", name = "The One That Got Away",
+        archetype = "oddball_resident", kind = "fishing_bank", outdoorSite = true,
+        recruitment = false, trade = false, roomGuard = false, firstEligibleOffsetDays = 4,
+        identity = { forename = "Wade", surname = "Hensley", gender = "male",
+            outfit = "Fisherman", extras = { "Base.Hat_FishermanRainHat", "Base.Shirt_Lumberjack",
+                "Base.Dungarees", "Base.Shoes_Wellies" }, baseTextures = { ["Base.Shirt_Lumberjack"] = 3 },
+            hair = { model = "Baldspot", beard = "Full", gray = 0.72 },
+            dirt = 0.18, visualSeed = 3100246 },
+        kit = { items = { "Base.FishingRod", "Base.FishingHook", "Base.Worm",
+            "Base.Tacklebox", "Base.WaterBottle" } },
+        module = "OddballWade" },
     { id = "radio_rescue_nate_duvall", name = "Nate Duvall",
         archetype = "oddball_resident", kind = "resident",
         recruitment = true, firstEligibleOffsetDays = 4,
@@ -4121,6 +4132,12 @@ local function ambientCooldown(currentDay)
     return state.lastSeedDay ~= nil and currentDay - state.lastSeedDay < days
 end
 
+local function outdoorSiteFor(definition, square, player, allowSeen)
+    local behavior = SC[definition.module]
+    if type(behavior) ~= "table" or type(behavior.siteFor) ~= "function" then return nil end
+    return behavior.siteFor(square, player, allowSeen)
+end
+
 local function ambientSiteFor(square, player, definition, name, building, visitedBuildings)
     if definition.kind == "family_pyre" and SC.OddballCaleb
         and type(SC.OddballCaleb.siteFor) == "function" then
@@ -4145,9 +4162,8 @@ local function ambientSiteFor(square, player, definition, name, building, visite
         return siteForEbb(square, player, false, true)
     elseif definition.kind == "trash_runner" then
         return siteForBigChris(square, player, false)
-    elseif definition.kind == "forest_camp" and SC.OddballCampStoryteller
-        and type(SC.OddballCampStoryteller.siteFor) == "function" then
-        return SC.OddballCampStoryteller.siteFor(square, player, false)
+    elseif definition.outdoorSite == true then
+        return outdoorSiteFor(definition, square, player, false)
     elseif definition.kind == "roamer" then
         if definition.id == "peddler_mister_ebb"
             or definition.id == "hitchhiker_ruth_ann" then
@@ -4503,12 +4519,8 @@ function Oddballs.debugSpawnRandom(player)
                             site = siteForEbb(square, player, true, true)
                         elseif definition.kind == "trash_runner" then
                             site = siteForBigChris(square, player, true)
-                        elseif definition.kind == "forest_camp"
-                            and SC.OddballCampStoryteller
-                            and type(SC.OddballCampStoryteller.siteFor)
-                                == "function" then
-                            site = SC.OddballCampStoryteller.siteFor(
-                                square, player, true)
+                        elseif definition.outdoorSite == true then
+                            site = outdoorSiteFor(definition, square, player, true)
                         elseif definition.kind == "witness" then
                             site = siteForFan(square, player, true)
                         elseif definition.kind == "roamer" then

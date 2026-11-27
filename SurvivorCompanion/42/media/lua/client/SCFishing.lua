@@ -1,12 +1,13 @@
 -- SPDX-License-Identifier: MIT
--- One fishing controller for camp duty and expedition searches. Movement stays
--- with Navigation; the game owns fish generation, abundance, bait and visuals.
+-- Shared fishing visuals for camp duty, expeditions and authored encounters.
+-- The game owns the ordinary fish simulation and Navigation owns approaches.
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.Fishing = SC.Fishing or {}
 local Angling = SC.Fishing
 
 local states = setmetatable({}, { __mode = "k" })
+local scriptedResults = setmetatable({}, { __mode = "k" })
 local preparations = setmetatable({}, { __mode = "k" })
 local preparationBlocked = setmetatable({}, { __mode = "k" })
 local engineRetryAt = setmetatable({}, { __mode = "k" })
@@ -19,6 +20,8 @@ local CAST_APPROACH_WAIT_MS = 2500
 local DEBRIS_BEFORE_RESURVEY = 3
 local CAST_DELAY = 1100
 local PICKUP_DELAY = 2200
+local SCRIPTED_HOOK_DELAY = 6000
+local SCRIPTED_CAST_TIMEOUT = 4000
 local ENGINE_RETRY_DELAY = 60000
 local CAMP_CATCH_TAG = "SC_CampFishingCatch"
 local CAMP_DELIVERY_COUNT = 3
@@ -66,6 +69,8 @@ local function usableBank(square)
     end
     return nil
 end
+
+Angling.usableBank = usableBank
 
 -- A loaded shore is confirmed by game squares. Mapped shores farther away
 -- are labelled possible until a companion arrives and checks the real bank.
@@ -856,9 +861,7 @@ local function cancelBaitAction(actor, state)
     if queue.current == action then queue.current = nil end
 end
 
-function Angling.cancel(actor, reason)
-    local state = states[actor]
-    if not state then return false end
+local function cleanFishing(actor, state, reason)
     cancelBaitAction(actor, state)
     if state.visualAt ~= nil and SC.NativeActions
         and type(SC.NativeActions.cancelVisual) == "function" then
@@ -880,6 +883,16 @@ function Angling.cancel(actor, reason)
         end
     end)
     states[actor] = nil
+end
+
+function Angling.cancel(actor, reason)
+    local state = states[actor]
+    if not state then return false end
+    if state.scriptToken then
+        scriptedResults[actor] = { token = state.scriptToken, phase = "cancelled",
+            reason = reason, didHook = state.phase == "hooked" }
+    end
+    cleanFishing(actor, state, reason)
     return true, reason or "fishing_cancelled"
 end
 
@@ -970,11 +983,194 @@ end
 
 Angling._handleBiteForTests = handleBite
 
+local function faceWater(actor, site)
+    if Fishing and Fishing.Utils and Fishing.Utils.FacePlayerToBobber then
+        pcall(Fishing.Utils.FacePlayerToBobber, actor,
+            site.water.x, site.water.y)
+    end
+end
+
+local function newRodSimulation(actor)
+    local ready, sim = pcall(Fishing.FishingRod.new, Fishing.FishingRod, actor, -1)
+    if not ready or not sim then return nil end
+    sim.getTension = function() return 0.18 end
+    sim.getRodEndXY = function()
+        return actor:getX() + 0.5, actor:getY() + 0.5
+    end
+    return sim
+end
+
+local function startCastAnimation(actor, requireAccepted)
+    local reset = pcall(actor.setVariable, actor, "FishingFinished", false)
+    local staged = pcall(actor.setFishingStage, actor, "Cast")
+    local requested = pcall(actor.reportEvent, actor, "EventFishing")
+    local accepted = reset and staged and requested
+    if accepted or not requireAccepted then pcall(actor.playSound, actor, "CastFishingLine") end
+    return accepted
+end
+
+local function makeBobber(actor, state)
+    local target = state.site.water
+    local okay, bobber = pcall(Fishing.Bobber.new, Fishing.Bobber,
+        actor, state.rodSim, target.x, target.y)
+    return okay and bobber or nil
+end
+
+local function suppressPlayerManager(actor, onlyOwned)
+    local managers = Fishing and Fishing.ManagerInstances
+    local index = actor.getPlayerNum and actor:getPlayerNum() or nil
+    local manager = managers and index ~= nil and managers[index] or nil
+    if manager and (not onlyOwned or manager.player == actor) then
+        pcall(manager.destroy, manager)
+        managers[index] = nil
+    end
+end
+
+local function atScriptedBank(actor, bank)
+    return U().sameSquare(actor, bank) and U().arrived(actor, bank,
+        { targetKind = "square", distance = 0.6 })
+end
+
+local function verifiedScriptedSite(site)
+    local bank = type(site) == "table" and site.bank or nil
+    local target = type(site) == "table" and site.water or nil
+    local bx, by = U().position(bank)
+    local x, y = U().position(target)
+    if bx == nil or x == nil then return nil end
+    local dx, dy = (math.floor(x) - bx) / 2, (math.floor(y) - by) / 2
+    if dx % 1 ~= 0 or dy % 1 ~= 0 or math.abs(dx) + math.abs(dy) ~= 1 then return nil end
+    local square = U().loadedSquare(bank)
+    local actual = isBank(square) and castAt(square, dx, dy) or nil
+    if actual and U().sameSquare(actual.water, target) then return actual end
+end
+
+function Angling.scriptedCastStatus(actor, token)
+    if type(token) ~= "string" then return nil, "fishing_script_token_unavailable" end
+    local state = states[actor]
+    if state and state.scriptToken == token then return state.phase, nil, state.phase == "hooked" end
+    local result = scriptedResults[actor]
+    if result and result.token == token then return result.phase, result.reason, result.didHook end
+    return nil, "fishing_script_not_active"
+end
+
+function Angling.cancelScriptedCast(actor, token, reason)
+    local state = states[actor]
+    if type(token) ~= "string" or not state or state.scriptToken ~= token then
+        return false, "fishing_script_not_active"
+    end
+    return Angling.cancel(actor, reason or "fishing_script_cancelled")
+end
+
+-- The caller owns its navigation, exact catch item and durable story receipt.
+-- This lease only runs the native fishing pose, bobber and active-real clock.
+function Angling.beginScriptedCast(actor, site, rod, token, onHook)
+    if type(token) ~= "string" or token == "" then return false, "fishing_script_token_unavailable" end
+    local phase, reason = Angling.scriptedCastStatus(actor, token)
+    if phase == "cancelled" then return false, reason or "fishing_script_cancelled" end
+    if phase then return true, phase end
+    if states[actor] or preparations[actor] then return false, "fishing_script_busy" end
+    if not U().isValidActor(actor)
+        or not Fishing or not Fishing.FishingRod or not Fishing.Bobber
+        or type(getGameTime) ~= "function" or not U().hasMethod(actor, "getCompanionActionStateName")
+        or type(isClient) == "function" and isClient() then
+        return false, "fishing_script_unavailable"
+    end
+    local approved = verifiedScriptedSite(site)
+    if not approved or not atScriptedBank(actor, approved.bank) then
+        return false, "fishing_script_bank_unavailable"
+    end
+    local inventory = U().inventory(actor)
+    local rodData = U().modData(rod)
+    if not inventory or not U().itemHasTag(rod, "FISHING_ROD")
+        or not U().inventoryContains(inventory, rod) or not rodData or not rodData.fishing_Lure then
+        return false, "fishing_script_rod_unavailable"
+    end
+    local previous = (U().call(actor, "getPrimaryHandItem"))
+    local state = { mode = "scripted", phase = "casting", phaseMs = 0,
+        scriptToken = token, site = approved, previousHand = previous, rod = rod, onHook = onHook }
+    states[actor], scriptedResults[actor] = state, nil
+    if previous ~= rod then U().call(actor, "setPrimaryHandItem", rod) end
+    if U().call(actor, "getPrimaryHandItem") ~= rod then
+        return false, select(2, Angling.cancel(actor, "fishing_script_equip_failed"))
+    end
+    suppressPlayerManager(actor, true)
+    state.rodSim = newRodSimulation(actor)
+    if not state.rodSim then
+        return false, select(2, Angling.cancel(actor, "fishing_rod_unusable"))
+    end
+    faceWater(actor, approved)
+    if not startCastAnimation(actor, true) then
+        return false, select(2, Angling.cancel(actor, "fishing_script_animation_failed"))
+    end
+    return true, state.phase
+end
+
+local function scriptedStep(actor, state, elapsed)
+    if not U().isValidActor(actor)
+        or U().call(actor, "getPrimaryHandItem") ~= state.rod
+        or not atScriptedBank(actor, state.site.bank) then
+        Angling.cancel(actor, "fishing_script_interrupted")
+        return
+    end
+    local waterSquare = U().loadedSquare(state.site.water)
+    if not water(waterSquare) then
+        Angling.cancel(actor, "fishing_script_water_unavailable")
+        return
+    end
+    local animation = U().call(actor, "getCompanionActionStateName")
+    state.phaseMs = state.phaseMs + elapsed
+    if state.phase == "casting" then
+        if state.phaseMs >= CAST_DELAY and animation == "fishing" then
+            state.bobber = makeBobber(actor, state)
+            if not state.bobber or state.bobber.sq ~= waterSquare then
+                Angling.cancel(actor, "cast_failed")
+                return
+            end
+            state.phase, state.phaseMs = "waiting", 0
+            U().call(actor, "setFishingStage", "Idle")
+        elseif state.phaseMs >= SCRIPTED_CAST_TIMEOUT then
+            Angling.cancel(actor, "fishing_script_animation_failed")
+        end
+    elseif animation ~= "fishing" then
+        Angling.cancel(actor, "fishing_script_interrupted")
+    elseif state.phase == "waiting" and state.phaseMs >= SCRIPTED_HOOK_DELAY then
+        local _, staged = U().call(actor, "setFishingStage", "PickUp")
+        if not staged then
+            Angling.cancel(actor, "fishing_script_animation_failed")
+            return
+        end
+        state.phase, state.phaseMs = "hooked", 0
+        state.bobber.catchFishStarted = true
+        if type(state.onHook) == "function" then
+            local okay, problem = pcall(state.onHook, actor, state.scriptToken)
+            if not okay and SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                SC.Diagnostics.report("fishing", U().idOf(actor), "scripted catch callback failed", tostring(problem))
+            end
+        end
+        if states[actor] == state then U().call(actor, "playSound", "PickUpFish") end
+    elseif state.phase == "hooked" and state.phaseMs >= PICKUP_DELAY then
+        scriptedResults[actor] = { token = state.scriptToken, phase = "landed", didHook = true }
+        cleanFishing(actor, state, "fishing_script_landed")
+    end
+end
+
+local function activeRealMilliseconds()
+    if type(isGamePaused) == "function" and isGamePaused() then return nil end
+    local time = type(getGameTime) == "function" and getGameTime() or nil
+    local delta = U().call(time, "getRealworldSecondsSinceLastUpdate")
+    if type(delta) ~= "number" or delta ~= delta or delta <= 0 or delta == math.huge then return nil end
+    return delta * 1000
+end
+
 -- Bobber:update is the actual Build 42 fish-school/weather/skill simulation.
 -- Its tick cadence is deliberately independent of the 250 ms decision cadence.
 function Angling.onTick()
+    local elapsed
     for actor, state in pairs(states) do
-        if state.bobber and state.phase == "waiting" then
+        if state.scriptToken then
+            if elapsed == nil then elapsed = activeRealMilliseconds() or false end
+            if elapsed then scriptedStep(actor, state, elapsed) end
+        elseif state.bobber and state.phase == "waiting" then
             local ok = pcall(state.bobber.update, state.bobber)
             if not ok then
                 failFishing(actor, state.mode, "fishing_engine_failed", true)
@@ -982,13 +1178,6 @@ function Angling.onTick()
                 handleBite(actor, state)
             end
         end
-    end
-end
-
-local function faceWater(actor, site)
-    if Fishing and Fishing.Utils and Fishing.Utils.FacePlayerToBobber then
-        pcall(Fishing.Utils.FacePlayerToBobber, actor,
-            site.water.x, site.water.y)
     end
 end
 
@@ -1194,6 +1383,7 @@ function Angling.update(actor, mode, request, player, snapshot)
         engineRetryAt[actor] = nil
     end
     local state = states[actor]
+    if state and state.scriptToken then return false, "fishing_script_busy" end
     if state and state.mode ~= mode then Angling.cancel(actor, "fishing_mode_changed") state = nil end
     if not state then
         state = { mode = mode, phase = "finding", scanIndex = 0 }
@@ -1313,12 +1503,7 @@ function Angling.update(actor, mode, request, player, snapshot)
     state.rod = rod
     -- Equipping a rod on the split-screen local player creates the input-driven
     -- vanilla manager. The AI owns this actor while its mission is active.
-    local managers = Fishing and Fishing.ManagerInstances
-    local index = actor.getPlayerNum and actor:getPlayerNum() or nil
-    if managers and index ~= nil and managers[index] then
-        pcall(managers[index].destroy, managers[index])
-        managers[index] = nil
-    end
+    suppressPlayerManager(actor)
     if not Fishing or not Fishing.FishingRod or not Fishing.Bobber then
         return failFishing(actor, mode, "fishing_engine_unavailable", true)
     end
@@ -1330,30 +1515,21 @@ function Angling.update(actor, mode, request, player, snapshot)
     if state.phase == "waiting" then return true, "waiting_for_fish" end
     if state.phase == "casting" then
         if now() - state.phaseAt < CAST_DELAY then return true, "casting" end
-        local ok, bobber = pcall(Fishing.Bobber.new, Fishing.Bobber,
-            actor, state.rodSim, site.water.x, site.water.y)
-        if not ok or not bobber then
+        local bobber = makeBobber(actor, state)
+        if not bobber then
             return failFishing(actor, mode, "cast_failed", true)
         end
         state.bobber, state.phase = bobber, "waiting"
         pcall(actor.setFishingStage, actor, "Idle")
         return true, "waiting_for_fish"
     end
-    local ready, sim = pcall(Fishing.FishingRod.new,
-        Fishing.FishingRod, actor, -1)
-    if not ready or not sim then
+    local sim = newRodSimulation(actor)
+    if not sim then
         return failFishing(actor, mode, "fishing_rod_unusable", true)
     end
     state.rodSim = sim
-    state.rodSim.getTension = function() return 0.18 end
-    state.rodSim.getRodEndXY = function()
-        return actor:getX() + 0.5, actor:getY() + 0.5
-    end
     state.phase, state.phaseAt = "casting", now()
-    pcall(actor.setVariable, actor, "FishingFinished", false)
-    pcall(actor.setFishingStage, actor, "Cast")
-    pcall(actor.reportEvent, actor, "EventFishing")
-    pcall(actor.playSound, actor, "CastFishingLine")
+    startCastAnimation(actor)
     speak(actor, "fishing.cast", 25, 45000)
     return true, "casting"
 end
@@ -1366,6 +1542,7 @@ function Angling.reset()
     for actor in pairs(preparations) do actors[#actors + 1] = actor end
     for _, actor in ipairs(actors) do Angling.cancelPreparation(actor) end
     preparationBlocked = setmetatable({}, { __mode = "k" })
+    scriptedResults = setmetatable({}, { __mode = "k" })
     engineRetryAt = setmetatable({}, { __mode = "k" })
     lastPartyFishingLineAt = -math.huge
     bankListCache = nil
