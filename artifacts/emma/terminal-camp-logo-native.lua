@@ -4,18 +4,18 @@ local run={step=0,next=0,index=1}
 local themes={"green","sand","aqua","purple"}
 local function log(value)
     print("EMMA_CAMP_LOGO|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-camp-logo.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-camp-logo.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function computer()
     local square=getCell():getGridSquare(12035,6739,0)
     if square then for index=0,square:getObjects():size()-1 do
         local object=square:getObjects():get(index)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function show()
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     local state=SC.Terminal.computerState(run.player,run.pc)
     state.theme=themes[run.index] state.paletteVersion=SC.TerminalPresentation.PALETTE_VERSION
@@ -27,7 +27,7 @@ local function show()
     run.window=w run.next=getTimestampMs()+700
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not SC or not SC.Terminal or not player or not player:getSquare() then return end
     if run.step==0 then
         run.player=player player:setGodMod(true) player:setGhostMode(true)

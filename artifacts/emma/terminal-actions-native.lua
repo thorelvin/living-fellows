@@ -2,18 +2,18 @@
 local run={step=0,next=0}
 local function log(value)
     print("EMMA_ACTIONS|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-actions.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-actions.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function send(value)
-    local window=SurvivorCompanion.Terminal.window
+    local window=LivingFellows.Terminal.window
     window:setFocusMode("chat")
     window.entry.javaObject:SetText(value)
     window:submit()
     window:flush()
 end
 local function palette(theme)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     local state=SC.Terminal.computerState(getSpecificPlayer(0),run.object)
     state.theme=theme
@@ -25,7 +25,7 @@ end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.TerminalActions or not player or not player:getCurrentSquare() then return end
     if run.step==0 then

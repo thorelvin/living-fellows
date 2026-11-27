@@ -115,7 +115,7 @@ if ($backup) {
     if ($backupManifest.owner -ne $Owner) {
         throw "Managed backup has unexpected owner: $($backupManifest.owner)"
     }
-    $backupId = Get-LivingFellowsGenerationId $backup $backupManifest
+    $backupId = Get-LivingFellowsGenerationId $backup $backupManifest ([string]$manifest.backupModId)
     if ($manifest.backupModId -and [string]$manifest.backupModId -cne $backupId) {
         throw "Managed backup ID differs from its recorded identity: $backup"
     }

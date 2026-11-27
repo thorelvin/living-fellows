@@ -4,7 +4,7 @@
 local finished=false
 local function log(value)
     print("TAXI_RADIO_DEVICES|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/taxi-radio-devices.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/taxi-radio-devices.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function menu()
@@ -27,13 +27,13 @@ local function inspect(player,items)
     local previous=ISContextMenu.getNew
     ISContextMenu.getNew=function() return menu() end
     local root=menu()
-    local okay,reason=pcall(SurvivorCompanion.UIContext.fillRadioContextMenu,0,root,items)
+    local okay,reason=pcall(LivingFellows.UIContext.fillRadioContextMenu,0,root,items)
     ISContextMenu.getNew=previous
     assert(okay,tostring(reason))
     return root
 end
 Events.OnTick.Add(function()
-    local player=getSpecificPlayer(0) local SC=SurvivorCompanion
+    local player=getSpecificPlayer(0) local SC=LivingFellows
     if finished or not player or not player:getSquare() or not SC or not SC.UIContext then return end
     finished=true
     local inventory=player:getInventory() local created={}

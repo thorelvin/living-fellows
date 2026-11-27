@@ -886,6 +886,92 @@ switch ($Case) {
     }
 }
 
+'damaged-mod-info' {
+    # An owned generation whose root mod.info is missing or names no Living
+    # Fellows ID is damaged, not foreign: reinstalling repairs it and -Force
+    # removes it. A mod.info naming the other Living Fellows ID still refuses
+    # before any change.
+    $damaged = if ($Variant -eq 'local') { New-Fixture 'damaged-mod-info-local' }
+        else { New-StandaloneFixture ('damaged-mod-info-' + $Variant) }
+    $installDamaged = {
+        if ($Variant -eq 'local') {
+            & $Install -ProjectRoot $ProjectRoot -ModsRoot $damaged.mods -GameRoot $damaged.game `
+                -BackupRoot $damaged.backups -BridgeRoot $damaged.bridge `
+                -ConfigBackupRoot $damaged.configBackups -PreparedPayloadRoot $PreparedPayload `
+                -NativeBridge | Out-Null
+        } else {
+            Install-StandaloneFixture $ProjectRoot $damaged $StandalonePreparedPayload $PrebuiltJar
+        }
+    }
+    $uninstallDamaged = {
+        param([switch]$Force)
+        if ($Variant -eq 'local') { & $Uninstall -ModsRoot $damaged.mods -Force:$Force | Out-Null }
+        else {
+            & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $damaged.mods `
+                -InstallDataRoot $damaged.data -Force:$Force | Out-Null
+        }
+    }
+    $snapshot = {
+        if ($Variant -eq 'local') { Get-InstallFixtureSnapshot $damaged }
+        else { Get-StandaloneFixtureSnapshot $damaged }
+    }
+    $originalConfigHash = (Get-FileHash -LiteralPath $damaged.config).Hash
+    & $installDamaged
+    $info = Join-Path $damaged.target 'mod.info'
+    $infoText = [IO.File]::ReadAllText($info)
+    if ($Variant -eq 'conflict') {
+        [IO.File]::WriteAllText($info, $infoText.Replace('id=LivingFellows', 'id=SurvivorCompanion'))
+    } elseif ($Variant -eq 'edited') {
+        [IO.File]::WriteAllText($info, $infoText.Replace('id=LivingFellows', 'id=MyRenamedCopy'))
+    } elseif ($Variant -in @('missing', 'local')) {
+        Remove-Item -LiteralPath $info
+    } else { throw "Unknown damaged-mod-info variant: $Variant" }
+    $before = & $snapshot
+
+    if ($Variant -eq 'conflict') {
+        foreach ($operation in @($installDamaged, { & $uninstallDamaged -Force })) {
+            $refusal = ''
+            try { & $operation } catch { $refusal = $_.Exception.Message }
+            if ($refusal -notmatch 'mod\.info names a different mod ID' -or (& $snapshot) -cne $before) {
+                throw "A mod.info naming the other Living Fellows ID was not refused before mutation: $refusal"
+            }
+        }
+    } else {
+        $refusal = ''
+        try { & $uninstallDamaged } catch { $refusal = $_.Exception.Message }
+        if ($refusal -notmatch 'changed or (were added|is missing)' -or (& $snapshot) -cne $before) {
+            throw "A damaged generation was removed without -Force or for the wrong reason: $refusal"
+        }
+        & $installDamaged
+        if ([IO.File]::ReadAllText($info) -notmatch '(?m)^id=LivingFellows\r?$') {
+            throw 'Reinstalling did not repair the damaged generation.'
+        }
+        if ($Variant -eq 'local') {
+            # The intact newest generation goes and the damaged one returns as the
+            # live mod, so the final -Force below removes a damaged live target.
+            & $uninstallDamaged
+            if (-not (Test-Path -LiteralPath $damaged.target) -or (Test-Path -LiteralPath $info)) {
+                throw 'Local uninstall did not restore the damaged previous generation.'
+            }
+        } else {
+            $before = & $snapshot
+            $refusal = ''
+            try { & $uninstallDamaged } catch { $refusal = $_.Exception.Message }
+            if ($refusal -notmatch 'changed or is missing' -or (& $snapshot) -cne $before) {
+                throw "A damaged backup generation was removed without -Force: $refusal"
+            }
+        }
+        & $uninstallDamaged -Force
+        if ((Test-Path -LiteralPath $damaged.target) -or
+            (Test-Path -LiteralPath (Join-Path $damaged.mods 'SurvivorCompanion')) -or
+            (Test-Path -LiteralPath (Join-Path $damaged.bridge 'install-manifest.json')) -or
+            @(Get-ChildItem -LiteralPath $damaged.backups -Directory -ErrorAction SilentlyContinue).Count -ne 0 -or
+            (Get-FileHash -LiteralPath $damaged.config).Hash -cne $originalConfigHash) {
+            throw 'Uninstall -Force did not remove every damaged generation and restore the launcher.'
+        }
+    }
+}
+
 'uninstall-after-game-repair' {
     # Steam's file check, a game update or another launcher can rewrite the
     # launcher after Living Fellows was installed. Uninstall must still remove

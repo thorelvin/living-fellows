@@ -2,19 +2,19 @@
 local run = { step = 0, next = 0 }
 local function log(value)
     print("EMMA_BOOT_AUDIO|" .. value)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-boot-audio.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-boot-audio.log",true,true)
     if writer then writer:write(value .. "\n") writer:close() end
 end
 local function open()
-    assert(SurvivorCompanion.Terminal.open(run.player,run.computer))
-    run.window=SurvivorCompanion.Terminal.window
+    assert(LivingFellows.Terminal.open(run.player,run.computer))
+    run.window=LivingFellows.Terminal.window
     run.handle=run.window.bootSoundId
     assert(type(run.handle)=="number" and run.handle>0,"native startup sound did not start")
 end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.Terminal or not player or not player:getCurrentSquare() then return end
     local manager=getSoundManager()

@@ -11,17 +11,17 @@ foreach ($destination in @($manifest.cacheRoot,$manifest.sourceBridge)) {
         throw 'Preview target is outside its disposable harness directory'
     }
 }
-$cloneMedia = Join-Path $manifest.cacheRoot 'mods\SurvivorCompanion\42\media'
-Copy-Item -Path (Join-Path $project 'SurvivorCompanion\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia = Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
+Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'terminal-reading-native.lua') -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
-$evidence = Join-Path $manifest.cacheRoot 'Lua\SurvivorCompanionHarness\terminal-reading.log'
+$evidence = Join-Path $manifest.cacheRoot 'Lua\LivingFellowsHarness\terminal-reading.log'
 if (Test-Path -LiteralPath $evidence) { Move-Item -LiteralPath $evidence -Destination ($evidence + '.' + (Get-Date -Format 'yyyyMMddHHmmss') + '.previous') }
 $launcher = Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
 $classpath = @($launcher.classpath | ForEach-Object { if ($_ -eq 'LivingFellowsBridge.jar') { $manifest.sourceBridge } else { $_ } }) -join ';'
 $marker = Join-Path $captureRoot ('terminal-reading-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-marker.txt')
 $arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-javaagent:"' + (Join-Path $runRoot 'terminal-loading-agent.jar') + '"="' + $marker + '"'),
-    '-cp', ('"' + $classpath + '"'), 'survivorcompanion.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip', '-nosound')
+    '-cp', ('"' + $classpath + '"'), 'livingfellows.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip', '-nosound')
 $owned = Start-Process -FilePath (Join-Path $game 'jre64\bin\java.exe') -ArgumentList $arguments -WorkingDirectory $game -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $captureRoot 'terminal-reading.stdout.log') -RedirectStandardError (Join-Path $captureRoot 'terminal-reading.stderr.log')
 $timer = [Diagnostics.Stopwatch]::StartNew()

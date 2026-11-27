@@ -5,7 +5,7 @@ local run={step=0,next=0,index=1,site=1,points={{12035,6739,0},{11941,6798,0},
     {11954,6860,0},{11978,6883,0},{12028,6849,1},{11951,6860,0},{11979,6884,0}}}
 local function log(value)
     print("EMMA_READING|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-reading.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-reading.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function shot(label)
@@ -19,13 +19,13 @@ local function findDesktop()
     local objects=square:getObjects()
     for index=0,objects:size()-1 do
         local object=objects:get(index)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end
 end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.Terminal or not player or not player:getCurrentSquare() then return end
     if run.step==0 then

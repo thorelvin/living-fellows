@@ -4,7 +4,7 @@
 local run={step=0,next=0}
 local function log(value)
     print("LARCH_WAVE|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-radio.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-radio.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function shot(name) getCore():TakeFullScreenshot("emma-radio-"..name) log("SHOT "..name) end
@@ -12,23 +12,23 @@ local function pcAt()
     local sq=getCell():getGridSquare(12035,6739,0)
     if sq then for i=0,sq:getObjects():size()-1 do
         local object=sq:getObjects():get(i)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function input(text,mode)
-    local w=SurvivorCompanion.Terminal.window
+    local w=LivingFellows.Terminal.window
     w:flush() w:setFocusMode(mode or "chat") w.entry:setText(text) w:submit() w:flush()
-    local rt=SurvivorCompanion.TerminalRadio.ready(w) if rt then rt.lastPoll=nil end
-    SurvivorCompanion.TerminalRadio.poll(w,getTimestampMs())
+    local rt=LivingFellows.TerminalRadio.ready(w) if rt then rt.lastPoll=nil end
+    LivingFellows.TerminalRadio.poll(w,getTimestampMs())
     return w
 end
 local function receive(text)
-    local rx=SurvivorCompanion.TerminalHardware.receiver(run.pc)
+    local rx=LivingFellows.TerminalHardware.receiver(run.pc)
     assert(rx,"native receiver unavailable")
     rx:AddDeviceText(text,0.55,0.9,0.85,"larch-wave-acceptance","LARCHWAVE",12)
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not player or not player:getSquare() or not SC or not SC.TerminalRadio then return end
     local R,UI=SC.TerminalRadio,SC.TerminalRadioUI
     if run.step==0 then

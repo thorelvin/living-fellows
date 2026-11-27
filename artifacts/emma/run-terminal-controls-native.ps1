@@ -28,9 +28,9 @@ if ($Scenario -in @('saveverify','knowledge','radiodevices','followersitting')) 
     if (Test-Path -LiteralPath $targetSave) { Move-Item -LiteralPath $targetSave -Destination $previousSave }
     Copy-Item -LiteralPath $manifest.seedSave -Destination $targetSave -Recurse
 }
-$cloneMedia = Join-Path $manifest.cacheRoot 'mods\SurvivorCompanion\42\media'
-Copy-Item -Path (Join-Path $project 'SurvivorCompanion\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia = Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
+Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $probeName) -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
 if ($Scenario.StartsWith('trip')) {
     $probeTarget = Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'
@@ -42,13 +42,13 @@ if ($Scenario.StartsWith('save')) {
     $probeSource = "LF_CONTROLS_SAVE_MODE='$Scenario'`n" + (Get-Content -LiteralPath $probeTarget -Raw)
     Set-Content -LiteralPath $probeTarget -Value $probeSource -Encoding utf8NoBOM
 }
-$evidence = Join-Path $manifest.cacheRoot ('Lua\SurvivorCompanionHarness\' + $logName + '.log')
+$evidence = Join-Path $manifest.cacheRoot ('Lua\LivingFellowsHarness\' + $logName + '.log')
 if (Test-Path -LiteralPath $evidence) { Move-Item -LiteralPath $evidence -Destination ($evidence + '.' + (Get-Date -Format 'yyyyMMddHHmmss') + '.previous') }
 $launcher = Get-Content -LiteralPath (Join-Path $game 'ProjectZomboid64.json') -Raw | ConvertFrom-Json
 $classpath = @($launcher.classpath | ForEach-Object { if ($_ -eq 'LivingFellowsBridge.jar') { $manifest.sourceBridge } else { $_ } }) -join ';'
 $marker = Join-Path $captureRoot ('terminal-controls-' + (Get-Date -Format 'yyyyMMddHHmmss') + '-marker.txt')
 $arguments = @($launcher.vmArgs) + @('-XX:+UseZGC', ('-XX:ErrorFile="' + (Join-Path $captureRoot 'hs_err_pid%p.log') + '"'), ('-javaagent:"' + (Join-Path $runRoot 'terminal-loading-agent.jar') + '"="' + $marker + '"'),
-    '-cp', ('"' + $classpath + '"'), 'survivorcompanion.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip')
+    '-cp', ('"' + $classpath + '"'), 'livingfellows.bridge.SCLauncher', ('-cachedir="' + $manifest.cacheRoot + '"'), '-nosteam', '-novoip')
 if ($Scenario -ne 'power') { $arguments += '-nosound' }
 if ($Scenario -eq 'followersitting') { $arguments = @('-XX:ActiveProcessorCount=4') + $arguments }
 $owned = Start-Process -FilePath (Join-Path $game 'jre64\bin\java.exe') -ArgumentList $arguments -WorkingDirectory $game -WindowStyle Hidden -PassThru `

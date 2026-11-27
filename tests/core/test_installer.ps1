@@ -192,6 +192,10 @@ try {
     foreach ($variant in @('wrapper', 'pzo', 'uninstall-old', 'conflict')) {
         Add-InstallerCase 'legacy-brand' $variant
     }
+    # Install.bat repairs, and Uninstall.bat -Force removes, a damaged mod.info.
+    foreach ($variant in @('missing', 'edited', 'conflict', 'local')) {
+        Add-InstallerCase 'damaged-mod-info' $variant
+    }
     if ($Essential) {
         # Distinct publication and ownership boundaries, rather than every
         # fresh/update permutation of the same rollback invariant.

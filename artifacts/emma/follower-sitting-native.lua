@@ -4,14 +4,14 @@
 local run={step=0,next=0,manual=true}
 local function log(text)
     print("FOLLOWER_SITTING|"..text)
-    local w=getFileWriter("SurvivorCompanionHarness/follower-sitting.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/follower-sitting.log",true,true)
     if w then w:write(text.."\n") w:close() end
 end
 local function shot(name) getCore():TakeFullScreenshot("emma-follower-sitting-"..name) log("SHOT "..name) end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0)
+    local SC=LivingFellows local player=getSpecificPlayer(0)
     if not SC or not SC.Registry or not SC.Downtime or not player or not player:getSquare() then return end
     local D,U=SC.Downtime,SC.GameplayUtil
     local _,seat,_,begin,_,_,_,_,_,_,_,stateFor=D._furnitureForTests()

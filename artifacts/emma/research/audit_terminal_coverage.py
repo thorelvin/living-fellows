@@ -42,7 +42,7 @@ def main():
     args = parser.parse_args()
     project = args.project_root.resolve()
     output = project / "artifacts/emma/research"
-    data = project / "SurvivorCompanion/42/media/lua/client/SCTerminalBusinessData.lua"
+    data = project / "LivingFellows/42/media/lua/client/SCTerminalBusinessData.lua"
     native = args.game_root / "media/lua/shared/PrintMedia/PrintMediaDefinitions.lua"
     census = output / "computer-census.csv"
     source = data.read_text(encoding="utf-8")

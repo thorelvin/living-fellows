@@ -2,13 +2,13 @@
 local run={step=0,next=0,page=1,mode="paper",shots=0}
 local function log(value)
     print("EMMA_LORE|"..value)
-    local w=getFileWriter("SurvivorCompanionHarness/terminal-lore.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/terminal-lore.log",true,true)
     if w then w:write(value.."\n") w:close() end
 end
 local Gallery=ISPanel:derive("SCTerminalLoreGallery")
 function Gallery:prerender()
     self:drawRect(0,0,self.width,self.height,1,0,0,0)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local list=run.mode=="paper" and run.dark or run.ids
     local cellW,cellH=self.width/4,self.height/4
     for slot=1,16 do
@@ -39,13 +39,13 @@ local function shot(name)
     run.shots=run.shots+1
 end
 local function send(text)
-    local w=SurvivorCompanion.Terminal.window
+    local w=LivingFellows.Terminal.window
     w:setFocusMode("chat") w.entry.javaObject:SetText(text) w:submit() w:flush()
 end
 local presentations={{"DiMarcoCoffee","sand"},{"Fossoil","aqua"},
     {"KnoxBank","green"},{"RiverwoodBoatClub","purple"}}
 local function companyScreen(index)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     local state=SC.Terminal.computerState(getSpecificPlayer(0),run.object)
     state.theme=presentations[index][2]
@@ -61,7 +61,7 @@ end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.TerminalLore or not player or not player:getCurrentSquare() then return end
     if run.step==0 then

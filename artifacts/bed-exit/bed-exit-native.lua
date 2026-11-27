@@ -3,7 +3,7 @@
 local run={step=0,next=0,index=1}
 local function log(text)
     print("BED_EXIT|"..text)
-    local w=getFileWriter("SurvivorCompanionHarness/bed-exit.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/bed-exit.log",true,true)
     if w then w:write(text.."\n") w:close() end
 end
 local function insideBed(actor)
@@ -12,14 +12,14 @@ local function insideBed(actor)
 end
 local function inventory()
     local result={}
-    for _,item in ipairs(SurvivorCompanion.GameplayUtil.inventoryItemsDeep(run.actor:getInventory(),512,12)) do result[item]=true end
+    for _,item in ipairs(LivingFellows.GameplayUtil.inventoryItemsDeep(run.actor:getInventory(),512,12)) do result[item]=true end
     return result
 end
 local function verifyInventory()
     local current=inventory()
     for item in pairs(run.items) do assert(current[item],"bed exit lost an exact carried item") end
     for item in pairs(current) do assert(run.items[item],"bed exit added a carried item") end
-    assert(SurvivorCompanion.Registry.byId(run.id).actor==run.actor,"bed exit replaced the native actor")
+    assert(LivingFellows.Registry.byId(run.id).actor==run.actor,"bed exit replaced the native actor")
 end
 local function stockBeds()
     local found,usable={},{}
@@ -49,7 +49,7 @@ local function stockBeds()
     return cases
 end
 local function placeBed()
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local case=run.cases[run.index]
     run.grid=case.grid
     local origin=run.actor:getCurrentSquare()
@@ -90,7 +90,7 @@ end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.NativeActions or not SC.Registry or not player or not player:getCurrentSquare() then return end
     if run.step==0 then

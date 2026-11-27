@@ -3,13 +3,13 @@
 local run={step=0,next=0}
 local function log(value)
     print("EXPEDITION_MAP|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/expedition-map.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/expedition-map.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not player or not player:getSquare() or not SC.ExpeditionTargets then return end
     if run.step==0 then

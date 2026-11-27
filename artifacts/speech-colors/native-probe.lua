@@ -4,14 +4,14 @@
 local run = { step = 0, next = 0, actors = {}, index = 1 }
 local function log(text)
     print("SPEECH_COLOURS|" .. text)
-    local writer = getFileWriter("SurvivorCompanionHarness/speech-colors.log", true, true)
+    local writer = getFileWriter("LivingFellowsHarness/speech-colors.log", true, true)
     if writer then writer:write(text .. "\n") writer:close() end
 end
 local function clear()
     for _, actor in ipairs(run.actors) do assert(actor:clearCompanionSpeech()) end
 end
 local function tick()
-    local now, SC, player = getTimestampMs(), SurvivorCompanion, getSpecificPlayer(0)
+    local now, SC, player = getTimestampMs(), LivingFellows, getSpecificPlayer(0)
     if now < run.next or not SC or not SC.State.active or not player or not player:getSquare() then return end
     local U, core = SC.GameplayUtil, getCore()
     if run.step == 0 then

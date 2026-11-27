@@ -70,6 +70,9 @@ require("Stop-OwnedSandboxProcess" in runner
 require("livingfellows/bridge/SCLauncher" in runner, "runner must require the native launcher")
 require("SCRealSandboxHarness" in runner and "Add-ModEntry" in runner,
         "runner must add the harness to default and cloned-save mod lists")
+require("@('LivingFellows', 'SurvivorCompanion', 'SCRealSandboxHarness')" in runner
+        and "Remove-ModEntry $modText 'SurvivorCompanion'" in runner,
+        "runner must neither link nor enable a pre-0.27.102 SurvivorCompanion copy beside its own")
 require("New-PrivatePlaytestPayload.ps1" in runner,
         "live faction tests must stage the debug-only manual-spawn payload")
 require("reset-mods-42_00.txt" in runner and "Copy-Item -LiteralPath $resetMarker" in runner,

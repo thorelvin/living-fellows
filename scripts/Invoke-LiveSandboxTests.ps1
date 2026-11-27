@@ -1695,8 +1695,10 @@ Copy-Item -LiteralPath $SeedSave -Destination $TargetSave -Recurse
 $realMods = Join-Path $UserCache 'mods'
 if (-not $LivingFellowsOnly -and (Test-Path -LiteralPath $realMods -PathType Container)) {
     foreach ($directory in Get-ChildItem -LiteralPath $realMods -Directory) {
-        if ($directory.Name -eq 'LivingFellows' -or
-            $directory.Name -eq 'SCRealSandboxHarness') { continue }
+        # The sandbox supplies its own Living Fellows. A pre-0.27.102
+        # SurvivorCompanion install is the same mod under its old ID, and linking
+        # it would load both payloads.
+        if ($directory.Name -in @('LivingFellows', 'SurvivorCompanion', 'SCRealSandboxHarness')) { continue }
         $link = Join-Path $SandboxMods $directory.Name
         if (-not (Test-Path -LiteralPath $link)) {
             New-Item -ItemType Junction -Path $link -Target $directory.FullName | Out-Null
@@ -1949,6 +1951,9 @@ $modText = if ($LivingFellowsOnly) {
 } else {
     Get-Content -LiteralPath $seedMods -Raw -Encoding utf8
 }
+# A seed saved before 0.27.102 lists the old ID. The LivingFellows entry added
+# below replaces it.
+$modText = Remove-ModEntry $modText 'SurvivorCompanion'
 foreach ($excludedId in $ExcludeModId) {
     $modText = Remove-ModEntry $modText $excludedId
 }

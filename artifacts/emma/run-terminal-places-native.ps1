@@ -12,11 +12,11 @@ foreach($destination in @($manifest.cacheRoot,$manifest.sourceBridge,$manifest.t
 }
 if(-not (Test-Path -LiteralPath (Join-Path $manifest.targetSave 'global_mod_data.bin'))){throw 'Prepared clone is missing'}
 New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
-$cloneMedia=Join-Path $manifest.cacheRoot 'mods\SurvivorCompanion\42\media'
-Copy-Item -Path (Join-Path $project 'SurvivorCompanion\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia=Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
+Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'terminal-places-native.lua') -Destination (Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua') -Force
-$evidence=Join-Path $manifest.cacheRoot 'Lua\SurvivorCompanionHarness\terminal-places.log'
+$evidence=Join-Path $manifest.cacheRoot 'Lua\LivingFellowsHarness\terminal-places.log'
 if(Test-Path -LiteralPath $evidence){
  Move-Item -LiteralPath $evidence -Destination ($evidence+'.'+(Get-Date -Format 'yyyyMMddHHmmss')+'.previous')
 }
@@ -27,7 +27,7 @@ $marker=Join-Path $captureRoot ('places-'+(Get-Date -Format 'yyyyMMddHHmmss')+'-
 $arguments=@('-XX:ActiveProcessorCount=4')+@($launcher.vmArgs)+@('-XX:+UseZGC',
  ('-XX:ErrorFile="'+(Join-Path $captureRoot 'hs_err_pid%p.log')+'"'),
  ('-javaagent:"'+(Join-Path $runRoot 'terminal-loading-agent.jar')+'"="'+$marker+'"'),
- '-cp',('"'+$classpath+'"'),'survivorcompanion.bridge.SCLauncher',
+ '-cp',('"'+$classpath+'"'),'livingfellows.bridge.SCLauncher',
  ('-cachedir="'+$manifest.cacheRoot+'"'),'-nosteam','-novoip','-nosound')
 $launchStarted=Get-Date
 $owned=Start-Process -FilePath (Join-Path $game 'jre64\bin\java.exe') -ArgumentList $arguments -WorkingDirectory $game -WindowStyle Hidden -PassThru `

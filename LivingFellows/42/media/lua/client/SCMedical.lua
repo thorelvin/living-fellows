@@ -181,7 +181,8 @@ local function captureNativeBodyFacts(character)
         return nil
     end
     local protocolOkay, protocol = SC.Call.static(bridge, "getProtocol")
-    if protocolOkay ~= true or protocol ~= "42.22-isocompanion-38" then
+    local expected = SC.Identity and SC.Identity.bridgeProtocol
+    if protocolOkay ~= true or expected == nil or protocol ~= expected then
         countBodyFacts("protocol-mismatch")
         return nil
     end

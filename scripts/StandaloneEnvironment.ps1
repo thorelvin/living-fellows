@@ -28,13 +28,41 @@ function Get-LivingFellowsInstalledTarget([string]$ModsRoot) {
     return (Join-Path $ModsRoot $LivingFellowsModId)
 }
 
-function Get-LivingFellowsGenerationId([string]$GenerationPath, $Manifest) {
-    $info = Get-Content -LiteralPath (Join-Path $GenerationPath 'mod.info') -Raw -Encoding utf8
+# The single id= value in a generation's root mod.info, or '' when the file is
+# missing, empty or has no single id line.
+function Get-LivingFellowsModInfoId([string]$GenerationPath) {
+    $path = Join-Path $GenerationPath 'mod.info'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+    $info = [string](Get-Content -LiteralPath $path -Raw -Encoding utf8)
     $ids = [regex]::Matches($info, '(?m)^id[ \t]*=[ \t]*([^\r\n]+)')
-    if ($ids.Count -ne 1) { throw "Managed generation has ambiguous mod ID: $GenerationPath" }
-    $id = $ids[0].Groups[1].Value.Trim()
-    if ($id -cnotin $LivingFellowsModIds -or ($Manifest.modId -and [string]$Manifest.modId -cne $id)) {
+    if ($ids.Count -ne 1) { return '' }
+    return $ids[0].Groups[1].Value.Trim()
+}
+
+# A managed generation's mod ID. From 0.27.102 on, the ownership manifest records
+# it. An older generation uses the ID its caller recorded when the backup was
+# made, and failing that its whitelisted directory or backup name. mod.info is only
+# a cross-check, so a missing or hand-edited one never blocks repairing or
+# removing an owned install; the owned file hashes report that damage. A mod.info
+# that names the other Living Fellows ID still refuses.
+function Get-LivingFellowsGenerationId([string]$GenerationPath, $Manifest, [string]$RecordedId = '') {
+    $leaf = Split-Path -Leaf $GenerationPath
+    $leafId = ''
+    foreach ($candidate in $LivingFellowsModIds) {
+        if ($leaf -eq $candidate -or
+            $leaf.StartsWith("$candidate-managed-backup-", [StringComparison]::OrdinalIgnoreCase)) {
+            $leafId = $candidate
+        }
+    }
+    $id = [string]$Manifest.modId
+    if (-not $id) { $id = $RecordedId }
+    if (-not $id) { $id = $leafId }
+    if ($id -cnotin $LivingFellowsModIds) {
         throw "Managed generation has an unrecognized mod ID: $GenerationPath"
+    }
+    $infoId = Get-LivingFellowsModInfoId $GenerationPath
+    if ($infoId -cin $LivingFellowsModIds -and $infoId -cne $id) {
+        throw "Managed generation's mod.info names a different mod ID: $GenerationPath"
     }
     return $id
 }

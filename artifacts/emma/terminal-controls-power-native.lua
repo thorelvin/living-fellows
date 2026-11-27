@@ -4,7 +4,7 @@
 local run={step=0,next=0}
 local function log(text)
     print("EMMA_POWER|"..text)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-controls-power.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-controls-power.log",true,true)
     if writer then writer:write(text.."\n") writer:close() end
 end
 local function shot(name) getCore():TakeFullScreenshot("emma-controls-"..name) end
@@ -12,19 +12,19 @@ local function findPC()
     local square=getCell():getGridSquare(12035,6739,0)
     if square then for i=0,square:getObjects():size()-1 do
         local object=square:getObjects():get(i)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function access(actor,object)
-    local _,targets=SurvivorCompanion.GameplayUtil.directInteractionAccess(actor,object)
+    local _,targets=LivingFellows.GameplayUtil.directInteractionAccess(actor,object)
     for _,square in ipairs(targets) do
-        if SurvivorCompanion.GameplayUtil.isSquareFree(square) then
+        if LivingFellows.GameplayUtil.isSquareFree(square) then
             actor:teleportTo(square:getX()+0.5,square:getY()+0.5,square:getZ()) return true
         end
     end
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not player or not SC or not SC.GeneratorServices then return end
     if run.step==0 then
         player:setGodMod(true) player:setGhostMode(true) player:teleportTo(12036.5,6739.5,0)

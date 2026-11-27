@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.104 - Installer repair after the rename
+
+- Install.bat can again repair a Living Fellows install whose `mod.info` is missing or edited, and `Uninstall.bat -Force` can again remove one. Since 0.27.102 both stopped at the damaged file. A `mod.info` that names the other Living Fellows ID is still refused.
+- Live sandbox tests no longer link or enable a leftover `SurvivorCompanion` install beside the copy under test, which loaded old and new code together.
+- The native probe scripts under `artifacts/` use the Living Fellows names again. They failed after the rename, and the combat evidence collector returned nothing.
+- Companion combat checks "nothing close, attacking or attacking the player" in one place instead of four, and medical body facts read the bridge protocol from the mod's identity. Nothing a player sees changes.
+- Native bridge protocol `42.22-isocompanion-38`.
+
 ## 0.27.103 - Camp conversation and stair steering
 
 - Companions can answer Talk from their chairs when the player is close and has a clear line of conversation.

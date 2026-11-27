@@ -3,7 +3,7 @@
 local run={step=0,next=0}
 local function log(value)
     print("EMMA_CONVERSATION|"..value)
-    local writer=getFileWriter("SurvivorCompanionHarness/emma-conversation.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/emma-conversation.log",true,true)
     if writer then writer:write(value.."\n") writer:close() end
 end
 Events.OnMainMenuEnter.Add(function()
@@ -16,7 +16,7 @@ local function computer()
     local square=getCell():getGridSquare(12035,6739,0)
     if square then for i=0,square:getObjects():size()-1 do
         local object=square:getObjects():get(i)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function send(line)
@@ -27,7 +27,7 @@ local function send(line)
     return table.concat(w.session.context.last and w.session.context.last.lines or {},"\n")
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not SC or not SC.Terminal or not player or not player:getSquare() then return end
     if run.step==0 then
         run.player=player player:setGodMod(true) player:setGhostMode(true)

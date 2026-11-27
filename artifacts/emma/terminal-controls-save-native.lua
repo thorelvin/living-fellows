@@ -4,18 +4,18 @@ local mode=LF_CONTROLS_SAVE_MODE or "savesetup"
 local run={step=0,next=0}
 local function log(text)
     print("EMMA_CONTROLS_SAVE|"..text)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-controls-"..mode..".log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-controls-"..mode..".log",true,true)
     if writer then writer:write(text.."\n") writer:close() end
 end
 local function computer()
     local square=getCell():getGridSquare(12035,6739,0)
     if square then for i=0,square:getObjects():size()-1 do
         local object=square:getObjects():get(i)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not SC or not SC.TerminalServices or not player or not player:getSquare() then return end
     if run.step==0 then
         player:setGodMod(true) player:setGhostMode(true)

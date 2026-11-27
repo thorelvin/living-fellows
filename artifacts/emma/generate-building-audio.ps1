@@ -2,11 +2,11 @@
 # Original local audio; no hosted service, API key or downloaded samples.
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-$soundRoot = Join-Path $project 'SurvivorCompanion\42\media\sound'
+$soundRoot = Join-Path $project 'LivingFellows\42\media\sound'
 @'
 import math, struct, wave
 from pathlib import Path
-out=Path('SurvivorCompanion/42/media/sound/LFBuildingSiren.wav')
+out=Path('LivingFellows/42/media/sound/LFBuildingSiren.wav')
 rate=22050
 phase=0.0
 frames=[]

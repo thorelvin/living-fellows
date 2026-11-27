@@ -279,7 +279,7 @@ while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
     $generationManifestPath = Join-Path $generationPath '.sc-install-manifest.json'
     $manifest = Read-OwnedStandaloneManifest $generationPath
     Assert-StandaloneGeneration $generationPath $manifest $BridgeRoot -AllowChanges:$Force
-    $generationId = Get-LivingFellowsGenerationId $generationPath $manifest
+    $generationId = Get-LivingFellowsGenerationId $generationPath $manifest $expectedGenerationId
     if ($expectedGenerationId -and $generationId -cne $expectedGenerationId) {
         throw "Managed standalone generation differs from its recorded identity: $generationPath"
     }

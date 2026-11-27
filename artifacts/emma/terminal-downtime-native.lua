@@ -2,12 +2,12 @@
 local run={step=0,next=0,deadline=0}
 local function log(value)
     print("EMMA_DOWNTIME|"..value)
-    local w=getFileWriter("SurvivorCompanionHarness/terminal-downtime.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/terminal-downtime.log",true,true)
     if w then w:write(value.."\n") w:close() end
 end
-local function command(actor) return SurvivorCompanion.Commands.peek(actor) end
+local function command(actor) return LivingFellows.Commands.peek(actor) end
 local function beginAgain(now)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local state=SC.Downtime.peek(run.actor)
     if state.active and state.active.kind~="computer_use" then
         SC.Downtime.cancel(run.actor,"terminal_acceptance_next_scenario")
@@ -30,7 +30,7 @@ end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.ComputerUse or not SC.Registry or not player or not player:getCurrentSquare() then return end
     if run.step==0 then

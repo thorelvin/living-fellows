@@ -10,7 +10,7 @@ from PIL import Image
 
 def main():
     root = Path(__file__).resolve().parents[3]
-    media = root / "SurvivorCompanion/42/media"
+    media = root / "LivingFellows/42/media"
     source = (media / "lua/client/SCTerminalPresentation.lua").read_text(encoding="utf-8")
     match = re.search(r"P\.SKIN = \{ width = (\d+), height = (\d+)", source)
     assert match, "Missing frame geometry"

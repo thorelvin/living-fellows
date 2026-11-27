@@ -2,7 +2,7 @@
 local run={step=0,next=0,reason="booking_received"}
 local function log(value)
     print("TAXI_RADIO_AUDIO|" .. value)
-    local writer=getFileWriter("SurvivorCompanionHarness/taxi-radio-audio.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/taxi-radio-audio.log",true,true)
     if writer then writer:write(value .. "\n") writer:close() end
 end
 local function menu()
@@ -24,13 +24,13 @@ local function findCall(root)
 end
 local function click()
     assert(run.call.callback(run.call.target,unpack(run.call.args)),"booking callback rejected the fixture")
-    local sound=SurvivorCompanion.UIContext._taxiCallAudio
+    local sound=LivingFellows.UIContext._taxiCallAudio
     assert(sound and sound.handle>0,"native booking audio did not start")
     run.handle=sound.handle
 end
 local function restore()
     if run.original then
-        local service=SurvivorCompanion.TaxiService
+        local service=LivingFellows.TaxiService
         service.request,service.current,service.cancel=run.original.request,run.original.current,run.original.cancel
         run.original=nil
     end
@@ -38,7 +38,7 @@ end
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local player=getSpecificPlayer(0)
     if not SC or not SC.UIContext or not player or not player:getCurrentSquare() then return end
     local manager=getSoundManager()

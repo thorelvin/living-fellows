@@ -3,14 +3,14 @@
 local run={step=0,next=0,scan=0,beds={},chairs={}}
 local function log(value)
     print("EXHAUSTED_SLEEP|"..value)
-    local w=getFileWriter("SurvivorCompanionHarness/exhaustion-sleep.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/exhaustion-sleep.log",true,true)
     if w then w:write(value.."\n") w:close() end
 end
 local quiet={snapshot={threatCount=0,immediateCount=0,threats={},indoors=true,player={danger=0}}}
 local function tick()
     local now=getTimestampMs()
     if now<run.next then return end
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0)
+    local SC=LivingFellows local player=getSpecificPlayer(0)
     if not SC or not player or not player:getSquare() or not SC.Downtime then return end
     local U,D=SC.GameplayUtil,SC.Downtime
     if run.step==0 then

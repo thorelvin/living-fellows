@@ -3,12 +3,12 @@ local run = { step = 0, next = 0, shots = 0 }
 local function now() return getTimestampMs() end
 local function log(text)
     print("EMMA_UI_ACCEPTANCE|" .. text)
-    local writer = getFileWriter("SurvivorCompanionHarness/terminal-ui-evidence.log", true, true)
+    local writer = getFileWriter("LivingFellowsHarness/terminal-ui-evidence.log", true, true)
     if writer then writer:write(text .. "\n") writer:close() end
 end
 local function shot(label)
     getCore():TakeFullScreenshot("emma-office1993-" .. label)
-    local w = SurvivorCompanion.Terminal.window
+    local w = LivingFellows.Terminal.window
     log("SHOT " .. label .. " screen=" .. getCore():getScreenWidth() .. "x" .. getCore():getScreenHeight()
         .. " window=" .. w:getWidth() .. "x" .. w:getHeight() .. " font=" .. tostring(w.font)
         .. " row=" .. w.rowHeight .. " zoom=" .. w.textZoom .. " input=" .. tostring(w.inputFont)
@@ -17,7 +17,7 @@ local function shot(label)
     run.shots = run.shots + 1
 end
 local function open(theme, brand)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if SC.Terminal.window then SC.Terminal.window:close() end
     local state = SC.Terminal.computerState(run.player, run.object)
     state.seed = 1
@@ -35,7 +35,7 @@ local function open(theme, brand)
 end
 local function tick()
     if now() < run.next then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if not SC or not SC.Terminal or not getSpecificPlayer(0) then return end
     local player = getSpecificPlayer(0)
     if not player:getCurrentSquare() then return end

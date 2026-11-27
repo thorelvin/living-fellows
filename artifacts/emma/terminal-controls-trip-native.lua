@@ -4,17 +4,17 @@ local mode=LF_CONTROLS_TRIP_MODE or "tripwalk"
 local run={step=0,next=0}
 local function log(text)
     print("EMMA_TRIP|"..text)
-    local writer=getFileWriter("SurvivorCompanionHarness/terminal-controls-"..mode..".log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/terminal-controls-"..mode..".log",true,true)
     if writer then writer:write(text.."\n") writer:close() end
 end
 local function order(window,request)
-    local actions=SurvivorCompanion.TerminalActions
+    local actions=LivingFellows.TerminalActions
     local ticket,prompt=actions.prepare(window,{kind="control",request=request})
     if not ticket then return false,prompt end
     return actions.execute(window,ticket)
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not player or not SC or not SC.TerminalServices then return end
     if run.step==0 then
         player:setGodMod(true) player:setGhostMode(true) player:teleportTo(12036.5,6739.5,0)

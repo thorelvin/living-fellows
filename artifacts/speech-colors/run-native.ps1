@@ -12,12 +12,12 @@ foreach($destination in @($manifest.cacheRoot,$manifest.sourceBridge,$manifest.t
 }
 if(-not (Test-Path -LiteralPath (Join-Path $manifest.targetSave 'global_mod_data.bin'))){throw 'Prepared clone is missing'}
 New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
-$cloneMedia=Join-Path $manifest.cacheRoot 'mods\SurvivorCompanion\42\media'
-Copy-Item -Path (Join-Path $project 'SurvivorCompanion\42\media\*') -Destination $cloneMedia -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar') -Destination $manifest.sourceBridge -Force
+$cloneMedia=Join-Path $manifest.cacheRoot 'mods\LivingFellows\42\media'
+Copy-Item -Path (Join-Path $project 'LivingFellows\42\media\*') -Destination $cloneMedia -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $project 'LivingFellows\42\media\java\LivingFellowsBridge.jar') -Destination $manifest.sourceBridge -Force
 $probe='SC_SPEECH_TEST_VIEW='+$CheckViewTransition.IsPresent.ToString().ToLowerInvariant()+"`n"+[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'native-probe.lua'))
 [IO.File]::WriteAllText((Join-Path $cloneMedia 'lua\client\ZZSCTerminalAcceptance.lua'),$probe)
-$evidence=Join-Path $manifest.cacheRoot 'Lua\SurvivorCompanionHarness\speech-colors.log'
+$evidence=Join-Path $manifest.cacheRoot 'Lua\LivingFellowsHarness\speech-colors.log'
 if(Test-Path -LiteralPath $evidence){
  Move-Item -LiteralPath $evidence -Destination ($evidence+'.'+(Get-Date -Format 'yyyyMMddHHmmss')+'.previous')
 }
@@ -28,7 +28,7 @@ $marker=Join-Path $captureRoot ('colours-'+(Get-Date -Format 'yyyyMMddHHmmss')+'
 $arguments=@('-XX:ActiveProcessorCount=4')+@($launcher.vmArgs)+@('-XX:+UseZGC',
  ('-XX:ErrorFile="'+(Join-Path $captureRoot 'hs_err_pid%p.log')+'"'),
  ('-javaagent:"'+(Join-Path $runRoot 'terminal-loading-agent.jar')+'"="'+$marker+'"'),
- '-cp',('"'+$classpath+'"'),'survivorcompanion.bridge.SCLauncher',
+ '-cp',('"'+$classpath+'"'),'livingfellows.bridge.SCLauncher',
  ('-cachedir="'+$manifest.cacheRoot+'"'),'-nosteam','-novoip','-nosound')
 $optionsPath=Join-Path $manifest.cacheRoot 'options.ini'
 $originalOptions=[IO.File]::ReadAllText($optionsPath)

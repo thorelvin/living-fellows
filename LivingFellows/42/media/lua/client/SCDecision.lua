@@ -727,13 +727,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         if externalHuman then
             humanUrgent = humanThreatUrgent(snapshot, commands, actor, player)
         end
+        -- Nothing is attacking the companion, close to it, or attacking the
+        -- player. Every rule below that relaxes combat requires this.
+        local noCloseDanger = immediate == 0
+            and (tonumber(snapshot.closeThreatCount) or 0) == 0
+            and (tonumber(snapshot.player and snapshot.player.immediateThreats) or 0) == 0
         -- An urgent visible contact can use the human combat lane while the
         -- only zombies in sight are distant. Close danger keeps the zombie lane.
         local preferHuman = humanThreat and (threatCount == 0
-            or externalHuman and humanThreat.visible == true and humanUrgent and immediate == 0
-                and (tonumber(snapshot.closeThreatCount) or 0) == 0
-                and (tonumber(snapshot.player and snapshot.player.immediateThreats) or 0) == 0
-                and snapshot.encircled ~= true)
+            or externalHuman and humanThreat.visible == true and humanUrgent
+                and noCloseDanger and snapshot.encircled ~= true)
         local combatScore = 72 + immediate * 17
             + Decision._engagementPressure(snapshot) * 5
         local doctrine = commands.combatDoctrine
@@ -744,9 +747,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         if doctrine == "stealth" and immediate == 0
             and (snapshot.player and snapshot.player.danger or 0) == 0 then
             combatScore = 30
-        elseif doctrine == "close_defense" and immediate == 0
-            and (tonumber(snapshot.closeThreatCount) or 0) == 0
-            and (snapshot.player and snapshot.player.immediateThreats or 0) == 0 then
+        elseif doctrine == "close_defense" and noCloseDanger then
             combatScore = 28
         end
         if preferHuman then
@@ -765,10 +766,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         local ownTask = ownTaskOrders[commands.order] == true
         if commands.recruited
             and (commands.order == "follow" or commands.order == "regroup" or ownTask)
-            and immediate == 0 and not humanThreat and snapshot.encircled ~= true
+            and noCloseDanger and not humanThreat and snapshot.encircled ~= true
             and not assessment.critical
-            and (tonumber(snapshot.closeThreatCount) or 0) == 0
-            and (snapshot.player and snapshot.player.immediateThreats or 0) == 0
             and combatRecentlyTargetless(actor, current) then
             combatScore = math.min(combatScore, ownTask and 20 or 28)
         end
@@ -784,11 +783,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- attacking, human or surrounding the companion.
         local added = candidates[#candidates]
         if added and added.kind == "combat" then
-            added.criticalOnly = assessment.critical == true and immediate == 0
+            added.criticalOnly = assessment.critical == true and noCloseDanger
                 and snapshot.encircled ~= true
                 and not (humanThreat and humanThreat.visible == true)
-                and (tonumber(snapshot.closeThreatCount) or 0) == 0
-                and (snapshot.player and snapshot.player.immediateThreats or 0) == 0
         end
     end
 

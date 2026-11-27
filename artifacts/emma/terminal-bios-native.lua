@@ -3,23 +3,23 @@
 local run={step=0,next=0}
 local function log(value)
     print("LARCH_BIOS|"..value)
-    local w=getFileWriter("SurvivorCompanionHarness/terminal-bios.log",true,true)
+    local w=getFileWriter("LivingFellowsHarness/terminal-bios.log",true,true)
     if w then w:write(value.."\n") w:close() end
 end
 local function pcAt()
     local sq=getCell():getGridSquare(12035,6739,0)
     if sq then for i=0,sq:getObjects():size()-1 do
         local object=sq:getObjects():get(i)
-        if SurvivorCompanion.Terminal.isComputer(object) then return object end
+        if LivingFellows.Terminal.isComputer(object) then return object end
     end end
 end
 local function selectTheme(theme)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local state=SC.Terminal.computerState(run.player,run.pc)
     state.theme=theme state.paletteVersion=SC.TerminalPresentation.PALETTE_VERSION
 end
 local function reopen(theme)
-    local terminal=SurvivorCompanion.Terminal
+    local terminal=LivingFellows.Terminal
     if terminal.window then terminal.window:close() end
     selectTheme(theme)
     assert(terminal.open(run.player,run.pc),"native terminal reopen failed")
@@ -29,7 +29,7 @@ local function requestShot(name)
     run.capture="emma-bios-"..name
 end
 local function tick()
-    local SC=SurvivorCompanion local player=getSpecificPlayer(0) local now=getTimestampMs()
+    local SC=LivingFellows local player=getSpecificPlayer(0) local now=getTimestampMs()
     if now<run.next or not SC or not SC.Terminal or not player or not player:getSquare() then return end
     if run.step==0 then
         run.player=player player:setGodMod(true) player:setGhostMode(true)
