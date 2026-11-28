@@ -49,14 +49,24 @@ SC.BaseLife = {
     snapshotResident = function(id) return { present = residents[id] ~= nil, value = shallow(residents[id]) } end,
     restoreResident = function(id, value) residents[id] = value.present and shallow(value.value) or nil return true end,
     setDuty = function(id, enabled)
-        residents[id].duty = enabled == true
-        if not enabled then dutyReleased = dutyReleased + 1 jobs[id] = nil end
-        return true
+        local resident, job = residents[id], jobs[id]
+        resident.duty = enabled == true
+        if not enabled then
+            dutyReleased = dutyReleased + 1
+            jobs[id] = nil
+            -- A restored job can still own borrowed stock before BaseWork's
+            -- first update. In this case the resident release owns settlement.
+            if job and job.type == "stack_logs" then
+                return true, resident, "base_cargo_retained"
+            end
+        end
+        return true, resident
     end,
     jobFor = function(id) return jobs[id] end,
     job = function(id)
         for _, job in pairs(jobs) do if job.id == id then return job end end
     end,
+    touchJob = function(_, id, state) jobs[id].state = state return true end,
     releaseJob = function(_, id) jobs[id] = nil return true end,
     zoneCenter = function(kind) return kind == "guard" and square(10, 0, 0) or nil end,
     isInside = function() return true end,
@@ -97,9 +107,9 @@ SC.Convoy = {
 SC.Vehicle = { invalidateManifests = function() invalidated = invalidated + 1 end }
 SC.Downtime = { cancel = function() return true end }
 local serial = 0
-local function guard(withOldCar)
+local function onDuty(role, withOldCar)
     serial, current = serial + 1, current + 10000
-    local actor = { id = "follow-guard:" .. serial, x = 12, y = 0, z = 0,
+    local actor = { id = "follow-" .. role .. ":" .. serial, x = 12, y = 0, z = 0,
         data = { SC_Recruited = true, SC_Order = "base_duty", SC_MoveMode = "walk",
             SC_MoveModeVersion = 2, SC_Scavenge = false, SC_RideWithPlayer = false,
             SC_AnchorX = 0, SC_AnchorY = 0, SC_AnchorZ = 0, SC_CommandSerial = 10,
@@ -107,14 +117,54 @@ local function guard(withOldCar)
     function actor:getModData() return self.proxy or self.data end
     actors[#actors + 1] = actor
     records[actor.id] = { actor = actor, id = actor.id, recruited = true, state = {} }
-    residents[actor.id] = { baseId = base.id, role = "guard", duty = true }
+    residents[actor.id] = { baseId = base.id, role = role, duty = true }
     check(C.peek(actor).order == "base_duty", "fixture starts on actual base duty")
+    return actor
+end
+local function guard(withOldCar)
+    local actor = onDuty("guard", withOldCar)
     check(W.update(actor, nil, {}) == true and routes[actor]
         and routes[actor].goalAction == "base_guard_patrol", "fixture owns real pending guard patrol")
     jobs[actor.id] = { id = "job:" .. serial, reservedBy = actor.id, state = "reserved" }
     return actor
 end
 local car = { sqlId = 456 }
+
+for _, warmed in ipairs({ true, false }) do
+    local actor = onDuty("generalist")
+    local job = { id = "job:" .. serial, type = "stack_logs", reservedBy = actor.id,
+        assignedId = actor.id, state = "active" }
+    jobs[actor.id] = job
+    local yard, cancelled = SC.LogYard, 0
+    SC.LogYard = {
+        update = function(worker, state, activeJob)
+            check(worker == actor and state.jobId == job.id and activeJob == job,
+                "BaseWork owns the active stacking receipt")
+            return true, "destination_full"
+        end,
+        cancel = function(worker, activeJob, reason)
+            check(worker == actor and activeJob == job, "only the active worker's stack is released")
+            cancelled = cancelled + 1
+            if reason ~= "left_base_duty" then return false, "destination_full" end
+            activeJob.assignedId = nil
+            return true, "base_cargo_retained"
+        end,
+    }
+    if warmed then
+        local handled, reason = W.update(actor, nil, {})
+        check(handled and reason == "destination_full", "warm worker is blocked on its stack")
+    end
+    local accepted, reason = C.issue(actor.id, "follow", nil, nil)
+    local path = warmed and "warm work handoff" or "restored job handoff"
+    check(accepted and not C.pendingBaseOrder(actor) and C.peek(actor).order == "follow"
+        and actor.data.SC_Order == "follow" and residents[actor.id].duty == false
+        and jobs[actor.id] == nil and cancelled == (warmed and 1 or 0),
+        path .. " applies Follow immediately and releases base duty and the job")
+    check(reason == "base_order_cargo_retained", path .. " reports the retained supplies")
+    check(C.peek(actor).commandSerial == 11 and actor.data.SC_CommandSerial == 11,
+        path .. " records exactly one player command")
+    SC.LogYard = yard
+end
 
 for _, variant in ipairs({ "cautious_follow", "assign_follow_car", "follow" }) do
     local actor = guard(true)

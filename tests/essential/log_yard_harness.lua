@@ -93,6 +93,11 @@ local sq=f.cell:getGridSquare(3,3,0)
 local source,object=f.containerObject(f.cell:getGridSquare(2,3,0),{})
 local storage={id="ropes",category="crafting"}
 local base={jobs={},zones={{id="yard",kind="log_yard",x1=3,y1=3,x2=3,y2=3,z=0}}}
+local realGridSquare=U.gridSquare
+local function hideYardSquare(x,y,z)
+    if x==3 and y==3 and z==0 then return nil end
+    return realGridSquare(x,y,z)
+end
 local activeBase, shelfLoaded = base, true
 local serial=0
 SC.BaseLife={active=function() return activeBase end,isOutdoorSquare=function() return true end,
@@ -112,6 +117,7 @@ SC.BaseWork.withdrawFromStorage=function(actor,_,s,c,item)
     c:Remove(item); actor.inventory:AddItem(item); withdrawn=withdrawn+1; return true,"rope_carried"
 end
 SC.BaseWork.restoreToStorage=function(actor,_,c,item)
+    if not c:hasRoomFor(actor,item) then return false,"destination_full" end
     actor.inventory:Remove(item); c:AddItem(item); return true
 end
 local function worker(id)
@@ -174,6 +180,11 @@ local _,dropReason,_,dropDone=Yard.update(actor,{},job)
 check(not dropDone and dropReason=="test_output_drop_refused" and nativeCrafts==1,
     "a refused output drop retains the real native result without replay")
 U.dropItem=realDrop
+U.gridSquare=hideYardSquare
+local stopped,unloadedReason=Yard.cancel(actor,job,"left_base_duty")
+check(not stopped and unloadedReason=="log_yard_unloaded" and job.target.attempted and job.target.outputId,
+    "departure keeps the committed recipe receipt while the yard square is unavailable")
+U.gridSquare=realGridSquare
 local _,reason,_,done=Yard.update(actor,{},job)
 check(done and reason=="log_yard_bundled","native result is delivered: "..tostring(reason))
 check(#sq.worldItems==1 and sq.worldItems[1].item.itemType=="Base.LogStacks4","exactly one native four-log output is left in the yard")
@@ -186,6 +197,52 @@ logs=loose(); a,b=rope(nil,source),rope(nil,source); job=queue(); advance(job)
 check(Yard.cancel(actor,job)==true,"cancellation stops only the matching craft")
 check(#sq.worldItems==4 and a:getContainer()==source and b:getContainer()==source,"cancellation returns exact borrowed ropes and leaves four exact logs")
 for _,item in ipairs(logs) do check(not Yard.reserved(item),"cancel releases each floor claim") end
+job.state="cancelled"
+logs=loose(); job=queue(); advance(job)
+check(a:getContainer()==actor.inventory and b:getContainer()==actor.inventory,
+    "departure fixture borrows the original rope identities again")
+check(Yard.cancel(actor,job,"left_base_duty")==true and a:getContainer()==source and b:getContainer()==source
+    and not a:getModData().LF_BaseReturnOwner and not b:getModData().LF_BaseReturnOwner,
+    "leaving base duty still repays a usable original shelf")
+job.state="cancelled"
+source.items={}
+for _,reason in ipairs({"destination_full","base_storage_unloaded"}) do
+    logs=loose(); a,b=rope(nil,source),rope(nil,source); job=queue(); advance(job)
+    local capacity=source.capacity
+    if reason=="destination_full" then source.capacity=0 else shelfLoaded=false end
+    local stopped,why=Yard.cancel(actor,job)
+    check(not stopped and why==reason and job.target.stage and job.assignedId==actor.id,
+        "ordinary cancellation keeps the exact job receipt while rope cannot be returned: "..reason)
+    local finished,departureReason=Yard.cancel(actor,job,"left_base_duty")
+    check(finished,"leaving base duty releases the stack job despite "..reason..": "..tostring(departureReason))
+    check(a:getContainer()==actor.inventory and b:getContainer()==actor.inventory
+        and actor.inventory:contains(a) and actor.inventory:contains(b) and #source.items==0,
+        "the same two borrowed ropes stay with the worker when the return shelf cannot take them")
+    check(a:getModData().LF_BaseReturnOwner==actor.id and b:getModData().LF_BaseReturnOwner==actor.id,
+        "both retained ropes remain identifiable as camp stock")
+    check(a:getModData().LF_LogYardBundle==nil and b:getModData().LF_LogYardBundle==nil
+        and not job.target.stage and not job.target.ropes and not job.assignedId,
+        "leaving base duty retires the borrowed rope claims and worker affinity")
+    check(#sq.worldItems==4,"leaving base duty leaves the original four logs in the yard")
+    for _,item in ipairs(logs) do
+        check(U.worldItemPresent(sq,item:getWorldItem())
+            and item:getModData().LF_LogYardBundle==nil,"each exact loose log is released in place")
+    end
+    actor.inventory:Remove(a); actor.inventory:Remove(b)
+    job.state="cancelled"
+    source.capacity, shelfLoaded=capacity,true
+end
+logs=loose(); a,b=rope(nil,source),rope(nil,source); job=queue(); advance(job)
+U.gridSquare=hideYardSquare
+check(Yard.cancel(actor,job,"left_base_duty")==true and not job.target.stage and not job.assignedId,
+    "departure releases an uncommitted stack when its yard square is unloaded")
+check(a:getContainer()==source and b:getContainer()==source,
+    "an unloaded yard square does not prevent repayment to the loaded original shelf")
+U.gridSquare=realGridSquare
+for _,item in ipairs(logs) do
+    check(U.worldItemPresent(sq,item:getWorldItem()) and not Yard.reserved(item)
+        and item:getModData().LF_LogYardBundle==nil,"unloaded floor claims retire as the yard is seen again")
+end
 job.state="cancelled"
 source.items={}
 local bagContents=f.inventory({})
@@ -329,6 +386,18 @@ local queued,savedJob=realBaseLife.enqueueJob({type="stack_logs",target={x=3,y=3
     yardUnstack={v=2,id="unstack:old",jobId="old",ownerId=actor.id,zoneId="yard",count=4,
         x=3,y=3,z=0,sourceId="bundle-token",attempted=true,nativeOK=true,outputs={"o1","o2","o3","o4"}}}})
 check(queued,"real scheduler accepts a stack job")
+local coldWorker=worker("cold-yard-worker")
+f.registry[coldWorker.id]={id=coldWorker.id,actor=coldWorker,recruited=true}
+function object:getObjectIndex() return 0 end
+local registered,coldStorage=realBaseLife.registerStorage(object,"crafting")
+check(registered and realBaseLife.assign(coldWorker.id,"generalist",true),
+    "real camp registers the original shelf and puts the worker on duty: "..tostring(coldStorage))
+local coldRope=rope(nil,coldWorker.inventory)
+local coldRopeToken=U.itemStableId(coldRope,true)
+local coldQueued,coldJob=realBaseLife.enqueueJob({type="stack_logs",assignedId=coldWorker.id,
+    target={x=3,y=3,z=0,stage="preparing",ropes={{id=coldRopeToken,sourceId=coldStorage.id}}}})
+check(coldQueued,"real scheduler accepts the borrowed rope receipt")
+coldRope:getModData().LF_LogYardBundle=coldJob.id
 local saved=realBaseLife.export()
 check(realBaseLife.restore(saved),"real save normalization restores the optional work receipt")
 local restored=realBaseLife.job(savedJob.id)
@@ -336,4 +405,25 @@ check(restored and restored.target.logs[4]=="l4" and restored.target.ropes[1].so
     and restored.target.ropes[2].id=="r2","reload retains exact floor and borrowed rope identities")
 check(restored.target.yardUnstack.outputs[4]=="o4" and restored.target.yardUnstack.attempted==true,
     "reload retains native unstack output receipts without replay")
+check(realBaseLife.completeJob(restored.id),"the earlier persistence fixture no longer competes for the yard")
+local coldStack=realBaseLife.job(coldJob.id)
+local resolveContainer=realBaseLife.resolveContainer
+realBaseLife.resolveContainer=function(row)
+    if row.id==coldStorage.id then return nil end
+    return resolveContainer(row)
+end
+local claimed,claimReason=realBaseLife.claimJob(coldWorker.id,function(candidate) return candidate==coldStack end)
+check(claimed==coldStack and realBaseLife.touchJob(coldStack.id,coldWorker.id,"active"),
+    "the real scheduler claims the restored stack without warming BaseWork state: "..tostring(claimReason))
+local released,resident,retained=realBaseLife.setDuty(coldWorker.id,false)
+realBaseLife.resolveContainer=resolveContainer
+check(released and resident.duty==false and retained=="base_cargo_retained",
+    "duty release reports the exact retained cargo for a restored stack with an unloaded shelf: "..tostring(resident))
+check(coldStack.state=="pending" and coldStack.reservedBy==nil and coldStack.leaseUntil==0
+    and coldStack.assignedId==nil and coldStack.target.ropes==nil,
+    "duty release clears the real persisted stack receipt and lease")
+check(coldRope:getContainer()==coldWorker.inventory and coldWorker.inventory:contains(coldRope)
+    and coldRope:getModData().LF_BaseReturnOwner==coldWorker.id
+    and coldRope:getModData().LF_LogYardBundle==nil,
+    "the original rope stays with the cold worker as camp stock")
 print("LOG_YARD_PASS checks="..checks.." nativeCrafts="..nativeCrafts)

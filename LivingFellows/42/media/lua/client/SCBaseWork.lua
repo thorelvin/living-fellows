@@ -3673,8 +3673,10 @@ function BaseWork.cancel(actor, reason)
             or (job.type == "inflate_tires" or job.type == "wash_vehicle")
                 and SC.VehicleUpkeep) or nil
         if fuelWork then
-            local returned, returnReason = fuelWork.cancel(actor, job)
+            local returned, returnReason = fuelWork.cancel(actor, job,
+                job.type == "stack_logs" and reason or nil)
             if returned ~= true then return false, returnReason end
+            retainedCargo = retainedCargo or returnReason == "base_cargo_retained"
         end
     end
     if SC.ChefWork and type(SC.ChefWork.cancelActor) == "function" then

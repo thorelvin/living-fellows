@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.107 - Follow after log-stacking duty
+
+- Companions can leave log-stacking duty when their original rope shelf is full or unloaded. They keep the exact borrowed rope as camp stock for later return.
+
+- Unfinished log-stacking work can release its worker while the yard is unloaded. A bundle already being reconciled keeps its recovery receipt.
+- Native bridge protocol `42.22-isocompanion-38`.
+
 ## 0.27.106 - Stricter ownership and resumable native probes
 
 - Repair and forced uninstall accept a generation with damaged mod metadata only when most of its Living Fellows code still matches its install receipt. One unchanged file left in a different mod is no longer enough.

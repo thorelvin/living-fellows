@@ -769,10 +769,11 @@ local function setOrder(actor, entry, state, order, anchor, updates)
             and SC.BaseLife.resident(id) or nil
         local function releaseDuty()
             if not resident then return true end
-            local called, changed, reason = pcall(SC.BaseLife.setDuty, id, false)
+            local called, changed, reason, cargoReason = pcall(SC.BaseLife.setDuty, id, false)
             if not called or changed ~= true then
                 return false, called and reason or changed
             end
+            retainedCargo = retainedCargo or cargoReason == "base_cargo_retained"
             return true
         end
         local function cancelBaseWork()
@@ -784,7 +785,7 @@ local function setOrder(actor, entry, state, order, anchor, updates)
             if not called or cancelled ~= true then
                 return false, called and reason or cancelled
             end
-            retainedCargo = reason == "base_cargo_retained"
+            retainedCargo = retainedCargo or reason == "base_cargo_retained"
             return true
         end
         if resident and resident.role == "chef" then

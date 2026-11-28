@@ -5250,18 +5250,21 @@ function BaseLife.releaseJob(id, actorId, reason)
         or job.type == "refuel_generator" and SC.GeneratorRefuel
         or (job.type == "inflate_tires" or job.type == "wash_vehicle")
             and SC.VehicleUpkeep or nil
+    local retainedCargo
     if fuelWork and job.assignedId ~= nil then
         local owner = U().resolveActor(job.assignedId)
         if type(fuelWork.cancel) ~= "function" then
             return false, "fuel_work_cancel_unavailable"
         end
-        local settled, settleReason = fuelWork.cancel(owner, job)
+        local settled, settleReason = fuelWork.cancel(owner, job,
+            job.type == "stack_logs" and reason or nil)
         if settled ~= true then return false, settleReason end
+        if settleReason == "base_cargo_retained" then retainedCargo = settleReason end
     end
     job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
     job.blocker = reason and cleanText(reason, "released", 160) or nil
     job.updatedAt = now()
-    return true, job
+    return true, job, retainedCargo
 end
 
 function BaseLife.blockJob(id, actorId, reason, retryMs)
@@ -5910,12 +5913,14 @@ function BaseLife.setDuty(actorId, enabled)
         local okay, reason = cancelChefJobsFor(actorId)
         if okay ~= true then return false, reason end
     end
+    local retainedCargo
     if enabled ~= true then
         local job = BaseLife.jobFor(actorId)
         if job then
-            local released, releaseReason = BaseLife.releaseJob(job.id, actorId,
+            local released, releaseReason, cargoReason = BaseLife.releaseJob(job.id, actorId,
                 "left_base_duty")
             if released ~= true then return false, releaseReason end
+            retainedCargo = cargoReason
         end
         if SC.WorkTransport and type(SC.WorkTransport.yieldActor) == "function" then
             pcall(SC.WorkTransport.yieldActor, actorId, "left_base_duty")
@@ -5925,7 +5930,7 @@ function BaseLife.setDuty(actorId, enabled)
         resident.duty = enabled == true
         operations.structureChanged()
     end
-    return true, resident
+    return true, resident, retainedCargo
 end
 
 function BaseLife.resident(actorId)

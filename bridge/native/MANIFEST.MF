@@ -3,7 +3,7 @@ Created-By: Living Fellows reproducible Java 17 build
 Main-Class: livingfellows.bridge.SCLauncher
 Premain-Class: livingfellows.bridge.SCBootstrapAgent
 Implementation-Title: Living Fellows Native Bridge
-Implementation-Version: 0.27.106
+Implementation-Version: 0.27.107
 SC-Bridge-Protocol: 42.22-isocompanion-38
 SC-Supported-Game-Version: 42.22
 SC-Compiled-Game-Version: 42.22.2

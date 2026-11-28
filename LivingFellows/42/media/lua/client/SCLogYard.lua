@@ -899,7 +899,7 @@ function Yard.update(actor, baseState, job)
     return started == true, reason or "log_yard_tying", started ~= true
 end
 
-function Yard.cancel(actor, job)
+function Yard.cancel(actor, job, reason)
     if not job then return true end
     local native = SC.NativeActions
     if actor and native and native.workKind(actor) == "stack_logs"
@@ -909,6 +909,9 @@ function Yard.cancel(actor, job)
     end
     local target = job.target
     local square = U().gridSquare(target.x, target.y, target.z)
+    local departing = reason == "left_base_duty"
+    local carrierId = departing and actor and U().idOf(actor)
+    local retainedRopes
     if not actor and job.assignedId and not (SC.BaseFuel and SC.BaseFuel.workerGone(job)) then
         return false, "log_yard_worker_unavailable"
     end
@@ -927,19 +930,46 @@ function Yard.cancel(actor, job)
     for _, receipt in ipairs(target.ropes or {}) do
         local item, carried, pending = ropeFor(actor, receipt)
         if pending then return false, "log_yard_rope_search_pending" end
-        if item and carried and receipt.sourceId and not U().isDead(actor) then
-            local storage, container = sourceFor(receipt)
-            if not container then return false, "base_storage_unloaded" end
-            local returned, reason = SC.BaseWork.restoreToStorage(actor, storage, container, item)
-            if returned ~= true then return false, reason end
+        if own(item, job.id) then
+            if carried and receipt.sourceId and not U().isDead(actor) then
+                local storage, container = sourceFor(receipt)
+                local returned, why = false, "base_storage_unloaded"
+                if container then
+                    returned, why = SC.BaseWork.restoreToStorage(actor, storage, container, item)
+                end
+                if returned ~= true then
+                    if not carrierId or (why ~= "destination_full" and why ~= "base_storage_unloaded") then
+                        return false, why
+                    end
+                    -- Recheck exact carried ownership after a refused transfer.
+                    local owner = U().call(item, "getContainer")
+                    local owned = owner == U().inventory(actor)
+                        or SC.PersonalItems and SC.PersonalItems.ownedBy(item, actor) == true
+                    if not owned or not U().inventoryContains(owner, item) then return false, why end
+                    retainedRopes = retainedRopes or {}
+                    retainedRopes[#retainedRopes + 1] = U().modData(item)
+                else
+                    unmark(item, job.id)
+                end
+            else
+                unmark(item, job.id)
+            end
         end
-        unmark(item, job.id) -- personal rope stays personal; dead workers keep their real items
     end
-    if not square and target.logs then return false, "log_yard_unloaded" end
+    -- An uncommitted job can retire claims on an unloaded square. On stream-in
+    -- Yard.reserved discards the stale item marks once the receipt is cleared.
+    if not square and target.logs and not departing then return false, "log_yard_unloaded" end
     releaseLogs(job, square)
     target.ropes, target.stage, job.assignedId = nil, nil, nil
     if actor then bundleStates[actor] = nil end
     itemSearches = setmetatable({}, { __mode = "k" })
+    if retainedRopes then
+        for _, data in ipairs(retainedRopes) do
+            data.LF_BaseReturnOwner, data.LF_LogYardBundle = carrierId, nil
+        end
+        if SC.BaseLife.noteWorkOwnershipMutation then SC.BaseLife.noteWorkOwnershipMutation() end
+        return true, "base_cargo_retained"
+    end
     return true, "log_yard_cancelled"
 end
 
